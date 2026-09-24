@@ -665,13 +665,42 @@ const HELP = {
   result: () => '<b>클릭</b>하여 계속',
 };
 let lastHelp = '';
-function updateHelp(){ const h = HELP[G.state](); if (h !== lastHelp){ $('help').innerHTML = h; lastHelp = h; } }
+const HELP_TOUCH = {
+  idle: () => '<b>조그</b> 방향 · 화면 드래그 시점 · <b>던지기</b> 길게 눌렀다 놓기 · ⛵ 보트 · 🗺 지도',
+  charge: () => '손을 떼면 던집니다',
+  fly: () => '',
+  wait: () => G.mode === 'pole' ? '찌가 <b>쑥 잠기거나 올라오면 챔질</b> (화면 탭도 가능) · +/− 수심' : '<b>감기</b>를 누르고 있기 · 감다 멈추기로 액션 · +/− 드랙',
+  hooked: () => `<b>조그를 물고기 반대쪽</b>으로 · <b>${G.mode === 'pole' ? '들기' : '감기'}</b> 누르기`,
+  result: () => '탭하여 계속',
+  boat: () => '<b>조그</b> 위: 전진 · 아래: 후진 · 좌우: 조향 · 드래그 시점 · <b>⚓</b> 낚시',
+};
+function updateHelp(){ const h = (TOUCH.on ? HELP_TOUCH : HELP)[G.state](); if (h !== lastHelp){ $('help').innerHTML = h; lastHelp = h; } }
 
 /* ---------------- input ---------------- */
 const hud = $('hud'), ctx = hud.getContext('2d');
 hud.addEventListener('contextmenu', e => e.preventDefault());
+/* touch: one finger on the scene looks around (or leans on the rod while fighting); tap = hook set / continue */
+const TOUCH = { on: false, id: null, x0: 0, y0: 0, t0: 0, moved: false };
+function enableTouch(){ if (TOUCH.on) return; TOUCH.on = true; document.body.classList.add('touch'); lastHelp = ''; }
+if (matchMedia('(pointer: coarse)').matches) enableTouch();
+function touchDown(e){
+  hud.setPointerCapture(e.pointerId);
+  Object.assign(TOUCH, { id: e.pointerId, x0: e.clientX, y0: e.clientY, t0: performance.now(), moved: false });
+  if (G.state === 'hooked'){ mouse.x = e.clientX; mouse.y = e.clientY; }
+  else { mouse.rdown = true; mouse.lx = e.clientX; mouse.ly = e.clientY; }
+}
+function touchUp(e){
+  if (e.pointerId !== TOUCH.id) return;
+  TOUCH.id = null; mouse.rdown = false;
+  if (G.state === 'hooked' && !JOY.active){ mouse.x = innerWidth/2; mouse.y = innerHeight/2; }
+  if (!TOUCH.moved && performance.now() - TOUCH.t0 < 350){
+    if (G.state === 'wait' && G.mode === 'pole'){ press(); mouse.down = false; }
+    else if (G.state === 'result') hideCard();
+  }
+}
 hud.addEventListener('pointerdown', e => {
   audioInit();
+  if (e.pointerType === 'touch'){ enableTouch(); touchDown(e); return; }
   mouse.x = e.clientX; mouse.y = e.clientY;
   if (e.button === 2 || e.button === 1 || e.pointerType === 'touch' && e.isPrimary === false){ mouse.rdown = true; mouse.lx = e.clientX; mouse.ly = e.clientY; return; }
   if (e.button !== 0) return;
@@ -680,15 +709,21 @@ hud.addEventListener('pointerdown', e => {
   press();
 });
 hud.addEventListener('pointermove', e => {
+  if (e.pointerType === 'touch'){
+    if (e.pointerId !== TOUCH.id) return;
+    if (Math.hypot(e.clientX - TOUCH.x0, e.clientY - TOUCH.y0) > 10) TOUCH.moved = true;
+    if (G.state === 'hooked'){ if (!JOY.active){ mouse.x = e.clientX; mouse.y = e.clientY; } return; }
+  }
   if (mouse.rdown || (mouse.down && G.state === 'boat')){
     const dx = e.clientX - mouse.lx, dy = e.clientY - mouse.ly; mouse.lx = e.clientX; mouse.ly = e.clientY;
     if (G.state === 'boat'){ G.orbit -= dx*0.006; G.camPitch = clamp((G.camPitch ?? 0.32) + dy*0.004, 0.08, 1.2); }
     else if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw -= dx*0.005; G.aimPitch = clamp(G.aimPitch - dy*0.004, -0.9, 0.35); }
     else G.orbit -= dx*0.006;
   }
-  mouse.x = e.clientX; mouse.y = e.clientY;
+  if (e.pointerType !== 'touch' || G.state !== 'hooked') { mouse.x = e.clientX; mouse.y = e.clientY; }
 });
 const up = e => {
+  if (e.pointerType === 'touch'){ touchUp(e); return; }
   if (e.button === 2 || e.button === 1){ mouse.rdown = false; return; }
   if (e.button !== 0 && e.type !== 'pointercancel') return;
   if (mouse.down){ mouse.down = false; release(); }
@@ -717,6 +752,55 @@ window.addEventListener('keydown', e => {
 window.addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'Space' && mouse.down){ mouse.down = false; release(); } });
 $('card').addEventListener('pointerdown', e => { e.stopPropagation(); hideCard(); });
 $('retrieve').addEventListener('click', e => { e.stopPropagation(); retrieve(); });
+/* joystick (조그) */
+const JOY = { x: 0, y: 0, active: false, id: null, wasFight: false };
+const joyEl = $('joy'), knob = $('knob');
+function joyMove(e){
+  const b = joyEl.getBoundingClientRect(), R = b.width/2;
+  let x = (e.clientX - b.left - R)/(R*0.8), y = (e.clientY - b.top - R)/(R*0.8);
+  const l = Math.hypot(x, y); if (l > 1){ x /= l; y /= l; }
+  JOY.x = x; JOY.y = y; knob.style.transform = `translate(${x*R*0.8}px, ${y*R*0.8}px)`;
+}
+joyEl.addEventListener('pointerdown', e => { e.preventDefault(); audioInit(); joyEl.setPointerCapture(e.pointerId); JOY.active = true; JOY.id = e.pointerId; joyEl.classList.add('on'); joyMove(e); });
+joyEl.addEventListener('pointermove', e => { if (JOY.active && e.pointerId === JOY.id) joyMove(e); });
+const joyUp = e => { if (e.pointerId !== JOY.id) return; JOY.active = false; JOY.id = null; JOY.x = JOY.y = 0; knob.style.transform = ''; joyEl.classList.remove('on');
+  if (G.state === 'hooked'){ mouse.x = innerWidth/2; mouse.y = innerHeight/2; } };
+joyEl.addEventListener('pointerup', joyUp); joyEl.addEventListener('pointercancel', joyUp);
+function applyJoy(dt){
+  if (G.state === 'hooked'){
+    if (JOY.active){ const R = ringRadius(); mouse.x = innerWidth/2 + JOY.x*R; mouse.y = innerHeight/2 + JOY.y*R; }
+    return;
+  }
+  if (!JOY.active || G.state === 'boat') return;
+  if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw += JOY.x*dt*1.3; G.aimPitch = clamp(G.aimPitch - JOY.y*dt*0.8, -0.9, 0.35); }
+  else G.orbit -= JOY.x*dt*1.4;
+}
+/* action button: hold = cast charge / reel / lift, tap = hook set; the label follows the situation */
+const act = $('act');
+act.addEventListener('pointerdown', e => {
+  e.preventDefault(); e.stopPropagation(); audioInit(); act.setPointerCapture(e.pointerId); act.classList.add('down');
+  if (G.state === 'boat'){ setNav(false); return; }
+  if (!mouse.down){ mouse.down = true; mouse.downT = G.time; press(); }
+});
+const actUp = e => { act.classList.remove('down'); if (mouse.down){ mouse.down = false; release(); } };
+act.addEventListener('pointerup', actUp); act.addEventListener('pointercancel', actUp);
+act.addEventListener('contextmenu', e => e.preventDefault());
+$('tplus').addEventListener('click', e => { e.stopPropagation(); wheel(1); });
+$('tminus').addEventListener('click', e => { e.stopPropagation(); wheel(-1); });
+$('tnav').addEventListener('click', e => { e.stopPropagation(); audioInit(); setNav(G.state !== 'boat'); });
+$('tmap').addEventListener('click', e => { e.stopPropagation(); openMap(); });
+$('tmenu').addEventListener('click', e => { e.stopPropagation(); $('toolbar').classList.toggle('open'); });
+let actCache = '';
+function updateTouchUI(){
+  if (!TOUCH.on) return;
+  const f = G.engaged, pole = G.mode === 'pole';
+  const lbl = { idle: '던지기', charge: '놓으면<br>던짐', fly: '…', result: '계속', boat: '⚓<br>낚시',
+    wait: pole ? '챔질' : '감기', hooked: pole ? '들기' : '감기' }[G.state];
+  const hot = (G.state === 'wait' && pole && f && f.state === 'take') || (G.state === 'wait' && G.strike);
+  const adj = G.state === 'boat' ? '줌' : pole ? '수심' : '드랙';
+  const key = lbl + hot + adj + G.state;
+  if (key !== actCache){ actCache = key; act.innerHTML = lbl; act.classList.toggle('hot', !!hot); $('tadj').textContent = adj; $('tnav').textContent = G.state === 'boat' ? '🎣' : '⛵'; }
+}
 $('navfish').addEventListener('click', e => { e.stopPropagation(); audioInit(); setNav(false); });
 $('navboat').addEventListener('click', e => { e.stopPropagation(); audioInit(); setNav(true); });
 $('navmap').addEventListener('click', e => { e.stopPropagation(); openMap(); });
@@ -981,10 +1065,11 @@ function moveBoat(dt){
   BOAT.pos[0] = nx; BOAT.pos[2] = nz;
 }
 function updateBoat(dt){
-  const thr = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
-  const st = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
-  if (thr > 0) G.boatV = Math.min(8, G.boatV + (G.boatV < 0 ? 4 : 1.8)*dt);
-  else if (thr < 0) G.boatV = Math.max(-2.2, G.boatV - (G.boatV > 0 ? 4 : 1.2)*dt);
+  let thr = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
+  let st = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
+  if (JOY.active){ if (Math.abs(JOY.y) > 0.15) thr = -JOY.y; if (Math.abs(JOY.x) > 0.12) st = JOY.x; }
+  if (thr > 0.05) G.boatV = Math.min(8*Math.max(thr, 0.35), G.boatV + (G.boatV < 0 ? 4 : 1.8)*thr*dt) || G.boatV;
+  else if (thr < -0.05) G.boatV = Math.max(-2.2, G.boatV + (G.boatV > 0 ? 4 : 1.2)*thr*dt);
   else G.boatV *= Math.exp(-dt*0.45);
   G.boatSteer = lerp(G.boatSteer, st, Math.min(1, dt*4));
   const auth = clamp(Math.abs(G.boatV)/2.5, 0.15, 1)*(G.boatV < -0.05 ? -1 : 1);
@@ -1025,8 +1110,8 @@ function updateSonar(dt){
   if (SONAR.cols.length > SONAR.W) SONAR.cols.shift();
 }
 function drawSonar(){
-  const W = SONAR.W, H = 96, x0 = 16, y0 = hudH - H - 78;
-  if (hudW < 520) return;
+  const W = TOUCH.on ? 132 : SONAR.W, H = TOUCH.on ? 70 : 96, x0 = 16, y0 = TOUCH.on ? 90 : hudH - H - 78;
+  if (hudW < 520 && !TOUCH.on) return;
   let maxD = 5; for (const c of SONAR.cols) maxD = Math.max(maxD, c.d);
   const range = [5, 10, 20, 30, 40, 60].find(r => r >= maxD*1.08) || 60;
   ctx.save();
@@ -1034,9 +1119,9 @@ function drawSonar(){
   const top = y0, sy = H/range;
   const g = ctx.createLinearGradient(0, top, 0, top + H); g.addColorStop(0, '#0b3c6e'); g.addColorStop(1, '#041a33');
   ctx.fillStyle = g; ctx.fillRect(x0, top, W, H);
-  const n = SONAR.cols.length;
+  const n = Math.min(SONAR.cols.length, W), off = SONAR.cols.length - n;
   for (let i = 0; i < n; i++){
-    const c = SONAR.cols[i], x = x0 + W - n + i, by = top + c.d*sy;
+    const c = SONAR.cols[off + i], x = x0 + W - n + i, by = top + c.d*sy;
     ctx.fillStyle = '#ff5a2a'; ctx.fillRect(x, by, 1, 2);
     ctx.fillStyle = '#b8401c'; ctx.fillRect(x, by + 2, 1, 3);
     ctx.fillStyle = '#6b2a14'; ctx.fillRect(x, by + 5, 1, Math.max(0, top + H - by - 5));
@@ -1044,7 +1129,7 @@ function drawSonar(){
   }
   ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '600 10px system-ui, sans-serif'; ctx.textAlign = 'right';
   for (const r of [range/2, range]) ctx.fillText(r + 'm', x0 + W - 2, top + r*sy - 2);
-  const d = n ? SONAR.cols[n - 1].d : 0;
+  const d = SONAR.cols.length ? SONAR.cols[SONAR.cols.length - 1].d : 0;
   ctx.textAlign = 'left'; ctx.fillStyle = '#9fe8ff'; ctx.font = '700 12px system-ui, sans-serif';
   ctx.fillText('어탐기', x0, y0 - 8);
   ctx.textAlign = 'right'; ctx.fillStyle = '#fff'; ctx.font = '800 14px system-ui, sans-serif';
@@ -1226,6 +1311,7 @@ mapCv.addEventListener('wheel', e => {
   drawMap();
 }, { passive: false });
 $('mapclose').addEventListener('click', closeMap);
+for (const [id, k] of [['mapin', 1.5], ['mapout', 1/1.5]]) $(id).addEventListener('click', () => { MAP.z = clamp(MAP.z*k, MAP.minZ, 60); drawMap(); });
 $('map').addEventListener('pointerdown', e => { if (e.target === $('map')) closeMap(); });
 addEventListener('resize', () => { if (G.mapOpen){ sizeMap(); drawMap(); } });
 
@@ -1245,7 +1331,7 @@ function update(dt){
     if (keys.KeyW || keys.ArrowUp) G.aimPitch = clamp(G.aimPitch + dt*0.8, -0.9, 0.35);
     if (keys.KeyS || keys.ArrowDown) G.aimPitch = clamp(G.aimPitch - dt*0.8, -0.9, 0.35);
   }
-  updateSonar(dt); updateEngine();
+  applyJoy(dt); updateSonar(dt); updateEngine(); updateTouchUI();
   if (G.state === 'charge'){ G.chargeT += dt; const p = (G.chargeT/1.15) % 2; G.power = p < 1 ? p : 2 - p; }
   if (G.state === 'fly'){ G.fly.t += dt; if (G.fly.t >= G.fly.T) land(); }
   if (G.state === 'wait'){ if (G.mode === 'pole') updateRig(dt); else updateLure(dt); }

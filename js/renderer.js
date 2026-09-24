@@ -239,7 +239,8 @@ function stepRipples(shiftUV){
 }
 
 /* ---------------- Caustics ---------------- */
-const LITE = Q.has('lite');
+// phones and tablets default to the lighter caustics / no glare path (?full forces the desktop quality)
+const LITE = Q.has('lite') || (!Q.has('full') && matchMedia('(pointer: coarse)').matches);
 const G = LITE ? 96 : 256, C = LITE ? 512 : 1024;
 const causRT = rt(C,C,gl.RGBA16F,{wrap:gl.REPEAT, mip:true, aniso:8});
 const gridVAO = gl.createVertexArray(); gl.bindVertexArray(gridVAO);

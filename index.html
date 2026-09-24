@@ -2,7 +2,7 @@
 <html lang="ko">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
 <meta name="theme-color" content="#0d2a2a">
 <title>보트 낚시 — Clearwater Fishing</title>
 <style>
@@ -83,6 +83,50 @@
   #err { position:fixed; inset:auto 12px 12px 12px; max-height:45%; overflow:auto; font:12px/1.45 ui-monospace, Menlo, monospace; color:#ffd9d2; background:rgba(40,8,8,.92); border-radius:14px; padding:12px 14px; white-space:pre-wrap; z-index:30; }
   #err[hidden], #dbg[hidden] { display:none; }
   #dbg { position:fixed; bottom:70px; left:14px; font:11px/1.4 ui-monospace, Menlo, monospace; color:#fff; background:rgba(0,0,0,.35); padding:6px 8px; border-radius:8px; z-index:8; pointer-events:none; }
+  /* ---- touch UI ---- */
+  #joy, #tctl, #tmenu { display:none; }
+  body.touch #joy { display:block; position:fixed; left:calc(18px + env(safe-area-inset-left,0px)); bottom:calc(18px + env(safe-area-inset-bottom,0px));
+    width:124px; height:124px; border-radius:50%; background:rgba(8,26,30,.38); border:2px solid rgba(255,255,255,.28);
+    backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); z-index:7; touch-action:none; }
+  #knob { position:absolute; left:50%; top:50%; width:54px; height:54px; margin:-27px 0 0 -27px; border-radius:50%;
+    background:rgba(255,255,255,.88); box-shadow:0 2px 10px rgba(0,0,0,.4); pointer-events:none; }
+  #joy.on { border-color:#ffd84a; }
+  body.touch #tctl { display:flex; gap:8px; align-items:flex-end; position:fixed; right:calc(14px + env(safe-area-inset-right,0px));
+    bottom:calc(18px + env(safe-area-inset-bottom,0px)); z-index:7; touch-action:none; }
+  .tcol { display:flex; flex-direction:column; gap:8px; align-items:center; }
+  .tcol button { width:46px; height:46px; padding:0; border-radius:50%; font-size:20px; background:rgba(8,26,30,.5); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
+  #tadj { font-size:10px; opacity:.75; text-shadow:0 1px 4px #000; }
+  #act { width:92px; height:92px; border-radius:50%; padding:0; font:800 16px var(--font); background:#ffd84a; color:#1b1b12; border:0;
+    box-shadow:0 6px 20px rgba(0,0,0,.35); touch-action:none; transition:transform .08s; }
+  #act.down { transform:scale(.93); background:#ffe98a; }
+  #act.hot { background:#ff7a59; color:#fff; animation:pulse .5s infinite alternate; }
+  @keyframes pulse { to { transform:scale(1.08); } }
+  @media (prefers-reduced-motion: reduce) { #act.hot { animation:none; } }
+  body.touch #retrieve { right:calc(14px + env(safe-area-inset-right,0px)); bottom:calc(124px + env(safe-area-inset-bottom,0px)); }
+  body.touch #toolbar { padding:8px 10px; gap:6px; }
+  body.touch #tmenu { display:inline-block; margin-left:auto; padding:2px 10px; }
+  body.touch #toolbar h1 { display:flex; align-items:center; gap:4px; }
+  body.touch #toolbar:not(.open) > .row, body.touch #toolbar:not(.open) > #itemdesc { display:none; }
+  body.touch #log { padding:6px 12px; width:auto; }
+  body.touch #log #catches, body.touch #log #dex, body.touch #log #dexcount { display:none; }
+  body.touch #log .head { margin:0; gap:10px; }
+  body.touch #gauges { bottom:auto; top:calc(52px + env(safe-area-inset-top,0px)); width:150px; padding:8px 10px; gap:8px; }
+  body.touch #tbar { height:84px; width:14px; }
+  body.touch #ginfo { font-size:11px; gap:3px; }
+  body.touch #help { max-width:calc(100vw - 380px); white-space:normal; text-align:center; font-size:12px; border-radius:12px; }
+  body.touch #msg { font-size:20px; top:30%; }
+  body.touch #msg.hot { font-size:28px; }
+  @media (max-width: 600px) {
+    body.touch #log { display:none; }
+    body.touch #gauges { top:calc(10px + env(safe-area-inset-top,0px)); right:10px; }
+    body.touch #toolbar { left:10px; top:10px; max-width:calc(100vw - 180px); }
+    body.touch #toolbar:not(.open) .ttl { display:none; }
+    body.touch #gauges { width:136px; }
+    body.touch #toolbar.open { max-width:calc(100vw - 20px); z-index:9; }
+    body.touch #help { bottom:calc(152px + env(safe-area-inset-bottom,0px)); max-width:calc(100vw - 32px); }
+  }
+  #mapzoom { display:flex; gap:6px; }
+  #mapzoom button { width:34px; padding:5px 0; }
   @media (max-width: 760px) { #log { display:none; } #help { max-width:calc(100vw - 28px); white-space:normal; border-radius:14px; } #gauges { bottom:130px; } }
 </style>
 </head>
@@ -91,7 +135,7 @@
 <canvas id="hud"></canvas>
 
 <div id="toolbar" class="glass">
-  <h1>🎣 보트 낚시<small id="place"></small></h1>
+  <h1><span class="ttl">🎣 보트 낚시</span><small id="place"></small><button id="tmenu">채비 ▾</button></h1>
   <div class="row"><label>모드</label><div class="row"><button id="navfish" class="on">🎣 낚시</button><button id="navboat">⛵ 보트</button><button id="navmap">🗺 지도</button></div></div>
   <div class="row"><label>채비</label><div id="modes" class="row"></div></div>
   <div class="row"><label>미끼</label><div id="items" class="row"></div></div>
@@ -111,6 +155,14 @@
 </div>
 <button id="retrieve" hidden>회수 (R)</button>
 
+<!-- touch controls: joystick (조그) + context action cluster -->
+<div id="joy"><div id="knob"></div></div>
+<div id="tctl">
+  <div class="tcol"><button id="tnav" aria-label="보트/낚시 전환">⛵</button><button id="tmap" aria-label="지도">🗺</button></div>
+  <div class="tcol"><span id="tadj">수심</span><button id="tplus" aria-label="올리기">+</button><button id="tminus" aria-label="내리기">−</button></div>
+  <button id="act">던지기</button>
+</div>
+
 <div id="help" class="glass"></div>
 <div id="msg"></div>
 
@@ -127,7 +179,7 @@
 
 <div id="map" hidden>
   <div class="mapbox glass">
-    <div class="maphead"><b>🗺 세계 낚시 지도</b><span id="mapinfo"></span><button id="mapclose">닫기 (Esc)</button></div>
+    <div class="maphead"><b>🗺 세계 낚시 지도</b><span id="mapinfo"></span><span id="mapzoom"><button id="mapout" aria-label="축소">−</button><button id="mapin" aria-label="확대">+</button></span><button id="mapclose">닫기 (Esc)</button></div>
     <div class="mapbody"><div class="mapwrap"><canvas id="mapcv"></canvas></div><div id="mappanel"></div></div>
   </div>
 </div>
