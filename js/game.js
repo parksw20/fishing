@@ -44,7 +44,7 @@ const MODES = {
 const G = {
   time: 0, mode: 'pole', item: { pole:0, lure:0 },
   state: 'idle',             // idle | charge | fly | wait | hooked | result | boat
-  clock: 6.0, boatV: 0, boatSteer: 0, camDist: 9, mapOpen: false,
+  clock: 6.0, weather: null, wv: [0, 0, 0, 0.1], weatherT: 5, boatV: 0, boatSteer: 0, camDist: 9, mapOpen: false,
   aimYaw: 0, aimPitch: -0.2, orbit: 0,
   power: 0, chargeT: 0,
   fly: null, rig: null, lure: null, engaged: null, strike: null,
@@ -113,6 +113,23 @@ function itemName(it){ return isSalt() && it.nameSea ? it.nameSea : it.name; }
 function lineKg(){ return baseLineKg()*tierOf('line').mult; }
 const GAME_HOUR = 45;   // real seconds per in-game hour
 function yawDir(y){ return [Math.sin(y), 0, -Math.cos(y)]; }
+function viewYaw(){ return G.aimYaw + (G.lookX || 0); }
+function viewPitch(){ return clamp(G.aimPitch + (G.lookY || 0), -1.0, 0.45); }
+// desktop: the view follows the mouse (and keeps turning when the pointer sits near a screen edge)
+function mouseLook(dt){
+  const on = !TOUCH.on && !G.mapOpen && !mouse.rdown && ['idle', 'charge', 'wait', 'fly', 'boat', 'result'].includes(G.state);
+  let tx = 0, ty = 0;
+  if (on && mouse.moved){
+    const nx = clamp(mouse.x/innerWidth*2 - 1, -1, 1), ny = clamp(mouse.y/innerHeight*2 - 1, -1, 1);
+    const edge = v => Math.sign(v)*Math.max(0, Math.abs(v) - 0.8)/0.2;
+    if (G.state === 'idle' || G.state === 'charge'){
+      G.aimYaw += edge(nx)*dt*1.4; G.aimPitch = clamp(G.aimPitch - edge(ny)*dt*0.7, -0.9, 0.35);
+      tx = nx*0.35; ty = -ny*0.2;
+    } else if (G.state !== 'result'){ G.orbit -= edge(nx)*dt*1.2; tx = -nx*0.45; ty = 0; }
+  }
+  const k = Math.min(1, dt*5);
+  G.lookX = lerp(G.lookX || 0, tx, k); G.lookY = lerp(G.lookY || 0, ty, k);
+}
 function tipXZ(){ return [G.tipS[0], 0, G.tipS[2]]; }
 function insideHull(x, z, margin){ const [a, b] = toBoatLocal(x, z); const lx = a/(HULL.w+margin), lz = b/(HULL.l+margin); return lx*lx + lz*lz < 1; }
 let msgTimer = null;
@@ -252,7 +269,7 @@ function updateFish(f, dt){
       if (Math.random() < p){ f.state = 'nibble'; f.nibbles = sp.bite === 'rise' ? Math.floor(rand(0, 3)) : Math.floor(rand(1, 4)); f.timer = rand(0.35, 0.8); }
       else flee(f, rig.bait, rand(12, 25));
     } else if (f.state === 'nibble' && f.timer <= 0){
-      if (f.nibbles-- > 0){ rig.bobV -= sp.bite === 'rise' ? 0.18 : 0.32; f.timer = rand(0.4, 1.1); Rn.splash(rig.pos[0], rig.pos[2], 0.035, 0.008); }
+      if (f.nibbles-- > 0){ rig.bobV -= sp.bite === 'rise' ? 0.45 : 0.7; f.timer = rand(0.4, 1.1); Rn.splash(rig.pos[0], rig.pos[2], 0.035, 0.008); }
       else { f.state = 'take'; f.timer = (sp.bite === 'rise' ? rand(1.6, 2.2) : rand(1.0, 1.5))*tierOf('hook').window; rig.take = { style: sp.bite, t: 0 }; }
     } else if (f.state === 'take'){
       if (sp.bite === 'sink'){ // swim off with the bait, dragging the float under
@@ -341,15 +358,15 @@ function startCharge(){
 }
 function landingPoint(power){
   const m = modeCfg(), e = eyeWorld(), d = lerp(m.minCast, m.maxCast*castScale(), power);
-  let p = add(e, mul(yawDir(G.aimYaw), d)); p[1] = 0;
-  let k = 0; while (insideHull(p[0], p[2], 0.6) && ++k < 40) p = add(p, mul(yawDir(G.aimYaw), 0.2));
+  let p = add(e, mul(yawDir(viewYaw()), d)); p[1] = 0;
+  let k = 0; while (insideHull(p[0], p[2], 0.6) && ++k < 40) p = add(p, mul(yawDir(viewYaw()), 0.2));
   return p;
 }
 function cast(){
   const m = modeCfg();
   const to = landingPoint(G.power);
   const d = dist2(to, eyeWorld());
-  const scatter = d*0.035;
+  const scatter = d*0.035*(1 + 2*G.wv[3]);   // wind spoils the cast
   to[0] += rand(-scatter, scatter); to[2] += rand(-scatter, scatter);
   G.fly = { from: G.tip.slice(), to, t: 0, T: 0.55 + d*0.03, h: 1.2 + d*0.12, power: G.power };
   G.state = 'fly'; G.orbit = 0;
@@ -400,12 +417,20 @@ function updateRig(dt){
   r.settle = clamp((-r.bait[1]) / Math.max(0.1, -tgtY), 0, 1);
   if (r.settle > 0.97 && !r.settled){ r.settled = true; }
   let base = lerp(-0.12, 0.0, r.settle);
-  r.tilt = lerp(r.tilt, (1 - r.settle)*1.3, dt*3);
+  // the sinker rests on the bed when the float is set deeper than the water: the float loses its weight and falls over
+  const onBottom = G.depthSet > r.floor - 0.03 + 0.05 && r.settle > 0.9;
+  if (onBottom && !r.laid){ r.laid = true; say('찌가 누웠어요 — 찌 수심이 바닥보다 깊어요 (휠로 조절)', 2.5); }
+  if (!onBottom) r.laid = false;
+  r.tilt = lerp(r.tilt, onBottom && !r.take ? 1.45 : (1 - r.settle)*1.3, dt*3);
+  if (onBottom && !r.take) base = 0.01;
   if (r.take){
     r.take.t += dt;
     if (r.take.style === 'rise') base += 0.12*Math.min(1, r.take.t/1.3);
     else { base -= 0.4; r.pos[0] = lerp(r.pos[0], r.bait[0], dt*1.2); r.pos[2] = lerp(r.pos[2], r.bait[2], dt*1.2); }
   }
+  const ef = G.engaged;
+  if (ef && ef.state === 'nibble' && !onBottom) base += 0.028*Math.sin(G.time*11) + 0.015*Math.sin(G.time*17.3);   // 예신: 톡톡 까딱임
+  else if (ef && ef.state === 'inspect') base += 0.006*Math.sin(G.time*7);
   base += 0.004*Math.sin(G.time*2.1) + 0.003*Math.sin(G.time*3.3+1);
   const acc = 70*(base - r.bobY) - 10*r.bobV;
   r.bobV += acc*dt; r.bobY += r.bobV*dt;
@@ -435,9 +460,12 @@ function updateLure(dt){
     L.hv[0] = lerp(L.hv[0], dx/dh*sp, Math.min(1, dt*6)); L.hv[1] = lerp(L.hv[1], dz/dh*sp, Math.min(1, dt*6));
     const ty = it.idle === 'surface' ? -0.03 : it.diveDepth > 0 ? -Math.min(it.diveDepth, fd - 0.15) : bottom + 0.2;
     if (it.idle === 'surface'){ G.popT = (G.popT || 0) - dt; if (G.popT <= 0){ G.popT = 0.35; Rn.splash(L.pos[0], L.pos[2], 0.06, 0.02); } }
-    L.pos[1] += clamp(ty - L.pos[1], -0.55*dt, 0.55*dt);
+    // diving is quick, but a lure that sank below its running depth only climbs slowly as it comes in
+    const climb = 0.1 + 0.08*L.speed;
+    L.pos[1] += clamp(ty - L.pos[1], -0.55*dt, climb*dt);
     // the line angle lifts the lure as it comes close
-    if (dh < 6) L.pos[1] = Math.max(L.pos[1], -dh*0.25);
+    const ceil = -dh*0.3;   // the line angle near the rod tip
+    if (L.pos[1] < ceil) L.pos[1] = Math.min(ceil, L.pos[1] + (0.15 + 0.1*L.speed)*dt);
     AU.reelT -= dt; if (AU.reelT <= 0){ sfx.click(0.025); AU.reelT = 0.06; }
   } else {
     const k = Math.exp(-dt*3); L.hv[0] *= k; L.hv[1] *= k;
@@ -611,9 +639,12 @@ function showCard(r, record, first){
   c.querySelector('.wt').textContent = kg(r.weight);
   c.querySelector('.pts').textContent = '+' + r.pts + '점';
   c.querySelector('.badge').textContent = first ? '첫 포획! 도감 등록' : record ? '개인 최대어 갱신!' : '';
-  c.querySelector('.tipc').textContent = (r.sp.tip ? '💡 ' + r.sp.tip : '') + (r.sp.feeding ? ` · ${r.sp.feeding}` : '');
+  c.querySelector('.tipc').textContent = r.sp.tip ? '💡 ' + r.sp.tip : '';
   c.querySelector('.pts').textContent = `+${r.pts}점 · +${r.pts}🪙`;
-  drawFishIcon(c.querySelector('canvas'), r.sp);
+  // real photo (iNaturalist, CC-licensed) when available, otherwise the drawn icon
+  const ph = (window.FISH_PHOTOS || {})[r.sp.id], img = c.querySelector('.photo'), cred = c.querySelector('.credit'), cv = c.querySelector('canvas');
+  if (ph){ img.src = ph.file; img.alt = r.sp.name; img.hidden = false; cv.hidden = true; cred.hidden = false; cred.textContent = `📷 ${ph.author} · ${ph.license.toUpperCase()} · iNaturalist`; }
+  else { img.hidden = true; cred.hidden = true; cv.hidden = false; drawFishIcon(cv, r.sp); }
   c.hidden = false;
 }
 function hideCard(){ $('card').hidden = true; if (G.state === 'result') G.state = 'idle'; }
@@ -750,7 +781,7 @@ hud.addEventListener('pointermove', e => {
     else if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw -= dx*0.005; G.aimPitch = clamp(G.aimPitch - dy*0.004, -0.9, 0.35); }
     else G.orbit -= dx*0.006;
   }
-  if (e.pointerType !== 'touch' || G.state !== 'hooked') { mouse.x = e.clientX; mouse.y = e.clientY; }
+  if (e.pointerType !== 'touch' || G.state !== 'hooked') { mouse.x = e.clientX; mouse.y = e.clientY; if (e.pointerType === 'mouse') mouse.moved = true; }
 });
 const up = e => {
   if (e.pointerType === 'touch'){ touchUp(e); return; }
@@ -843,13 +874,13 @@ $('shop').addEventListener('pointerdown', e => { if (e.target === $('shop')) clo
 $('navtime').addEventListener('click', e => { e.stopPropagation(); skipTime(); });
 let targetT = 0;
 function updateTarget(dt){
-  $('clock').textContent = `${fmtClock()} ${PERIOD_NAME[period()]}`;
+  $('clock').textContent = `${fmtClock()} ${PERIOD_NAME[period()]} · ${G.weather === 'clear' && period() === 'night' ? '🌙' : WEATHERS[G.weather].icon} ${WEATHERS[G.weather].name}`;
   targetT -= dt; if (targetT > 0) return; targetT = 0.4;
   const el = $('target'), sp = questTarget();
   if (!sp || !(G.state === 'idle' || G.state === 'wait' || G.state === 'charge')){ el.hidden = true; return; }
   const { v, parts } = matchRating(sp);
   const names = { bait: G.mode === 'pole' ? '미끼가 안 맞아요' : '루어가 안 맞아요', depth: `수심이 안 맞아요 (${depthBand(sp)[0].toFixed(1)}–${depthBand(sp)[1].toFixed(1)}m${sp.zone === 'bottom' ? ', 바닥층' : sp.zone === 'top' ? ', 수면층' : ''})`,
-    time: `지금은 활성도가 낮아요 (${Object.entries(sp.act).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k]) => PERIOD_NAME[k]).join('·')}에 활발)`, gear: '원줄이 너무 굵어 경계해요', retrieve: `감기 속도: ${ {slow:'느리게(감다 멈추기)', medium:'보통', fast:'빠르게 계속'}[sp.retrieve] }` };
+    time: `지금은 활성도가 낮아요 (${Object.entries(sp.act).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k]) => PERIOD_NAME[k]).join('·')}에 활발)`, gear: '원줄이 너무 굵어 경계해요', weather: `날씨가 안 맞아요 (${WEATHERS[G.weather].name})`, retrieve: `감기 속도: ${ {slow:'느리게(감다 멈추기)', medium:'보통', fast:'빠르게 계속'}[sp.retrieve] }` };
   const worst = Object.entries(parts).sort((a, b) => a[1] - b[1])[0];
   const habitatNote = habitat(sp, floorDepth(...(G.rig ? [G.rig.pos[0], G.rig.pos[2]] : G.lure ? [G.lure.pos[0], G.lure.pos[2]] : [BOAT.pos[0], BOAT.pos[2]]))) < 0.5 ? ' · 여기는 서식 수심이 아니에요' : '';
   el.innerHTML = `🎯 <b>${sp.name}</b> 공략도 <span class="st">${stars(v)}</span><br><span class="why">${worst[1] < 0.6 ? names[worst[0]] : '좋은 조건이에요!'}${habitatNote}</span>`;
@@ -884,27 +915,30 @@ function wheel(s){
 function baitView(focus, back, up, side){
   const e = eyeWorld();
   let dx = focus[0] - e[0], dz = focus[2] - e[2]; const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
-  const c = Math.cos(G.orbit + (side||0)), s = Math.sin(G.orbit + (side||0)); const rx = dx*c - dz*s, rz = dx*s + dz*c;
+  const oa = G.orbit + (side||0) + (G.state === 'hooked' ? 0 : (G.lookX || 0));
+  const c = Math.cos(oa), s = Math.sin(oa); const rx = dx*c - dz*s, rz = dx*s + dz*c;
   return { pos: [focus[0] - rx*back, up, focus[2] - rz*back], look: [focus[0], -0.25, focus[2]] };
 }
 function boatView(){
-  const e = eyeWorld(), cp = Math.cos(G.aimPitch);
-  return { pos: e, look: add(e, [Math.sin(G.aimYaw)*cp*10, Math.sin(G.aimPitch)*10, -Math.cos(G.aimYaw)*cp*10]) };
+  const e = eyeWorld(), yw = viewYaw(), pt = viewPitch(), cp = Math.cos(pt);
+  return { pos: e, look: add(e, [Math.sin(yw)*cp*10, Math.sin(pt)*10, -Math.cos(yw)*cp*10]) };
 }
 function updateCamera(dt){
   let T, k;
   switch (G.state){
     case 'idle': case 'charge': case 'result': T = boatView(); k = G.state === 'result' ? 3 : 10; break;
     case 'boat': {
-      const a = BOAT.heading + G.orbit, cp = G.camPitch ?? 0.32, D = G.camDist;
+      const a = BOAT.heading + G.orbit + (G.lookX || 0), cp = G.camPitch ?? 0.32, D = G.camDist;
       const back = [-Math.sin(a)*Math.cos(cp)*D, Math.sin(cp)*D + 1.2, Math.cos(a)*Math.cos(cp)*D];
       T = { pos: add(BOAT.pos, back), look: add(add(BOAT.pos, mul(boatF(), 4)), [0, 0.3, 0]) }; T.pos[1] = back[1]; k = 5; break; }
     case 'fly': {
       const s = smooth(clamp(G.fly.t/G.fly.T, 0, 1)), a = boatView(), b = baitView(G.fly.to, 3.4, 2.3);
       T = { pos: vlerp(a.pos, b.pos, s), look: vlerp(a.look, b.look, s) }; k = 8; break; }
     case 'wait': {
-      const p = G.rig ? G.rig.pos : [G.lure.pos[0], 0, G.lure.pos[2]];
-      T = baitView(p, 3.4, 2.3); k = 3.5; break; }
+      if (G.rig){ T = baitView(G.rig.pos, 3.4, 2.3); k = 3.5; break; }
+      const L = G.lure.pos, dp = Math.min(-L[1], 7);
+      T = baitView([L[0], 0, L[2]], 3.0 + dp*0.25, 2.2 + dp*0.25);
+      T.look = [L[0], -dp*0.9 - 0.2, L[2]]; k = 3.5; break; }
     case 'hooked': {
       const f = G.hooked.pos;
       const L = G.hooked.len; T = baitView([f[0], 0, f[2]], 2.6 + L*4, 1.8 + L*3, G.fightSide); k = 2.5; break; }
@@ -917,7 +951,7 @@ function updateCamera(dt){
 /* ---------------- scene assembly ---------------- */
 function rodSpec(){
   const e = eyeWorld(), m = modeCfg();
-  let yaw = G.aimYaw, el = G.mode === 'pole' ? 0.2 : 0.5, bend = 0.04, target;
+  let yaw = viewYaw(), el = G.mode === 'pole' ? 0.2 : 0.5, bend = 0.04, target;
   if (G.state === 'charge') el += G.power*0.9;
   if (G.state === 'fly'){ const s = clamp(G.fly.t/0.22, 0, 1); el = lerp(el + G.fly.power*0.9, el - 0.12, s); }
   let focus = null;
@@ -943,6 +977,7 @@ function scene(dt){
   S.fish = byDist.slice(0, 12).map(f => ({ pos: f.pos, len: f.len, dir: fishDir(f), tail: f.tail, back: f.sp.back, belly: f.sp.belly, pattern: f.sp.pattern, hr: f.sp.hr, shape: f.sp.shape }));
   const rod = rodSpec(); S.rod = G.state === 'boat' ? null : rod;
   S.hideRod = dist3(cam.pos, eyeWorld()) > 2.0;
+  S.wake = wakeTrack(); S.particles = PART; S.rain = RAIN;
   if (G.state === 'boat') return S;
   const it = curItem();
   const tip = G.tip;
@@ -1017,10 +1052,12 @@ function drawHUD(){
       else if (s && f && f.state === 'nibble') label('입질…', s[0], s[1] - 10, '#bfe9ff', 15);
     }
     if (r.baitGone){ const s = Rn.project([r.pos[0], 0.35, r.pos[2]]); if (s) label('미끼 없음', s[0], s[1] - 10, '#ff9a8a', 14); }
+    { const s = Rn.project([r.pos[0], 0.12, r.pos[2]]); if (s) label(`수심 ${r.baitDepth.toFixed(1)}m${r.laid ? ' · 바닥' : ''}`, s[0] + 42, s[1] + 4, 'rgba(255,255,255,.85)', 12); }
   }
   if (G.state === 'wait' && G.lure){
     const L = G.lure, s = Rn.project(L.pos);
-    if (s) label(`${(-L.pos[1]).toFixed(1)}m`, s[0] + 26, s[1] + 4, 'rgba(255,255,255,.8)', 12);
+    if (s){ ctx.setLineDash([3, 4]); ctx.strokeStyle = 'rgba(255,230,120,.7)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(s[0], s[1], 14, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+      label(`${(-L.pos[1]).toFixed(1)}m`, s[0] + 30, s[1] + 4, 'rgba(255,255,255,.85)', 12); }
     if (G.strike){ const q = Rn.project([L.pos[0], 0.2, L.pos[2]]); if (q) label('바이트!', q[0], q[1] - 10, '#ffdf4a', 22); }
   }
   if (G.state === 'hooked') drawFightRing(cx, cy);
@@ -1113,6 +1150,68 @@ function skipTime(){
 }
 function fmtClock(){ const h = Math.floor(G.clock), m = Math.floor((G.clock - h)*60); return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`; }
 
+/* ---------------- weather ---------------- */
+// vector: cloud cover, fog, rain, wind (0..1)
+const WEATHERS = {
+  clear:  { name:'맑음', icon:'☀️', v:[0.0, 0.0, 0.0, 0.1] },
+  cloudy: { name:'흐림', icon:'☁️', v:[0.75, 0.1, 0.0, 0.3] },
+  rain:   { name:'비',   icon:'🌧️', v:[0.9, 0.25, 1.0, 0.45] },
+  fog:    { name:'안개', icon:'🌫️', v:[0.45, 1.0, 0.0, 0.05] },
+  windy:  { name:'강풍', icon:'💨', v:[0.35, 0.0, 0.0, 1.0] },
+};
+function weatherOdds(){
+  const b = REGION.biome;
+  if (b.startsWith('trop')) return { clear: 4, cloudy: 3, rain: 3, fog: 0.5, windy: 1 };
+  if (b.startsWith('cold')) return { clear: 2, cloudy: 3, rain: 2, fog: 2.5, windy: 2 };
+  return { clear: 4, cloudy: 3, rain: 2, fog: 1.5, windy: 1.5 };
+}
+function pickWeather(){
+  const o = weatherOdds(); let t = 0; for (const k in o) t += o[k];
+  let r = Math.random()*t; for (const k in o){ r -= o[k]; if (r <= 0) return k; } return 'clear';
+}
+function setWeather(k, instant){
+  G.weather = k; G.weatherT = rand(3, 7);
+  if (instant) G.wv = WEATHERS[k].v.slice();
+}
+function updateWeather(dt){
+  if (!G.weather) setWeather(new URLSearchParams(location.search).get('weather') || 'clear', true);
+  G.weatherT -= dt/GAME_HOUR;
+  if (G.weatherT <= 0){ const prev = G.weather; setWeather(pickWeather()); if (G.weather !== prev) say(`${WEATHERS[G.weather].icon} 날씨가 바뀌었어요: ${WEATHERS[G.weather].name}`, 2.5); }
+  const tv = WEATHERS[G.weather].v, k = Math.min(1, dt*0.06);
+  for (let i = 0; i < 4; i++) G.wv[i] += (tv[i] - G.wv[i])*k;
+  Rn.setWeather(G.wv);
+}
+// rain streaks around the camera
+const RAIN = { drops: [], data: new Float32Array(500*6), n: 0 };
+function updateRain(dt){
+  const want = Math.round(480*G.wv[2]), wind = G.wv[3]*3;
+  while (RAIN.drops.length < want) RAIN.drops.push([cam.pos[0] + rand(-14, 14), cam.pos[1] + rand(-2, 9), cam.pos[2] + rand(-14, 14)]);
+  RAIN.drops.length = Math.min(RAIN.drops.length, want);
+  let n = 0;
+  for (const d of RAIN.drops){
+    d[0] += wind*dt; d[1] -= 9*dt;
+    if (d[1] < 0 || Math.abs(d[0] - cam.pos[0]) > 15 || Math.abs(d[2] - cam.pos[2]) > 15){ d[0] = cam.pos[0] + rand(-14, 14); d[1] = cam.pos[1] + rand(5, 10); d[2] = cam.pos[2] + rand(-14, 14); }
+    RAIN.data.set([d[0], d[1], d[2], d[0] - wind*0.04, d[1] + 0.34, d[2]], n*6); n++;
+  }
+  RAIN.n = n;
+  // rain hiss
+  if (AU.ctx){
+    if (!AU.rain){ const c = AU.ctx, s0 = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain(); s0.buffer = AU.noise; s0.loop = true; f.type = 'bandpass'; f.frequency.value = 2200; f.Q.value = 0.4; g.gain.value = 0; s0.connect(f); f.connect(g); g.connect(c.destination); s0.start(); AU.rain = g; }
+    AU.rain.gain.setTargetAtTime(0.05*G.wv[2] + 0.015*G.wv[3], AU.ctx.currentTime, 0.5);
+  }
+}
+// weather and fish: low light (clouds, fog, rain) brings predators on and relaxes wary fish;
+// rain muddies the water for bottom feeders; strong wind turns off surface feeding
+function weatherFactor(sp){
+  const [cl, fog, rain, wind] = G.wv, low = Math.max(cl, fog);
+  let f = 1;
+  if (sp.aggr >= 0.8) f *= 1 + 0.35*low;
+  if (sp.wary >= 0.55) f *= (period() === 'day' ? 0.75 + 0.35*low : 1) + 0.15*rain;
+  if (sp.zone === 'bottom') f *= 1 + 0.25*rain;
+  f *= 1 - 0.4*wind*(sp.zone === 'top' ? 1 : 0.4);
+  return f;
+}
+
 /* ---------------- bite model: does the angler's approach match how this species feeds? ---------------- */
 function depthFactor(sp, d, x, z){
   const fd = floorDepth(x, z), [lo, hi] = depthBand(sp);
@@ -1130,7 +1229,7 @@ function retrieveFactor(sp){
 function gearFactor(sp){ const k = lineKg()/baseLineKg(); return 1 - sp.wary*clamp((k - 1)*0.3, 0, 0.6); }   // thick line spooks wary fish
 function biteFactor(sp, d, x, z){
   if (sp.sight) return 0;
-  return (sp.pref[curItem().id] || 0) * depthFactor(sp, d, x, z) * activity(sp) * gearFactor(sp) * retrieveFactor(sp);
+  return (sp.pref[curItem().id] || 0) * depthFactor(sp, d, x, z) * activity(sp) * weatherFactor(sp) * gearFactor(sp) * retrieveFactor(sp);
 }
 // 0..1 rating of the current rig for a species (shown for the quest target)
 function matchRating(sp){
@@ -1138,8 +1237,8 @@ function matchRating(sp){
   if (G.rig){ d = -G.rig.bait[1]; x = G.rig.pos[0]; z = G.rig.pos[2]; }
   else if (G.lure){ d = -G.lure.pos[1]; x = G.lure.pos[0]; z = G.lure.pos[2]; }
   else { const p = landingPoint(0.5); x = p[0]; z = p[2]; d = G.mode === 'pole' ? Math.min(G.depthSet, floorDepth(x, z) - 0.03) : 1; }
-  const parts = { bait: sp.pref[curItem().id] || 0, depth: depthFactor(sp, d, x, z), time: activity(sp), gear: gearFactor(sp), retrieve: Math.min(1, retrieveFactor(sp)) };
-  const v = parts.bait*parts.depth*parts.time*parts.gear*parts.retrieve;
+  const parts = { bait: sp.pref[curItem().id] || 0, depth: depthFactor(sp, d, x, z), time: activity(sp), weather: Math.min(1, weatherFactor(sp)), gear: gearFactor(sp), retrieve: Math.min(1, retrieveFactor(sp)) };
+  const v = parts.bait*parts.depth*parts.time*parts.gear*parts.retrieve*weatherFactor(sp);
   return { v, parts };
 }
 
@@ -1302,10 +1401,10 @@ function renderShop(){
       (next ? `<div class="nx">다음: <b>${next.name}</b><br><span>${next.desc}</span></div><button data-up="${s.id}" ${P.coins < next.cost ? 'disabled' : ''}>${next.cost.toLocaleString()}🪙 업그레이드</button>`
             : `<div class="nx max">최고 등급</div>`) + `</div>`;
   }).join('');
-  const items = [...BAITS.map(b => [b, '대낚시 미끼']), ...LURES.map(l => [l, '루어'])].filter(([it]) => it.cost).map(([it, kind]) =>
-    `<div class="card"><div class="ct">${kind} · ${it.name}</div><div class="cur"><span>${it.desc}</span></div>` +
+  const itemCards = list => list.filter(it => it.cost).map(it => [it, '']).map(([it, kind]) =>
+    `<div class="card"><div class="ct">${it.name}</div><div class="cur"><span>${it.desc}</span></div>` +
     (P.owned[it.id] ? `<div class="nx max">보유 중</div>` : `<button data-buy="${it.id}" ${P.coins < it.cost ? 'disabled' : ''}>${it.cost.toLocaleString()}🪙 구매</button>`) + `</div>`).join('');
-  $('shopgrid').innerHTML = `<h3>장비 업그레이드</h3><div class="grid">${up}</div><h3>미끼 · 루어</h3><div class="grid">${items}</div>`;
+  $('shopgrid').innerHTML = `<h3>장비 업그레이드</h3><div class="grid">${up}</div><h3>대낚시 미끼</h3><div class="grid">${itemCards(BAITS)}</div><h3>루어</h3><div class="grid">${itemCards(LURES)}</div>`;
   for (const b of $('shopgrid').querySelectorAll('[data-up]')) b.onclick = () => {
     const s = shopItem(b.dataset.up), next = s.tiers[P.tier[s.id] + 1]; if (!next || P.coins < next.cost) return;
     P.coins -= next.cost; P.tier[s.id]++; sfx.win(); say(`${s.name} → ${next.name}`, 1.8); save(); renderShop(); updateLog();
@@ -1364,6 +1463,55 @@ function updateBoat(dt){
   }
   G.aimYaw = BOAT.heading;
 }
+/* ---------------- wake, spray and mist ---------------- */
+const TRAIL = [];                                    // recent boat positions for the Kelvin wake: [x, z, strength, time]
+function updateWake(){
+  const v = Math.abs(G.boatV);
+  const last = TRAIL[0];
+  if (v > 0.4 && (!last || Math.hypot(BOAT.pos[0] - last[0], BOAT.pos[2] - last[1]) > 2.5)) TRAIL.unshift([BOAT.pos[0], BOAT.pos[2], clamp(v/7, 0, 1), G.time]);
+  while (TRAIL.length > 19) TRAIL.pop();
+}
+function wakeTrack(){
+  const out = [[BOAT.pos[0], BOAT.pos[2], clamp(Math.abs(G.boatV)/7, 0, 1), 0]];
+  for (const p of TRAIL) out.push([p[0], p[1], p[2]*Math.exp(-(G.time - p[3])/10), 0]);
+  return out;
+}
+const PART = { list: [], data: new Float32Array(700*5), n: 0, acc: 0, mistAcc: 0 };
+function emitSpray(p, vel, size, life, alpha, mist){ if (PART.list.length < 700) PART.list.push({ p, v: vel, s: size, life, age: 0, a: alpha, mist }); }
+function updateParticles(dt){
+  const v = G.boatV, av = Math.abs(v), f = boatF(), r = boatR();
+  if (av > 1.0){
+    // bow spray: droplets thrown out and up from both sides of the bow
+    PART.acc += dt*(av - 0.8)*16;
+    while (PART.acc >= 1){ PART.acc -= 1;
+      const sd = Math.random() < 0.5 ? -1 : 1, p = boatToWorld(sd*rand(0.35, 0.7), 0.06, v > 0 ? rand(-1.9, -1.2) : rand(1.6, 2.0));
+      const out = rand(0.5, 1.2)*(0.6 + av*0.22), upv = rand(0.8, 1.6)*(0.7 + av*0.3);
+      emitSpray(p, [r[0]*sd*out + f[0]*v*0.35, upv, r[2]*sd*out + f[2]*v*0.35], rand(0.035, 0.09), rand(0.5, 0.9), rand(0.55, 0.9), false);
+    }
+    // mist: fine water vapour hanging over the spray and drifting behind the boat
+    PART.mistAcc += dt*av*2.2;
+    while (PART.mistAcc >= 1){ PART.mistAcc -= 1;
+      const sd = Math.random() < 0.5 ? -1 : 1, p = boatToWorld(sd*rand(0.4, 1.1), rand(0.1, 0.35), rand(-1.8, 2.4));
+      emitSpray(p, [-f[0]*v*0.25 + rand(-0.2, 0.2), rand(0.1, 0.35), -f[2]*v*0.25 + rand(-0.2, 0.2)], rand(0.4, 0.9), rand(2.0, 3.2), 0.1 + 0.08*clamp(av/8, 0, 1), true);
+    }
+    // prop wash at the stern
+    if (Math.random() < dt*av*6){ const p = boatToWorld(rand(-0.2, 0.2), 0.03, 2.15); emitSpray(p, [rand(-0.4, 0.4) - f[0]*v*0.2, rand(0.4, 1.0), rand(-0.4, 0.4) - f[2]*v*0.2], rand(0.04, 0.08), 0.5, 0.6, false); }
+  }
+  let n = 0; const D = PART.data;
+  for (let i = PART.list.length - 1; i >= 0; i--){
+    const q = PART.list[i]; q.age += dt;
+    if (q.mist){ const k = Math.exp(-dt*0.9); q.v[0] *= k; q.v[2] *= k; q.v[1] *= Math.exp(-dt*0.5); q.s += dt*0.45; }
+    else q.v[1] -= 9.8*dt;
+    q.p[0] += q.v[0]*dt; q.p[1] += q.v[1]*dt; q.p[2] += q.v[2]*dt;
+    if (q.age >= q.life || (!q.mist && q.p[1] < -0.02)){
+      if (!q.mist && q.p[1] < 0 && Math.random() < 0.08) Rn.splash(q.p[0], q.p[2], 0.05, 0.006);
+      PART.list.splice(i, 1); continue;
+    }
+    const lf = q.age/q.life, a = q.mist ? q.a*Math.sin(Math.PI*lf) : q.a*(1 - lf*lf);
+    D.set([q.p[0], q.p[1], q.p[2], q.s, a], n*5); n++;
+  }
+  PART.n = n;
+}
 function updateEngine(){
   if (!AU.ctx) return;
   if (!AU.eng){
@@ -1393,7 +1541,10 @@ function drawSonar(){
   const W = TOUCH.on ? 132 : SONAR.W, H = TOUCH.on ? 70 : 96, x0 = 16, y0 = TOUCH.on ? 90 : hudH - H - 78;
   if (hudW < 520 && !TOUCH.on) return;
   let maxD = 5; for (const c of SONAR.cols) maxD = Math.max(maxD, c.d);
-  const range = [5, 10, 20, 30, 40, 60].find(r => r >= maxD*1.08) || 60;
+  // the range eases toward the next step instead of snapping (5 → 10 → 20 …)
+  const want = [5, 10, 20, 30, 40, 60].find(r => r >= maxD*1.08) || 60;
+  SONAR.range = SONAR.range ? SONAR.range + (want - SONAR.range)*Math.min(1, (SONAR.dt || 0.016)*3) : want;
+  const range = SONAR.range;
   ctx.save();
   ctx.fillStyle = 'rgba(4,14,22,.82)'; ctx.fillRect(x0 - 6, y0 - 22, W + 12, H + 30);
   const top = y0, sy = H/range;
@@ -1408,7 +1559,9 @@ function drawSonar(){
     for (const [ed, el] of c.echoes){ ctx.fillStyle = P.tier.sonar ? (el > 1.2 ? '#ff3bd4' : el > 0.5 ? '#ff3b3b' : el > 0.25 ? '#ffd84a' : '#8ff0a8') : '#ffd84a'; ctx.fillRect(x, top + ed*sy - 1, 1, el > 0.5 ? 3 : 2); }
   }
   ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '600 10px system-ui, sans-serif'; ctx.textAlign = 'right';
-  for (const r of [range/2, range]) ctx.fillText(r + 'm', x0 + W - 2, top + r*sy - 2);
+  const step = range > 32 ? 20 : range > 16 ? 10 : range > 8 ? 5 : 2;
+  for (let r = step; r <= range + 0.01; r += step){ const y = top + r*sy; if (y > top + H + 1) break;
+    ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(x0, y, W, 1); ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.fillText(r + 'm', x0 + W - 2, y - 2); }
   const d = SONAR.cols.length ? SONAR.cols[SONAR.cols.length - 1].d : 0;
   ctx.textAlign = 'left'; ctx.fillStyle = '#9fe8ff'; ctx.font = '700 12px system-ui, sans-serif';
   ctx.fillText('어탐기', x0, y0 - 8);
@@ -1435,7 +1588,8 @@ function applyRegion(spot, first){
   G.rig = null; G.lure = null; G.hooked = null; G.fight = null; G.engaged = null; G.strike = null;
   if (G.state !== 'boat') G.state = 'idle';
   G.depthSet = Math.min(G.depthSet, spot.start || 2);
-  SONAR.cols.length = 0;
+  SONAR.cols.length = 0; TRAIL.length = 0; PART.list.length = 0; RAIN.drops.length = 0;
+  if (!first) setWeather(pickWeather(), true);
   fishes.length = 0;
   for (let i = 0; i < FISH_N; i++) fishes.push(newFish([0, 0, -6], 3, 20));
   const e = eyeWorld(); cam.pos = e.slice(); cam.look = add(e, [0, -2, -10]);
@@ -1616,8 +1770,9 @@ function update(dt){
     if (keys.KeyW || keys.ArrowUp) G.aimPitch = clamp(G.aimPitch + dt*0.8, -0.9, 0.35);
     if (keys.KeyS || keys.ArrowDown) G.aimPitch = clamp(G.aimPitch - dt*0.8, -0.9, 0.35);
   }
-  updateClock(dt); updateVisitors(dt); checkSightings(); updateTarget(dt);
-  applyJoy(dt); updateSonar(dt); updateEngine(); updateTouchUI();
+  mouseLook(dt); updateWeather(dt); updateClock(dt); updateRain(dt); updateVisitors(dt); checkSightings(); updateTarget(dt);
+  updateWake(); updateParticles(dt);
+  applyJoy(dt); SONAR.dt = dt; updateSonar(dt); updateEngine(); updateTouchUI();
   if (G.state === 'charge'){ G.chargeT += dt; const p = (G.chargeT/1.15) % 2; G.power = p < 1 ? p : 2 - p; }
   if (G.state === 'fly'){ G.fly.t += dt; if (G.fly.t >= G.fly.T) land(); }
   if (G.state === 'wait'){ if (G.mode === 'pole') updateRig(dt); else updateLure(dt); }

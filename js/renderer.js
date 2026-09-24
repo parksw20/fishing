@@ -326,6 +326,9 @@ uniform vec4 uFA[MAXF];   // fish: back colour, pattern id
 uniform vec4 uFB[MAXF];   // fish: belly colour, body height ratio
 uniform vec4 uFC[MAXF];   // fish shape: width/length, tail mode (0 fin, 1 fluke, 2 none, 3 sunfish), dorsal scale, tail scale
 uniform vec3 uSunC, uSkyK; uniform float uNight;   // time of day: sun (or moon) radiance, sky tint, night amount
+uniform vec4 uWeather;   // cloud cover, fog, rain, wind (0..1)
+#define WAKEN 20
+uniform vec4 uWake[WAKEN]; uniform int uWakeN;       // boat track, newest first: xz, strength (speed and age)
 uniform vec4 uLure;       // lure/bait centre xyz, visible
 uniform vec4 uLureD;      // lure forward xyz, kind
 uniform vec3 uLureS;      // lure semi-axes
@@ -354,7 +357,7 @@ float ridge(float a){ // periodic headland silhouette, elevation in radians (~1.
   return 0.040 + 0.016*sin(a*2.0+0.7) + 0.011*sin(a*5.0+2.1) + 0.006*sin(a*11.0+0.3) + 0.003*sin(a*23.0+1.7);
 }
 float fbm2(vec2 p){ float v=0., a=0.5; for(int i=0;i<4;i++){ v+=a*vnoise(p); p=p*2.03+17.1; a*=0.5; } return v; }
-vec3 sky(vec3 d){
+vec3 sky(vec3 d, float soft){
   float e = d.y;
   float mu = dot(d, uSun);
   vec3 zen = vec3(0.11, 0.27, 0.62), hor = vec3(0.66, 0.78, 0.90);
@@ -373,11 +376,14 @@ vec3 sky(vec3 d){
   vec3 land = mix(pine, rock, cliff);
   land *= mix(1.0, 0.45, back);                         // backlit toward the sun
   land = mix(land, hor*0.92, 0.38 + 0.25*back);          // aerial perspective
-  float w = fwidth(e)*1.2 + 2e-4;
-  c = mix(c, land, smoothstep(r+w, r-w, e) * step(-0.3, e) * step(0.01, uLand));
+  float w = fwidth(e)*1.2 + 2e-4 + soft;
+  c = mix(c, land, smoothstep(r+w, r-w, e) * step(-0.3, e) * step(0.01, uLand) * (soft > 0.0 ? 0.45 : 1.0));
+  // overcast: sky flattens to grey, sun glow goes, distant land fades into the murk
+  c = mix(c, vec3(0.64, 0.67, 0.70)*(0.75 + 0.25*clamp(e*3.0 + 0.5, 0.0, 1.0)), uWeather.x*0.85);
+  c = mix(c, vec3(0.70, 0.72, 0.74), uWeather.y*0.7*smoothstep(0.25, 0.0, abs(e)));
   c *= uSkyK;
   // stars at night
-  if (uNight > 0.01 && e > 0.02){ vec2 sq = floor(d.xz/(d.y + 0.25)*260.0); float st = step(0.9993, hash12(sq))*(0.4 + 0.6*hash12(sq + 7.1)); c += vec3(0.9,0.95,1.0)*st*uNight*0.6*smoothstep(0.02, 0.2, e); }
+  if (uNight > 0.01 && e > 0.02){ vec2 sq = floor(d.xz/(d.y + 0.25)*260.0); float st = (1.0 - uWeather.x)*step(0.9993, hash12(sq))*(0.4 + 0.6*hash12(sq + 7.1)); c += vec3(0.9,0.95,1.0)*st*uNight*0.6*smoothstep(0.02, 0.2, e); }
   return c;
 }
 
@@ -489,6 +495,7 @@ vec3 fishAlb(vec3 lp, vec4 A, vec4 Bc){
 }
 
 // nearest underwater object along (ro, rd) before tMax; returns t or -1
+bool lureHit = false;
 float traceObjects(vec3 ro, vec3 rd, float tMax, out vec3 N, out vec3 alb, out float spec){
   float bt = tMax; N = vec3(0,1,0); alb = vec3(0); spec = 0.0;
   vec3 lp; float t;
@@ -538,6 +545,7 @@ float traceObjects(vec3 ro, vec3 rd, float tMax, out vec3 N, out vec3 alb, out f
       if (k > 0.5 && k < 1.5 && lp.x > 0.55 && abs(lp.z) > 0.3 && lp.y > 0.0) alb = vec3(0.01);          // eye
     }
   }
+  float lureT = bt;
   if (uBob.w > 0.5){
     mat3 Bb = mat3(vec3(0,1,0), vec3(1,0,0), vec3(0,0,1)); vec3 brad = vec3(0.09, 0.017, 0.017);
     t = iEll(ro, rd, uBob.xyz, Bb, brad, lp);
@@ -549,6 +557,7 @@ float traceObjects(vec3 ro, vec3 rd, float tMax, out vec3 N, out vec3 alb, out f
       alb = mix(vec3(0.05,0.10,0.14), vec3(0.08,0.10,0.05), smoothstep(-0.2, -0.9, lp.y)*0.7) * (0.8 + 0.4*vnoise(lp.xz*vec2(40.0,8.0)));
       spec = 0.2; }
   }
+  lureHit = uLure.w > 0.5 && bt == lureT && bt < tMax && length(ro + rd*bt - uLure.xyz) < max(uLureS.x, 0.05)*1.2;
   return bt < tMax ? bt : -1.0;
 }
 float shadowAt(vec3 X, vec3 ld){
@@ -561,6 +570,28 @@ float shadowAt(vec3 X, vec3 ld){
   }
   sh *= mix(0.3, 1.0, oEll(X, ld, uBoat.xyz, hullFrame(), HULL, 0.12));
   return sh;
+}
+
+// Kelvin wake behind the boat: two divergent arms at ~19.5 deg, transverse waves inside, turbulent foam on the track.
+// Measured along the boat's recent track so the wake curves with the turns. Returns (height, foam).
+vec2 wakeAt(vec2 x){
+  if (uWakeN < 2 || length(x - uWake[0].xy) > 110.0) return vec2(0.0);
+  float best = 1e9, bd = 0.0, amp = 0.0, acc = 0.0;
+  for (int i=0;i<WAKEN-1;i++){
+    if (i+1 >= uWakeN) break;
+    vec2 a = uWake[i].xy, b = uWake[i+1].xy, ab = b - a; float L = length(ab);
+    if (L < 1e-3) continue;
+    vec2 t = ab/L; float u = clamp(dot(x - a, t), 0.0, L); float dd = length(x - a - t*u);
+    if (dd < best){ best = dd; bd = acc + u; amp = mix(uWake[i].z, uWake[i+1].z, u/L); }
+    acc += L;
+  }
+  if (amp < 0.01) return vec2(0.0);
+  float bl = best, edge = 0.36*bd;
+  float arms = exp(-pow((bl - edge)/(0.5 + 0.12*bd), 2.0));
+  float inside = smoothstep(edge + 0.6, edge - 0.6, bl);
+  float h = amp*exp(-bd/40.0)*(arms*sin(2.4*(0.9*bl + 0.45*bd) - uTime*1.5)*0.10 + inside*sin(1.5*bd - uTime*1.2)*0.035);
+  float foam = amp*(exp(-pow(bl/(0.8 + 0.06*bd), 2.0))*exp(-bd/16.0) + arms*exp(-bd/7.0)*0.8);
+  return vec2(h, foam);
 }
 
 void main(){
@@ -587,9 +618,28 @@ void main(){
   A = texBS(uSurf, P.xz/uL);
   B = texBS(uSurf, (M*P.xz)/(uL*SC) + 0.37);
   vec2 slope = A.yz + WB*(transpose(M)*B.yz) + R.yz;
+  // boat wake: slope by finite differences of the analytic wake height
+  vec2 wk = vec2(0.0);
+  if (uWakeN > 1){
+    wk = wakeAt(P.xz);
+    float e = 0.12;
+    slope += vec2(wakeAt(P.xz + vec2(e, 0.0)).x - wk.x, wakeAt(P.xz + vec2(0.0, e)).x - wk.x)/e;
+  }
   const mat2 M2 = mat2(0.28, 0.96, -0.96, 0.28);
   vec4 Cm = texture(uSurf, (M2*P.xz)/(uL*0.13) + 0.71);
   slope += 0.13*exp(-t*0.18)*(transpose(M2)*Cm.yz);
+  slope *= 1.0 + 1.3*uWeather.w;                       // wind: rougher water
+  if (uWeather.z > 0.01 && t < 40.0){                  // rain: expanding rings from drops
+    vec2 g = vec2(0.0);
+    for (int k = 0; k < 2; k++){
+      vec2 q = P.xz*3.0 + float(k)*17.3; vec2 id = floor(q); vec2 fq = fract(q) - 0.5;
+      vec2 o = vec2(hash12(id), hash12(id + 5.3)) - 0.5; float ph = fract(uTime*0.8 + hash12(id + 9.1));
+      vec2 d = fq - o*0.5; float r = length(d), rr = 0.45*ph;
+      float ring = sin((r - rr)*55.0)*smoothstep(0.07, 0.0, abs(r - rr))*(1.0 - ph);
+      g += d/(r + 1e-4)*ring;
+    }
+    slope += g*uWeather.z*0.22*exp(-t*0.06);
+  }
   float var = max(A.w - dot(A.yz,A.yz), 0.0) + WB*WB*max(B.w - dot(B.yz,B.yz), 0.0);
   vec3 n = normalize(vec3(-slope.x, 1.0, -slope.y));
   float dist = t;
@@ -601,7 +651,8 @@ void main(){
 
   // ---- reflection ----
   vec3 rr = reflect(wd, n); rr.y = abs(rr.y);
-  vec3 refl = sky(rr) * 1.25;
+  // the distant shore in the reflection is blurred and faded: waves break a sharp mirror image into a blotchy band
+  vec3 refl = sky(rr, 0.012) * 1.25;
 
   // sun glints: GGX with slope-variance widening (LEAN-style)
   float a2 = 0.00012 + 1.2*var;
@@ -611,7 +662,7 @@ void main(){
   float D = exp(-tan2/a2)/(PI*a2*c2*c2);             // Beckmann: no long GGX tail, crisp glints
   float Vis = 0.5/(nl*sqrt(nv*nv*(1.0-a2)+a2) + nv*sqrt(nl*nl*(1.0-a2)+a2) + 1e-5);
   float Fh = fresnel(max(dot(h,v),0.0), IOR);
-  vec3 spec = SUN * min(D*Vis*Fh*nl, 12000.0);
+  vec3 spec = SUN * min(D*Vis*Fh*nl, 12000.0) * 0.55;   // toned down for gameplay readability
 
   // ---- refraction / underwater ----
   vec3 tr = refract(wd, n, 1.0/IOR);
@@ -644,6 +695,7 @@ void main(){
     vec3 hh = normalize(-sunT - tr);
     Lsurf += oSpec * SUN*Ts*att*caus * pow(max(dot(oN,hh),0.0), 48.0) * 0.35;
     Lsurf += oSpec * skyIrr * 0.04 * pow(1.0 - max(dot(oN, -tr), 0.0), 3.0);   // rim sheen
+    if (lureHit) Lsurf += oAlb*0.35 + vec3(0.02);   // game aid: the lure stays readable deep down
   } else {
     // bottom made of zones: fine pebbles, coarse cobbles, and sand that fills the gaps first
     float hgt, hgt2;
@@ -715,16 +767,25 @@ void main(){
 
   vec3 col = F*refl + (1.0-F)*under + spec;
 
+  // wake foam: broken white water on the track and the arms near the boat
+  if (wk.y > 0.01){
+    float br = vnoise(P.xz*3.1 + uTime*vec2(0.35, -0.25))*0.7 + vnoise(P.xz*9.0 - uTime*0.4)*0.3;
+    float fm = clamp(wk.y*(0.25 + 1.1*br) - 0.08, 0.0, 0.85);
+    vec3 foamL = 0.75/PI*(SUN*max(uSun.y, 0.05) + skyIrr*2.2);
+    col = mix(col, foamL, fm);
+  }
+
   // distant haze over the water
-  float haze = 1.0 - exp(-dist*0.004);
+  float haze = 1.0 - exp(-dist*0.004*(1.0 + 12.0*uWeather.y + 2.0*uWeather.z));
   float muh = max(dot(normalize(vec3(wd.x,0.0,wd.z)), uSun), 0.0);
-  vec3 hazeC = (vec3(0.60, 0.71, 0.82) + vec3(1.0,0.86,0.66)*(0.22*pow(muh,6.0)+0.3*pow(muh,64.0)))*uSkyK;
-  col = mix(col, hazeC*0.95, haze*0.8);
+  vec3 hazeC = (vec3(0.60, 0.71, 0.82) + vec3(1.0,0.86,0.66)*(0.22*pow(muh,6.0)+0.3*pow(muh,64.0))*(1.0 - uWeather.x))*uSkyK;
+  hazeC = mix(hazeC, vec3(0.68, 0.70, 0.72)*uSkyK, max(uWeather.x, uWeather.y)*0.8);
+  col = mix(col, hazeC*0.95, haze*(0.8 + 0.18*uWeather.y));
 
   // sky above horizon
-  vec3 skyc = sky(rd);
+  vec3 skyc = sky(rd, 0.0);
   float mu = dot(rd, uSun);
-  skyc += SUN*18.0*smoothstep(0.99996, 0.999985, mu);
+  skyc += SUN*18.0*smoothstep(0.99996, 0.999985, mu)*(1.0 - uWeather.x);
   float hz = smoothstep(-0.0005, 0.0015, rd.y);
   col = mix(col, skyc, hz);
 
@@ -786,8 +847,8 @@ void main(){
   vec2 cc = uv-0.5; float ca = 0.0012*dot(cc,cc)*4.0;
   vec3 c;
   c.r = texture(uHdr, uv + cc*ca).r; c.g = texture(uHdr, uv).g; c.b = texture(uHdr, uv - cc*ca).b;
-  if (uNoPost < 0.5) c += texture(uStreak, uv).rgb * 0.9;
-  if (uNoPost < 0.5) c += texture(uB1, uv).rgb * 0.035 + bicubic(uB2, uv) * 0.035;
+  if (uNoPost < 0.5) c += texture(uStreak, uv).rgb * 0.35;
+  if (uNoPost < 0.5) c += texture(uB1, uv).rgb * 0.022 + bicubic(uB2, uv) * 0.022;
   if (uNoPost > 1.5) c = texture(uStreak, uv).rgb * 0.55 * 20.0;
   c *= uExp;
   float vig = 1.0 - 0.22*dot(cc*vec2(1.0,0.8), cc*vec2(1.0,0.8))*2.2;
@@ -999,7 +1060,7 @@ function post(t){
 
 /* ---------------- Above-water scene: boat, rod, float, line (rasterised, depth-tested against the water) ---------------- */
 let SUNV = [0,1,0];
-const ENV = { expo:1, sunC:[6,5.4,4.44], skyK:[1,1,1], night:0, sigA:[0.40,0.074,0.088], sigS:[0.028,0.052,0.068], depthP:[2.5,1.0,1.5,3.5], depthQ:[0.02,1.3,0.4,2.4], bed:[0,1,1,1], land:1 };
+const ENV = { weather:[0,0,0,0], expo:1, sunC:[6,5.4,4.44], skyK:[1,1,1], night:0, sigA:[0.40,0.074,0.088], sigS:[0.028,0.052,0.068], depthP:[2.5,1.0,1.5,3.5], depthQ:[0.02,1.3,0.4,2.4], bed:[0,1,1,1], land:1 };
 function setEnv(e){
   Object.assign(ENV, e);
   const el = (e.sunEl ?? 31)*Math.PI/180, az = (e.sunAz ?? 6)*Math.PI/180;
@@ -1017,8 +1078,9 @@ function setLight(sunEl, sunAz, dayK, warm){
   const k = Math.max(dayK, 0);
   const moon = [0.06, 0.08, 0.13];
   const sun = [6*(1), 5.4*(1 - 0.35*warm), 4.44*(1 - 0.6*warm)];
-  ENV.sunC = sunEl > -4 ? sun.map((v, i) => v*Math.max(0.05, k) + moon[i]*(1-k)) : moon;
-  ENV.skyK = [lerp1(0.03, 1 + 0.15*warm, k), lerp1(0.04, 1 - 0.1*warm, k), lerp1(0.09, 1 - 0.3*warm, k)];
+  const cl = ENV.weather[0];
+  ENV.sunC = (sunEl > -4 ? sun.map((v, i) => v*Math.max(0.05, k) + moon[i]*(1-k)) : moon).map(v => v*(1 - 0.8*cl));
+  ENV.skyK = [lerp1(0.03, 1 + 0.15*warm, k), lerp1(0.04, 1 - 0.1*warm, k), lerp1(0.09, 1 - 0.3*warm, k)].map(v => v*(1 - 0.25*cl));
   ENV.night = 1 - Math.min(1, k*4);
   ENV.expo = 1 + 2.2*(1 - k);
 }
@@ -1178,6 +1240,25 @@ const bobMesh = makeMesh(true);
 }
 const ballMesh = makeMesh(false);
 { const g = new Geo(); g.ellipsoid([0,0,0],[1,1,1],[1,1,1],10); ballMesh.set(g.array()); }
+// spray droplets and mist: soft round point sprites, depth-tested against the water and boat
+const pPart = prog(`#version 300 es
+layout(location=0) in vec4 aP;   // xyz, size (m)
+layout(location=1) in float aA;  // alpha
+uniform vec3 uCam, uR, uU, uF; uniform float uTanF, uAspect, uPxH;
+out float vA;
+void main(){ vec3 v = aP.xyz - uCam; float dz = dot(v, uF);
+  gl_Position = vec4(dot(v,uR)/(uAspect*uTanF), dot(v,uU)/uTanF, ${ZA.toFixed(8)}*dz + (${ZB.toFixed(8)}), dz);
+  gl_PointSize = clamp(aP.w*uPxH/(max(dz, 0.1)*uTanF), 1.0, 256.0); vA = aA; }`,
+`#version 300 es
+precision highp float; in float vA; out vec4 o; uniform vec3 uCol;
+void main(){ vec2 q = gl_PointCoord*2.0 - 1.0; float r = dot(q, q); if (r > 1.0) discard;
+  o = vec4(uCol, vA*(1.0 - r)*(1.0 - r)); }`, 'particles');
+const partVAO = gl.createVertexArray(), partVB = gl.createBuffer();
+gl.bindVertexArray(partVAO); gl.bindBuffer(gl.ARRAY_BUFFER, partVB);
+gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,4,gl.FLOAT,false,20,0);
+gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1,1,gl.FLOAT,false,20,16);
+gl.bindVertexArray(null);
+const wakeBuf = new Float32Array(20*4);
 const lineVAO = gl.createVertexArray(), lineVB = gl.createBuffer();
 gl.bindVertexArray(lineVAO); gl.bindBuffer(gl.ARRAY_BUFFER, lineVB); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,3,gl.FLOAT,false,12,0); gl.bindVertexArray(null);
 
@@ -1285,7 +1366,7 @@ function render(S){
   gl.uniform1f(u.uPixAng, 2*Math.tan(VFOV/2)/H);
   gl.uniform3fv(u.uSigA, ENV.sigA); gl.uniform3fv(u.uSigS, ENV.sigS); gl.uniform4fv(u.uDepthP, ENV.depthP); gl.uniform4fv(u.uDepthQ, ENV.depthQ);
   gl.uniform4fv(u.uBed, ENV.bed); gl.uniform1f(u.uLand, ENV.land);
-  gl.uniform3fv(u.uSunC, ENV.sunC); gl.uniform3fv(u.uSkyK, ENV.skyK); gl.uniform1f(u.uNight, ENV.night);
+  gl.uniform3fv(u.uSunC, ENV.sunC); gl.uniform4fv(u.uWeather, ENV.weather); gl.uniform3fv(u.uSkyK, ENV.skyK); gl.uniform1f(u.uNight, ENV.night);
   const fl = S.fish.slice(0, MAXF);
   fl.forEach((f,i) => {
     fishBuf.P.set([f.pos[0],f.pos[1],f.pos[2],f.len], i*4);
@@ -1303,8 +1384,11 @@ function render(S){
     gl.uniform3fv(u.uLureS, lu.size); gl.uniform4f(u.uLureC, lu.color[0], lu.color[1], lu.color[2], lu.metal);
   } else gl.uniform4f(u.uLure, 0,0,0,0);
   const bo = S.bobber;
-  if (bo && !bo.flying) gl.uniform4f(u.uBob, bo.pos[0], bo.pos[1]-0.12, bo.pos[2], 1); else gl.uniform4f(u.uBob, 0,0,0,0);
+  if (bo && !bo.flying && (bo.tilt||0) < 0.6) gl.uniform4f(u.uBob, bo.pos[0], bo.pos[1]-0.12, bo.pos[2], 1); else gl.uniform4f(u.uBob, 0,0,0,0);
   if (S.lineUnder){ gl.uniform4f(u.uLnA, ...S.lineUnder[0], 1); gl.uniform4f(u.uLnB, ...S.lineUnder[1], 1); } else gl.uniform4f(u.uLnA, 0,0,0,0);
+  const wk = S.wake || [];
+  wakeBuf.fill(0); for (let i = 0; i < Math.min(20, wk.length); i++) wakeBuf.set(wk[i], i*4);
+  gl.uniform4fv(u.uWake, wakeBuf); gl.uniform1i(u.uWakeN, Math.min(20, wk.length));
   const bt = S.boat;
   gl.uniform4f(u.uBoat, bt.pos[0], 0.02 + bt.pos[1], bt.pos[2], bt.heading);
   fullscreen();
@@ -1315,7 +1399,14 @@ function render(S){
   drawMesh(boatMesh, mat4TRS(bt.pos, bt.heading, bt.pitch, bt.roll), { inner:true });
   let tip = null;
   if (S.rod){ tip = buildRod(S.rod); if (!S.hideRod) drawMesh(rodMesh, IDENT); }
-  if (bo) drawMesh(bobMesh, mat4TRS(bo.pos, 0, bo.tilt||0, 0), { emis: 0.55 });
+  // at night the float lights up like an electronic float (전자찌), bright enough to bloom
+  if (bo) drawMesh(bobMesh, mat4TRS(bo.pos, 0, bo.tilt||0, 0), { emis: 0.55 + 2.6*ENV.night });
+  if (S.rain && S.rain.n){
+    gl.useProgram(pLine.p); setCamUniforms(pLine, B);
+    const k = 0.35*(ENV.skyK[1] + 0.15); gl.uniform3f(pLine.u.uCol, k, k*1.02, k*1.06);
+    gl.bindVertexArray(lineVAO); gl.bindBuffer(gl.ARRAY_BUFFER, lineVB); gl.bufferData(gl.ARRAY_BUFFER, S.rain.data.subarray(0, S.rain.n*6), gl.DYNAMIC_DRAW);
+    gl.drawArrays(gl.LINES, 0, S.rain.n*2);
+  }
   if (S.flyObj){ gl.useProgram(pMesh.p); drawMesh(ballMesh, mat4TRS(S.flyObj.pos, 0,0,0, S.flyObj.r)); }
   if (tip && S.lineTo){
     const pts = [], e = S.lineTo, sag = S.lineSag||0;
@@ -1323,6 +1414,15 @@ function render(S){
     gl.useProgram(pLine.p); setCamUniforms(pLine, B); gl.uniform3f(pLine.u.uCol, 1.6,1.6,1.5);
     gl.bindVertexArray(lineVAO); gl.bindBuffer(gl.ARRAY_BUFFER, lineVB); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pts), gl.DYNAMIC_DRAW);
     gl.drawArrays(gl.LINE_STRIP, 0, 25);
+  }
+  if (S.particles && S.particles.n){
+    gl.useProgram(pPart.p); setCamUniforms(pPart, B); gl.uniform1f(pPart.u.uPxH, H*0.5);
+    const lum = [ENV.sunC[0]*0.12 + ENV.skyK[0]*0.75, ENV.sunC[1]*0.12 + ENV.skyK[1]*0.78, ENV.sunC[2]*0.12 + ENV.skyK[2]*0.82];
+    gl.uniform3fv(pPart.u.uCol, lum);
+    gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
+    gl.bindVertexArray(partVAO); gl.bindBuffer(gl.ARRAY_BUFFER, partVB); gl.bufferData(gl.ARRAY_BUFFER, S.particles.data.subarray(0, S.particles.n*5), gl.DYNAMIC_DRAW);
+    gl.drawArrays(gl.POINTS, 0, S.particles.n);
+    gl.depthMask(true); gl.disable(gl.BLEND);
   }
   gl.bindVertexArray(null);
   gl.disable(gl.DEPTH_TEST);
@@ -1351,7 +1451,7 @@ return {
     return [(x*0.5+0.5)*innerWidth, (0.5-y*0.5)*innerHeight];
   },
   basis: () => lastBasis,
-  setEnv, setLight,
+  setEnv, setLight, setWeather(w){ ENV.weather = w; },
 };
 
 })();
