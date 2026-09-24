@@ -291,6 +291,11 @@ window.GameData = (function(){
       { name:'기본 어탐기', cost:0, desc:'수심과 어군 표시' },
       { name:'컬러 어탐기', cost:500, desc:'물고기 크기별 색 구분' },
       { name:'스캔 어탐기', cost:1500, desc:'발밑 가장 큰 물고기의 어종 표시' } ] },
+    { id:'boat', name:'보트', icon:'🚤', tiers:[
+      { name:'소형 보트', cost:0, zone:0, desc:'내륙 호수·강만 갈 수 있음' },
+      { name:'연안 보트', cost:800, zone:1, desc:'해안에서 20km 이내 연안 바다까지' },
+      { name:'근해 낚싯배', cost:2500, zone:2, desc:'해안에서 100km 이내 근해까지' },
+      { name:'원양 어선', cost:6000, zone:3, desc:'먼바다 어디든 (제한 없음)' } ] },
     { id:'engine', name:'엔진', icon:'⚙️', tiers:[
       { name:'5마력 선외기', cost:0, speed:8, desc:'최고 15노트' },
       { name:'15마력 선외기', cost:700, speed:11, desc:'최고 21노트' },

@@ -1256,7 +1256,7 @@ function matchRating(sp){
 
 /* ---------------- save data ---------------- */
 const SAVE_KEY = 'boatfish.v2';
-const P = { coins: 200, owned: {}, tier: { rod: 0, reel: 0, line: 0, hook: 0, sonar: 0, engine: 0 }, sightings: {}, quests: [], done: 0 };
+const P = { coins: 200, owned: {}, tier: { rod: 0, reel: 0, line: 0, hook: 0, sonar: 0, engine: 0, boat: 0 }, sightings: {}, quests: [], done: 0 };
 for (const it of [...BAITS, ...LURES]) if (!it.cost) P.owned[it.id] = true;
 function save(){
   try { localStorage.setItem(SAVE_KEY, JSON.stringify({ P, best: G.best, score: G.score, catches: G.catches.slice(0, 30).map(c => ({ id: c.sp.id, len: c.len, weight: c.weight, pts: c.pts })), clock: G.clock, spot: REGION && REGION.spot })); } catch(e){}
@@ -1747,10 +1747,11 @@ function drawMap(){
   c.font = '600 12px system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif'; c.textAlign = 'left';
   for (const s of SPOTS){
     const [x, y] = m2s(s.lon, s.lat); if (x < -20 || x > W + 20 || y < -20 || y > H + 20) continue;
-    const salt = BIOMES[s.biome].water === 'salt';
-    c.fillStyle = salt ? '#4fd1ff' : '#8ff0a8'; c.strokeStyle = '#08202a'; c.lineWidth = 2;
+    const salt = BIOMES[s.biome].water === 'salt', locked = spotZone(s) > boatZone() && s !== REGION.spot;
+    c.fillStyle = locked ? '#5b6770' : salt ? '#4fd1ff' : '#8ff0a8'; c.strokeStyle = '#08202a'; c.lineWidth = 2;
     c.beginPath(); c.arc(x, y, 5, 0, TAU); c.fill(); c.stroke();
-    if (MAP.z > MAP.minZ*1.6 || s === MAP.sel){ c.lineWidth = 3; c.strokeStyle = 'rgba(0,0,0,.6)'; c.strokeText(s.name, x + 8, y + 4); c.fillStyle = '#fff'; c.fillText(s.name, x + 8, y + 4); }
+    const lbl = (locked ? '🔒' : '') + s.name;
+    if (MAP.z > MAP.minZ*1.6 || s === MAP.sel){ c.lineWidth = 3; c.strokeStyle = 'rgba(0,0,0,.6)'; c.strokeText(lbl, x + 8, y + 4); c.fillStyle = locked ? '#b8c2c8' : '#fff'; c.fillText(lbl, x + 8, y + 4); }
   }
   // current location
   { const r = REGION.spot, [x, y] = m2s(r.lon, r.lat); c.strokeStyle = '#ffd84a'; c.lineWidth = 2.5; c.beginPath(); c.arc(x, y, 10, 0, TAU); c.stroke();
@@ -1759,20 +1760,47 @@ function drawMap(){
   if (MAP.sel){ const [x, y] = m2s(MAP.sel.lon, MAP.sel.lat); c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.moveTo(x - 12, y); c.lineTo(x + 12, y); c.moveTo(x, y - 12); c.lineTo(x, y + 12); c.stroke(); c.beginPath(); c.arc(x, y, 7, 0, TAU); c.stroke(); }
   if (MAP.hover){ $('mapinfo').textContent = fmtLL(MAP.hover[1], MAP.hover[0]) + (isLand(MAP.hover[1], MAP.hover[0]) ? ' · 육지(호수·강)' : ' · 바다'); }
 }
+/* ---------------- navigation zones: the boat decides how far from land you may go ---------------- */
+const ZONES = ['내륙', '연안', '근해', '원양'];
+function seaDistKm(lat, lon){   // distance to the nearest land (km), ~coarse ray search over the coastline data
+  if (isLand(lat, lon)) return 0;
+  const clat = Math.max(0.2, Math.cos(lat*Math.PI/180)); let best = 400;
+  for (let k = 0; k < 16; k++){
+    const b = k/16*TAU, n = Math.cos(b), e = Math.sin(b);
+    for (const d of [1, 2, 4, 7, 12, 20, 30, 45, 65, 100, 150, 220, 320]){
+      if (d >= best) break;
+      if (isLand(lat + n*d/111, lon + e*d/(111*clat))){ best = d; break; }
+    }
+  }
+  return best;
+}
+function spotZone(sp){
+  if (sp.zone !== undefined) return sp.zone;
+  if (BIOMES[sp.biome].water === 'fresh') sp.zone = 0;
+  else { const d = seaDistKm(sp.lat, sp.lon); sp.distKm = d; sp.zone = d <= 20 ? 1 : d <= 100 ? 2 : 3; }
+  return sp.zone;
+}
+function boatZone(){ return tierOf('boat').zone; }
+function zoneBoat(z){ return shopItem('boat').tiers.find(t => t.zone >= z); }
 function showSel(sp){
   MAP.sel = sp;
   const P = $('mappanel');
-  if (!sp){ P.innerHTML = '<p class="hint">지도에서 원하는 곳을 클릭하세요. 표시된 명소나 아무 바다·육지(호수)나 고를 수 있어요.<br><b>휠</b> 확대 · <b>드래그</b> 이동</p>'; return; }
+  if (!sp){ P.innerHTML = `<p class="hint">지도에서 원하는 곳을 클릭하세요. 표시된 명소나 아무 바다·육지(호수)나 고를 수 있어요.<br><b>휠</b> 확대 · <b>드래그</b> 이동</p>
+    <p class="hint">🚤 지금 보트: <b>${tierOf('boat').name}</b> — ${ZONES.slice(0, boatZone() + 1).join('·')}까지 갈 수 있어요.${boatZone() < 3 ? ' 더 먼 바다는 상점에서 보트를 업그레이드하세요.' : ''}</p>`; return; }
   const W = WATERS[sp.water], B = BIOMES[sp.biome];
   const fish = B.fish.map(([id]) => BY_ID[id].name).join(', ');
   const here = sp === REGION.spot || (sp.lat === REGION.spot.lat && sp.lon === REGION.spot.lon);
+  const z = spotZone(sp), locked = !here && z > boatZone();
+  const zoneTxt = z === 0 ? '내륙 수역' : `${ZONES[z]} · 해안에서 약 ${sp.distKm >= 400 ? '400km+' : sp.distKm + 'km'}`;
   P.innerHTML = `<div class="st"><b>${sp.name}</b><span>${sp.country} · ${fmtLL(sp.lat, sp.lon)}</span></div>
-    <div class="tags"><span>${B.name}</span><span>${W.name}</span><span>수심 ${W.depth[2]}–${W.depth[3]}m</span></div>
+    <div class="tags"><span>${B.name}</span><span>${W.name}</span><span>수심 ${W.depth[2]}–${W.depth[3]}m</span><span class="zone${locked ? ' lock' : ''}">${zoneTxt}</span></div>
     <div class="fish">${fish}</div>
-    <button id="go" class="on">${here ? '현재 위치' : '⛵ 이곳으로 출발'}</button>`;
-  $('go').onclick = e => { e.stopPropagation(); if (!here) travel(sp); else closeMap(); };
+    ${locked ? `<div class="need">🔒 <b>${zoneBoat(z).name}</b> 이상이 필요해요<br><span>상점(P) → 보트에서 업그레이드 · 지금 보트: ${tierOf('boat').name} (${ZONES[boatZone()]}까지)</span></div>` : ''}
+    <button id="go" class="on" ${locked ? 'disabled' : ''}>${here ? '현재 위치' : locked ? '🔒 갈 수 없음' : '⛵ 이곳으로 출발'}</button>`;
+  $('go').onclick = e => { e.stopPropagation(); if (locked) return; if (!here) travel(sp); else closeMap(); };
 }
 function travel(sp){
+  if (spotZone(sp) > boatZone()){ say(`🔒 ${zoneBoat(spotZone(sp)).name}가 필요해요`, 2); return; }
   closeMap();
   const f = $('fade'); f.classList.add('on');
   setTimeout(() => { applyRegion(sp); setTimeout(() => f.classList.remove('on'), 150); }, 650);
@@ -1851,5 +1879,5 @@ function frame(now){
 }
 buildToolbar(); updateLog();
 requestAnimationFrame(frame);
-window.__game = { G, fishes, cam, mouse, hookFish, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
+window.__game = { G, fishes, cam, mouse, hookFish, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
 })();

@@ -77,6 +77,11 @@
   #mappanel .st span { font-size:11px; opacity:.6; }
   #mappanel .tags { display:flex; flex-wrap:wrap; gap:4px; }
   #mappanel .tags span { font-size:11px; padding:2px 7px; border-radius:6px; background:rgba(79,209,255,.15); color:#bfeeff; }
+  #mappanel .tags span.zone { background:rgba(143,240,168,.18); color:#c9f7d6; }
+  #mappanel .tags span.zone.lock { background:rgba(255,120,100,.2); color:#ffc2b5; }
+  #mappanel .need { font-size:12px; line-height:1.5; padding:8px 10px; border-radius:10px; background:rgba(255,120,100,.12); }
+  #mappanel .need span { opacity:.75; }
+  #mappanel button:disabled { opacity:.45; cursor:not-allowed; }
   #mappanel .fish { font-size:12px; line-height:1.6; opacity:.85; }
   #fade { position:fixed; inset:0; background:#06141c; opacity:0; pointer-events:none; transition:opacity .6s; z-index:25; display:grid; place-items:center; font-size:15px; letter-spacing:.1em; }
   #fade.on { opacity:1; }
