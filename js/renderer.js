@@ -1126,7 +1126,7 @@ void main(){
 const pMesh = prog(MESH_VS, `#version 300 es
 precision highp float;
 in vec3 vN, vC, vW; out vec4 o;
-uniform vec3 uSun, uCam, uSunC, uSkyK; uniform float uEmis, uInner;
+uniform vec3 uSun, uCam, uSunC, uSkyK, uGlow; uniform float uEmis, uInner;
 void main(){
   vec3 n = normalize(vN), v = normalize(uCam - vW), c = vC;
   if (dot(n, v) < 0.0){ n = -n; if (uInner > 0.5) c = vec3(0.26,0.16,0.08)*(0.85+0.3*fract(sin(floor(vW.x*9.0+vW.z*1.3)*91.7)*437.5)); }
@@ -1135,7 +1135,7 @@ void main(){
   vec3 skyE = (vec3(0.62,0.70,0.78)*1.5*(0.55+0.45*n.y) + vec3(0.30,0.40,0.40)*0.5*max(-n.y,0.0))*uSkyK;
   vec3 col = c/3.14159*(SUN*nl + skyE);
   vec3 h = normalize(v+uSun); col += SUN*0.05*pow(max(dot(n,h),0.0),48.0)*nl;
-  col += c*uEmis;
+  col += c*uEmis + uGlow;
   o = vec4(col,1);
 }`, 'mesh');
 const pLine = prog(`#version 300 es
@@ -1421,6 +1421,7 @@ function drawMesh(m, M, opts){
   gl.useProgram(pMesh.p);
   gl.uniformMatrix4fv(pMesh.u.uM, false, M);
   gl.uniform1f(pMesh.u.uEmis, (opts&&opts.emis)||0); gl.uniform1f(pMesh.u.uInner, (opts&&opts.inner)?1:0);
+  gl.uniform3fv(pMesh.u.uGlow, (opts&&opts.glow)||[0,0,0]);
   gl.bindVertexArray(m.vao); gl.drawArrays(gl.TRIANGLES, 0, m.n);
 }
 function setCamUniforms(P, B){
@@ -1501,8 +1502,8 @@ function render(S){
   drawBoat(mat4TRS(bt.pos, bt.heading, bt.pitch, bt.roll));
   let tip = null;
   if (S.rod){ tip = buildRod(S.rod); if (!S.hideRod) drawMesh(rodMesh, IDENT); }
-  // at night the float lights up like an electronic float (전자찌), bright enough to bloom
-  if (bo) drawMesh(bobMesh, mat4TRS(bo.pos, 0, bo.tilt||0, 0), { emis: 0.55 + 2.6*ENV.night });
+    // night: glows fluorescent lime like a chemical light stick (야광찌) instead of washing out white
+  if (bo) drawMesh(bobMesh, mat4TRS(bo.pos, 0, bo.tilt||0, 0), { emis: 0.55*(1 - 0.9*ENV.night), glow: [0.07*ENV.night, 0.40*ENV.night, 0.012*ENV.night] });
   if (S.rain && S.rain.n){
     gl.useProgram(pLine.p); setCamUniforms(pLine, B);
     const k = 0.35*(ENV.skyK[1] + 0.15); gl.uniform3f(pLine.u.uCol, k, k*1.02, k*1.06);

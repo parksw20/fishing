@@ -1016,7 +1016,7 @@ function updateCamera(dt){
       const f = G.hooked.pos;
       // hook set: the camera pulls in a little (quick at first, then settles)
       const L = G.hooked.len, ft = G.fight ? G.fight.t : 9;
-      T = baitView([f[0], 0, f[2]], (2.6 + L*4)*0.72, (1.8 + L*3)*0.8, G.fightSide); k = ft < 0.8 ? 6 : 2.5; break; }
+      T = baitView([f[0], 0, f[2]], (2.6 + L*4)*0.72, (1.8 + L*3)*0.8, G.fightSide); k = ft < 0.8 ? 6 : 3.6; break; }
   }
   const a = 1 - Math.exp(-dt*k);
   cam.pos = vlerp(cam.pos, T.pos, a); cam.look = vlerp(cam.look, T.look, a);
