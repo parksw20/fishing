@@ -1,0 +1,115 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0d2a2a">
+<title>보트 낚시 — Clearwater Fishing</title>
+<style>
+  :root { --ink: rgba(255,255,255,.9); --glass: rgba(8,26,30,.42); --font: system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif; }
+  html, body { margin:0; height:100%; background:#0d2a2a; overflow:hidden; touch-action:none; -webkit-user-select:none; user-select:none; font-family:var(--font); color:var(--ink); }
+  canvas#c, canvas#hud { position:fixed; inset:0; width:100%; height:100%; display:block; }
+  canvas#hud { cursor:crosshair; }
+  .glass { background:var(--glass); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); border-radius:14px; }
+  #toolbar { position:fixed; left:14px; top:14px; padding:10px 12px; display:flex; flex-direction:column; gap:8px; z-index:5; max-width:min(420px, calc(100vw - 28px)); }
+  #toolbar h1 { margin:0 0 2px; font-size:15px; font-weight:800; letter-spacing:.02em; }
+  #toolbar h1 small { font-weight:500; opacity:.6; margin-left:6px; font-size:11px; }
+  .row { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
+  .row label { font-size:11px; opacity:.65; width:34px; }
+  button { font:600 13px var(--font); color:#fff; background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.18); border-radius:999px; padding:5px 12px; cursor:pointer; transition:background .15s; }
+  button:hover { background:rgba(255,255,255,.2); }
+  button.on { background:#ffd84a; color:#1b1b12; border-color:#ffd84a; }
+  #toolbar.locked button { opacity:.45; }
+  #itemdesc { font-size:11px; opacity:.7; }
+  #log { position:fixed; right:14px; top:14px; padding:10px 14px; width:200px; z-index:5; font-size:12px; }
+  #log .head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px; }
+  #log .head b { font-size:18px; color:#ffd84a; }
+  #catches { list-style:none; margin:0; padding:0; }
+  #catches li { display:flex; justify-content:space-between; gap:6px; padding:3px 0; border-top:1px solid rgba(255,255,255,.08); }
+  #catches li span { opacity:.75; }
+  #dex { display:flex; flex-wrap:wrap; gap:4px; margin-top:8px; }
+  #dex span { font-size:10px; padding:2px 6px; border-radius:6px; background:rgba(255,255,255,.07); opacity:.5; }
+  #dex span.got { background:rgba(110,230,140,.25); opacity:1; }
+  #gauges { position:fixed; right:14px; bottom:84px; width:200px; padding:12px 14px; display:flex; gap:12px; z-index:5; }
+  #tbar { position:relative; width:18px; height:150px; border-radius:9px; background:rgba(0,0,0,.35); overflow:hidden; flex:none; }
+  #tbar::after { content:''; position:absolute; left:0; right:0; bottom:calc(100%/1.1); height:2px; background:#ff5a4a; }
+  #tfill { position:absolute; left:0; right:0; bottom:0; height:0; background:linear-gradient(#8ff0a8,#46c36d); transition:height .08s linear; }
+  #tfill.warn { background:linear-gradient(#ffe27a,#f0b53a); }
+  #tfill.danger { background:linear-gradient(#ff8a70,#e2412e); }
+  #dragmark { position:absolute; left:-2px; right:-2px; height:3px; background:#6fd3ff; box-shadow:0 0 6px #6fd3ff; }
+  #ginfo { flex:1; font-size:12px; display:flex; flex-direction:column; gap:5px; justify-content:flex-end; }
+  #ginfo div { display:flex; justify-content:space-between; }
+  #ginfo span { opacity:.65; }
+  #retrieve { position:fixed; right:14px; bottom:30px; z-index:5; }
+  #help { position:fixed; left:50%; bottom:calc(22px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%); padding:9px 16px; font-size:13px; border-radius:999px; white-space:nowrap; z-index:4; pointer-events:none; max-width:calc(100vw - 260px); overflow:hidden; text-overflow:ellipsis; }
+  #help:empty { display:none; }
+  #help b { color:#ffe27a; font-weight:700; }
+  #msg { position:fixed; left:50%; top:22%; transform:translate(-50%, 10px); font-size:24px; font-weight:800; text-shadow:0 2px 12px rgba(0,0,0,.55); opacity:0; transition:opacity .25s, transform .25s; pointer-events:none; z-index:6; white-space:nowrap; }
+  #msg.show { opacity:1; transform:translate(-50%, 0); }
+  #msg.hot { color:#ffdf4a; font-size:34px; }
+  #msg.bad { color:#ff9a8a; }
+  #card { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width:300px; padding:20px 22px; text-align:center; z-index:10; background:rgba(8,26,30,.78); box-shadow:0 20px 60px rgba(0,0,0,.4); cursor:pointer; }
+  #card[hidden] { display:none; }
+  #card .t { font-size:12px; letter-spacing:.2em; opacity:.6; }
+  #card .sp { font-size:30px; font-weight:900; margin-top:4px; }
+  #card .latin { font-size:11px; font-style:italic; opacity:.55; }
+  #card canvas { width:240px; height:100px; margin:8px auto 4px; display:block; }
+  #card .stats { display:flex; justify-content:center; gap:18px; font-size:18px; font-weight:700; }
+  #card .pts { color:#ffd84a; font-size:20px; font-weight:800; margin-top:8px; }
+  #card .badge { color:#8ff0a8; font-weight:700; font-size:13px; min-height:18px; margin-top:4px; }
+  #card .foot { font-size:11px; opacity:.55; margin-top:10px; }
+  #loading { position:fixed; inset:0; display:grid; place-items:center; background:#0d2a2a; z-index:20; transition:opacity .8s; font-size:14px; letter-spacing:.1em; }
+  #loading.off { opacity:0; pointer-events:none; }
+  #err { position:fixed; inset:auto 12px 12px 12px; max-height:45%; overflow:auto; font:12px/1.45 ui-monospace, Menlo, monospace; color:#ffd9d2; background:rgba(40,8,8,.92); border-radius:14px; padding:12px 14px; white-space:pre-wrap; z-index:30; }
+  #err[hidden], #dbg[hidden] { display:none; }
+  #dbg { position:fixed; bottom:70px; left:14px; font:11px/1.4 ui-monospace, Menlo, monospace; color:#fff; background:rgba(0,0,0,.35); padding:6px 8px; border-radius:8px; z-index:8; pointer-events:none; }
+  @media (max-width: 760px) { #log { display:none; } #help { max-width:calc(100vw - 28px); white-space:normal; border-radius:14px; } #gauges { bottom:130px; } }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<canvas id="hud"></canvas>
+
+<div id="toolbar" class="glass">
+  <h1>🎣 보트 낚시<small>Clearwater</small></h1>
+  <div class="row"><label>채비</label><div id="modes" class="row"></div></div>
+  <div class="row"><label>미끼</label><div id="items" class="row"></div></div>
+  <div id="itemdesc"></div>
+</div>
+
+<div id="log" class="glass">
+  <div class="head"><span>살림망 <span id="count">0</span>마리</span><b id="score">0</b></div>
+  <ul id="catches"></ul>
+  <div id="dex"></div>
+</div>
+
+<div id="gauges" class="glass">
+  <div id="tbar"><div id="tfill"></div><div id="dragmark"></div></div>
+  <div id="ginfo"></div>
+</div>
+<button id="retrieve" hidden>회수 (R)</button>
+
+<div id="help" class="glass"></div>
+<div id="msg"></div>
+
+<div id="card" class="glass" hidden>
+  <div class="t">CATCH</div>
+  <div class="sp"></div>
+  <div class="latin"></div>
+  <canvas width="480" height="200"></canvas>
+  <div class="stats"><span class="len"></span><span class="wt"></span></div>
+  <div class="pts"></div>
+  <div class="badge"></div>
+  <div class="foot">클릭하여 계속</div>
+</div>
+
+<div id="loading">물 위로 나가는 중…</div>
+<div id="dbg" hidden></div>
+<div id="err" hidden></div>
+
+<script src="js/pebbles.js"></script>
+<script src="js/renderer.js"></script>
+<script src="js/data.js"></script>
+<script src="js/game.js"></script>
+</body>
+</html>
