@@ -763,7 +763,7 @@ const HELP = {
 };
 let lastHelp = '';
 const HELP_TOUCH = {
-  idle: () => '<b>조그</b> 방향 · 화면 드래그 시점 · <b>던지기</b> 길게 눌렀다 놓기 · ⛵ 보트 · 🗺 지도',
+  idle: () => '<b>조그</b> 방향 · 화면 드래그 시점 · <b>던지기</b> 길게 눌렀다 놓기 · ⛵ 보트 · ☰ 메뉴',
   charge: () => '손을 떼면 던집니다',
   fly: () => '',
   wait: () => G.mode === 'pole' ? '찌가 <b>쑥 잠기거나 올라오면 챔질</b> (화면 탭도 가능) · +/− 수심' : '<b>감기</b>를 누르고 있기 · 감다 멈추기로 액션 · +/− 드랙',
@@ -942,6 +942,7 @@ let targetT = 0;
 function updateTarget(dt){
   $('clock').textContent = `${fmtClock()} ${PERIOD_NAME[period()]} · ${G.weather === 'clear' && period() === 'night' ? '🌙' : WEATHERS[G.weather].icon} ${WEATHERS[G.weather].name}${luckLeft() > 0 ? ` · 🍀${Math.ceil(luckLeft()/60)}분` : ''}`;
   targetT -= dt; if (targetT > 0) return; targetT = 0.4;
+  $('gauges').style.top = TOUCH.on ? ($('qtrack').getBoundingClientRect().bottom + 8) + 'px' : '';
   const el = $('target'), sp = questTarget();
   if (!sp || !(G.state === 'idle' || G.state === 'wait' || G.state === 'charge')){ el.hidden = true; return; }
   const { v, parts } = matchRating(sp);
@@ -1744,7 +1745,8 @@ function updateSonar(dt){
 function drawSonar(){
   const W = TOUCH.on ? 132 : SONAR.W, H = TOUCH.on ? (hudH < 500 ? 56 : 70) : 96, x0 = 16;
   // desktop: sits right above the gauge panel (bottom-left); touch: under the quest tracker
-  const y0 = TOUCH.on ? $('qtrack').getBoundingClientRect().bottom + 30 : $('gauges').getBoundingClientRect().top - H - 18;
+  if (TOUCH.on && G.state !== 'boat') return;   // on phones the fish finder only shows while driving the boat
+  const y0 = TOUCH.on ? $('gauges').getBoundingClientRect().bottom + 30 : $('gauges').getBoundingClientRect().top - H - 18;
   if (hudW < 520 && !TOUCH.on) return;
   let maxD = 5; for (const c of SONAR.cols) maxD = Math.max(maxD, c.d);
   // the range eases toward the next step instead of snapping (5 → 10 → 20 …)
@@ -2187,6 +2189,9 @@ const SUBSTEPS = Math.max(1, +(new URLSearchParams(location.search).get('sim')) 
 { const v = new URLSearchParams(location.search).get('visit'); if (v && BY_ID[v]) setTimeout(() => spawnVisitor(BY_ID[v]), 500); }
 setInterval(save, 15000);
 function frame(now){
+  // frame pacing: phones run at 30 fps; behind a full-screen window (map, shop, quests…) the world only ticks at ~8 fps
+  const cap = G.mapOpen && !MAP.anim ? 8 : Rn.fpsCap;
+  if (cap && now - last < 1000/cap - 3){ requestAnimationFrame(frame); return; }
   const dt = Math.min(0.05, (now - last)/1000); last = now;
   if (Rn.ready()){
     if (!started){ started = true; $('loading').classList.add('off'); }

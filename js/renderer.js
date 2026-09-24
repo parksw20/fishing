@@ -1044,7 +1044,10 @@ function renderGlare(){
 let hdrDepth = null;
 let W=0, H=0, scale = 1.0, hdrRT, qA, qS, qB, qC, streakRT, b1, b2, b2t;
 const DPR = Math.min(window.devicePixelRatio||1, 2);
-let quality = Q.has('q') ? parseFloat(Q.get('q')) : FIXED_T!==null ? 1.0 : (DPR > 1.5 ? 0.72 : 0.95);
+// phones (LITE): about 1.1x CSS pixels at most and 30 fps, to keep the GPU (and the phone) cool; ?fps=60 / ?full override
+const FPS_CAP = Q.has('fps') ? parseFloat(Q.get('fps')) || 0 : (LITE ? 30 : 0);
+const Q_MAX = LITE && !Q.has('q') ? (DPR > 1.5 ? 0.55 : 0.8) : 1.0;
+let quality = Q.has('q') ? parseFloat(Q.get('q')) : FIXED_T!==null ? 1.0 : LITE ? Q_MAX : (DPR > 1.5 ? 0.72 : 0.95);
 function alloc(){
   const cw = Math.max(1, Math.round(innerWidth*DPR*quality)), ch = Math.max(1, Math.round(innerHeight*DPR*quality));
   if (cw===W && ch===H) return;
@@ -1532,10 +1535,12 @@ function render(S){
   post(t);
 
   // adaptive resolution
-  ftAvg = ftAvg*0.95 + (dt*1000)*0.05; frames++;
+  // (frames the game deliberately skipped, e.g. behind a menu, are not counted as slow)
+  const TF = FPS_CAP ? 1000/FPS_CAP : 16.7;
+  if (dt*1000 < TF*2.2){ ftAvg = ftAvg*0.95 + (dt*1000)*0.05; frames++; }
   if (frames > 90){
-    if (ftAvg > 21 && quality > 0.42){ quality = Math.max(0.42, quality*0.87); alloc(); frames = 0; }
-    else if (ftAvg < 14.5 && quality < 1.0){ quality = Math.min(1.0, quality*1.06); alloc(); frames = 0; }
+    if (ftAvg > TF*1.26 && quality > 0.42){ quality = Math.max(0.42, quality*0.87); alloc(); frames = 0; }
+    else if (ftAvg < TF*0.87 && quality < Q_MAX){ quality = Math.min(Q_MAX, quality*1.06); alloc(); frames = 0; }
   }
   if (DEBUG && frames%15===0) $dbg.textContent = `${(1000/ftAvg).toFixed(0)} fps · ${W}×${H} · q ${quality.toFixed(2)}`;
   return { tip };
@@ -1544,6 +1549,7 @@ const $dbg = document.getElementById('dbg'); if (DEBUG && $dbg) $dbg.hidden = fa
 
 return {
   render,
+  fpsCap: FPS_CAP,
   setBoat(key, hull){ ENV.boat = key && glbModels[key] ? key : null; if (hull) ENV.hull = hull; return !!ENV.boat; },
   ready: () => pebReady,
   splash(x, z, r, s){ drops_pending.push({x, z, r, s, ttl: 90}); },
