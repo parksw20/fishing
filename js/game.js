@@ -368,7 +368,7 @@ function cast(){
   const d = dist2(to, eyeWorld());
   const scatter = d*0.035*(1 + 2*G.wv[3]);   // wind spoils the cast
   to[0] += rand(-scatter, scatter); to[2] += rand(-scatter, scatter);
-  G.fly = { from: G.tip.slice(), to, t: 0, T: 0.55 + d*0.03, h: 1.2 + d*0.12, power: G.power };
+  G.fly = { from: G.tip.slice(), to, t: 0, T: 0.75 + d*0.03, h: 1.2 + d*0.12, power: G.power };
   G.state = 'fly'; G.orbit = 0;
   sfx.whoosh(G.power);
   say(m.name + ' 캐스팅!', 1.2);
@@ -778,7 +778,7 @@ hud.addEventListener('pointermove', e => {
   if (mouse.rdown || (mouse.down && G.state === 'boat')){
     const dx = e.clientX - mouse.lx, dy = e.clientY - mouse.ly; mouse.lx = e.clientX; mouse.ly = e.clientY;
     if (G.state === 'boat'){ G.orbit -= dx*0.006; G.camPitch = clamp((G.camPitch ?? 0.32) + dy*0.004, 0.08, 1.2); }
-    else if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw -= dx*0.005; G.aimPitch = clamp(G.aimPitch - dy*0.004, -0.9, 0.35); }
+    else if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw += dx*0.005; G.aimPitch = clamp(G.aimPitch - dy*0.004, -0.9, 0.35); }
     else G.orbit -= dx*0.006;
   }
   if (e.pointerType !== 'touch' || G.state !== 'hooked') { mouse.x = e.clientX; mouse.y = e.clientY; if (e.pointerType === 'mouse') mouse.moved = true; }
@@ -849,8 +849,19 @@ act.addEventListener('pointerdown', e => {
 const actUp = e => { act.classList.remove('down'); if (mouse.down){ mouse.down = false; release(); } };
 act.addEventListener('pointerup', actUp); act.addEventListener('pointercancel', actUp);
 act.addEventListener('contextmenu', e => e.preventDefault());
-$('tplus').addEventListener('click', e => { e.stopPropagation(); wheel(1); });
-$('tminus').addEventListener('click', e => { e.stopPropagation(); wheel(-1); });
+// +/− repeat while held: one step at once, then faster steps after a short pause
+for (const [id, dir] of [['tplus', 1], ['tminus', -1]]){
+  const b = $(id); let timer = null;
+  const stop = () => { clearTimeout(timer); timer = null; };
+  b.addEventListener('pointerdown', e => {
+    e.preventDefault(); e.stopPropagation(); b.setPointerCapture(e.pointerId); wheel(dir);
+    let delay = 380;
+    const rep = () => { wheel(dir); delay = Math.max(60, delay*0.8); timer = setTimeout(rep, delay); };
+    timer = setTimeout(rep, delay);
+  });
+  for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) b.addEventListener(ev, stop);
+  b.addEventListener('contextmenu', e => e.preventDefault());
+}
 $('tnav').addEventListener('click', e => { e.stopPropagation(); audioInit(); setNav(G.state !== 'boat'); });
 $('tmap').addEventListener('click', e => { e.stopPropagation(); openMap(); });
 $('tmenu').addEventListener('click', e => { e.stopPropagation(); $('toolbar').classList.toggle('open'); });
@@ -932,7 +943,7 @@ function updateCamera(dt){
       const back = [-Math.sin(a)*Math.cos(cp)*D, Math.sin(cp)*D + 1.2, Math.cos(a)*Math.cos(cp)*D];
       T = { pos: add(BOAT.pos, back), look: add(add(BOAT.pos, mul(boatF(), 4)), [0, 0.3, 0]) }; T.pos[1] = back[1]; k = 5; break; }
     case 'fly': {
-      const s = smooth(clamp(G.fly.t/G.fly.T, 0, 1)), a = boatView(), b = baitView(G.fly.to, 3.4, 2.3);
+      const s = smooth(clamp((G.fly.t - 0.3)/Math.max(0.2, G.fly.T - 0.3), 0, 1)), a = boatView(), b = baitView(G.fly.to, 3.4, 2.3);
       T = { pos: vlerp(a.pos, b.pos, s), look: vlerp(a.look, b.look, s) }; k = 8; break; }
     case 'wait': {
       if (G.rig){ T = baitView(G.rig.pos, 3.4, 2.3); k = 3.5; break; }
@@ -952,8 +963,9 @@ function updateCamera(dt){
 function rodSpec(){
   const e = eyeWorld(), m = modeCfg();
   let yaw = viewYaw(), el = G.mode === 'pole' ? 0.2 : 0.5, bend = 0.04, target;
-  if (G.state === 'charge') el += G.power*0.9;
-  if (G.state === 'fly'){ const s = clamp(G.fly.t/0.22, 0, 1); el = lerp(el + G.fly.power*0.9, el - 0.12, s); }
+  // wind-up: the rod swings back over the right shoulder (stays in view) and whips forward on release
+  if (G.state === 'charge'){ el += G.power*0.35; yaw += G.power*0.6; }
+  if (G.state === 'fly'){ const s = smooth(clamp(G.fly.t/0.3, 0, 1)); el = lerp(el + G.fly.power*0.35, el - 0.1, s); yaw += lerp(G.fly.power*0.6, -0.08, s); }
   let focus = null;
   if (G.state === 'wait') focus = G.rig ? G.rig.pos : G.lure.pos;
   if (G.state === 'hooked') focus = G.hooked.pos;
