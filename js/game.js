@@ -1014,7 +1014,9 @@ function updateCamera(dt){
       T.look = [L[0], -dp*0.9 - 0.2, L[2]]; k = 3.5; break; }
     case 'hooked': {
       const f = G.hooked.pos;
-      const L = G.hooked.len; T = baitView([f[0], 0, f[2]], 2.6 + L*4, 1.8 + L*3, G.fightSide); k = 2.5; break; }
+      // hook set: the camera pulls in a little (quick at first, then settles)
+      const L = G.hooked.len, ft = G.fight ? G.fight.t : 9;
+      T = baitView([f[0], 0, f[2]], (2.6 + L*4)*0.72, (1.8 + L*3)*0.8, G.fightSide); k = ft < 0.8 ? 6 : 2.5; break; }
   }
   const a = 1 - Math.exp(-dt*k);
   cam.pos = vlerp(cam.pos, T.pos, a); cam.look = vlerp(cam.look, T.look, a);
@@ -1022,6 +1024,21 @@ function updateCamera(dt){
 }
 
 /* ---------------- scene assembly ---------------- */
+// camera shake while a hooked fish fights: bursts, head shakes and high line tension; a jolt on the hook set
+const SHAKE = { a: 0, t: 0 };
+function camShake(dt){
+  let want = 0;
+  if (G.state === 'hooked' && G.hooked && G.fight){
+    const f = G.hooked, F = G.fight, str = clamp(f.pull, 0.3, 1)*(0.35 + 0.65*f.stamina);
+    want = str*((f.run && f.run.burst ? 0.8 : 0.25) + clamp((F.tension - 0.55)/0.45, 0, 1)*0.8);
+    if (F.t < 0.35) want = Math.max(want, 1.2*(1 - F.t/0.35));
+  }
+  SHAKE.a += (want - SHAKE.a)*Math.min(1, dt*(want > SHAKE.a ? 12 : 4)); SHAKE.t += dt;
+  const a = SHAKE.a*0.045, t = SHAKE.t;
+  if (a < 1e-4) return { pos: [0, 0, 0], look: [0, 0, 0] };
+  const n = (w, p) => Math.sin(t*w + p)*0.6 + Math.sin(t*w*1.73 + p*2.1)*0.4;
+  return { pos: [n(31, 0)*a, n(27, 1.3)*a*0.8, n(35, 2.7)*a], look: [n(23, 4.1)*a*2.2, n(29, 5.3)*a*1.6, n(19, 0.7)*a*2.2] };
+}
 function rodSpec(){
   const e = eyeWorld(), m = modeCfg();
   let yaw = viewYaw(), el = G.mode === 'pole' ? 0.2 : 0.5, bend = 0.04, target;
@@ -1046,7 +1063,8 @@ function rodSpec(){
   return { base, dir, len: m.rodLen, bend, kind: G.mode, target: null };
 }
 function scene(dt){
-  const S = { t: G.time, dt, cam: { pos: cam.pos, look: cam.look }, boat: BOAT, fish: [], lure: null, bobber: null, lineUnder: null, lineTo: null, lineSag: 0, flyObj: null };
+  const sh = camShake(dt);
+  const S = { t: G.time, dt, cam: { pos: add(cam.pos, sh.pos), look: add(cam.look, sh.look) }, boat: BOAT, fish: [], lure: null, bobber: null, lineUnder: null, lineTo: null, lineSag: 0, flyObj: null };
   const byDist = fishes.slice().sort((a, b) => dist3(a.pos, cam.pos) - (a.visitor ? 25 : 0) - dist3(b.pos, cam.pos) + (b.visitor ? 25 : 0));
   S.fish = byDist.slice(0, 12).map(f => ({ pos: f.pos, len: f.len, dir: fishDir(f), tail: f.tail, back: f.sp.back, belly: f.sp.belly, pattern: f.sp.pattern, hr: f.sp.hr, shape: f.sp.shape }));
   const rod = rodSpec(); S.rod = G.state === 'boat' ? null : rod;
