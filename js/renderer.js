@@ -342,6 +342,14 @@ uniform vec3 uSigA, uSigS;   // per-region water: absorption / scattering (1/m)
 uniform vec4 uDepthP, uDepthQ; // depth profile: base, amp, min, max | scale, seed x, seed z, depth at the start anchor
 uniform vec4 uBed;             // seabed: sand fraction, tint rgb
 uniform float uLand;           // distant shoreline height (0 = open sea)
+uniform float uHor[32], uHorD[32];   // horizon: land elevation angle (rad) and distance (km) per direction, from the world map
+uniform float uSnow;                 // snow on high cold peaks
+float horizonAt(float a, out float dkm){
+  float x = (a + 3.14159265)/6.2831853*32.0; int i = int(floor(x)); float f = fract(x);
+  i = (i % 32 + 32) % 32; int j = (i + 1) % 32;
+  dkm = mix(uHorD[i], uHorD[j], f);
+  return mix(uHor[i], uHor[j], f*f*(3.0 - 2.0*f));
+}
 #define SIG_A uSigA
 #define SIG_S uSigS
 #define SIG_T (uSigA + uSigS)
@@ -357,6 +365,14 @@ float ridge(float a){ // periodic headland silhouette, elevation in radians (~1.
   return 0.040 + 0.016*sin(a*2.0+0.7) + 0.011*sin(a*5.0+2.1) + 0.006*sin(a*11.0+0.3) + 0.003*sin(a*23.0+1.7);
 }
 float fbm2(vec2 p){ float v=0., a=0.5; for(int i=0;i<4;i++){ v+=a*vnoise(p); p=p*2.03+17.1; a*=0.5; } return v; }
+// ridged multi-octave profile: separate peaks and saddles for real mountain ranges
+// noise around the horizon circle, so it wraps seamlessly all the way round
+vec2 ring(float a, float f){ return vec2(cos(a), sin(a))*f; }
+float mountains(float a){
+  float n = 0.0, amp = 0.55, f = 4.0;
+  for (int i = 0; i < 5; i++){ float v = vnoise(ring(a, f) + float(i)*13.7); n += amp*(1.0 - abs(2.0*v - 1.0)); f *= 2.3; amp *= 0.5; }
+  return n;
+}
 vec3 sky(vec3 d, float soft){
   float e = d.y;
   float mu = dot(d, uSun);
@@ -365,19 +381,29 @@ vec3 sky(vec3 d, float soft){
   c += vec3(1.0, 0.86, 0.66) * (0.22*pow(max(mu,0.),6.) + 0.30*pow(max(mu,0.),64.) + 1.6*pow(max(mu,0.),2400.));
   // distant headland: pine canopy over pale limestone, softened by ~2 km of air
   float a = atan(d.z, d.x);
-  float r = uLand*ridge(a) + 0.0045*(vnoise(vec2(a*260.0, 0.0))-0.5) + 0.002*(vnoise(vec2(a*900.0, 3.0))-0.5);
+  float dkm; float base = uLand*horizonAt(a, dkm);
+  float rough = min(1.0, base/0.03), tall = smoothstep(0.015, 0.06, base);
+  float hills = base*(0.62 + 0.38*ridge(a)/0.04) + rough*(0.0045*(vnoise(ring(a, 260.0))-0.5) + 0.002*(vnoise(ring(a, 900.0) + 3.0)-0.5));
+  float r = mix(hills, base*(0.3 + 0.85*mountains(a)), tall)
+          + min(base, 0.004)*0.5*(vnoise(ring(a, 1400.0) + 7.0) - 0.3);   // tree line on low shores
   float back = smoothstep(-0.3, 0.95, dot(normalize(vec2(d.x,d.z)+1e-5), normalize(vec2(uSun.x,uSun.z))));
   float u = clamp(e / max(r, 1e-3), 0.0, 1.0);
-  vec2 q = vec2(a*420.0, e*420.0);
+  vec2 q = ring(a, 420.0) + vec2(0.0, e*420.0);
   float tex = fbm2(q);
   vec3 pine = vec3(0.045, 0.070, 0.042) * (0.6 + 0.8*tex);
   vec3 rock = vec3(0.30, 0.28, 0.23) * (0.55 + 0.7*fbm2(q*1.7+5.0));
-  float cliff = smoothstep(0.42, 0.18, u + 0.25*(tex-0.5)) * smoothstep(0.35, 0.75, vnoise(vec2(a*18.0, 1.0)));
+  // low shores: pale limestone at the waterline; mountains: bare rock on the steep upper slopes
+  float cliffLow = smoothstep(0.42, 0.18, u + 0.25*(tex-0.5)) * smoothstep(0.35, 0.75, vnoise(ring(a, 18.0) + 1.0));
+  float cliffHigh = smoothstep(0.52, 0.72, fbm2(ring(a, 55.0) + vec2(e*120.0, 3.0))) * smoothstep(0.25, 0.6, u);
+  float cliff = mix(cliffLow, cliffHigh, tall);
   vec3 land = mix(pine, rock, cliff);
   land *= mix(1.0, 0.45, back);                         // backlit toward the sun
-  land = mix(land, hor*0.92, 0.38 + 0.25*back);          // aerial perspective
+  // snow only above the snow line, so it caps the high peaks instead of lining every ridge
+  float snowK = uSnow*tall*smoothstep(base*0.68, base*0.8, e + base*0.12*(fbm2(ring(a, 80.0) + vec2(e*200.0, 0.0)) - 0.5));
+  land = mix(land, vec3(0.86, 0.88, 0.90)*(0.75 + 0.25*tex), snowK);
+  land = mix(land, hor*0.92, clamp(0.2 + dkm/70.0, 0.2, 0.85) + 0.2*back);          // aerial perspective grows with distance
   float w = fwidth(e)*1.2 + 2e-4 + soft;
-  c = mix(c, land, smoothstep(r+w, r-w, e) * step(-0.3, e) * step(0.01, uLand) * (soft > 0.0 ? 0.45 : 1.0));
+  c = mix(c, land, smoothstep(r+w, r-w, e) * step(-0.3, e) * step(0.0002, base) * (soft > 0.0 ? 0.45 : 1.0));
   // overcast: sky flattens to grey, sun glow goes, distant land fades into the murk
   c = mix(c, vec3(0.64, 0.67, 0.70)*(0.75 + 0.25*clamp(e*3.0 + 0.5, 0.0, 1.0)), uWeather.x*0.85);
   c = mix(c, vec3(0.70, 0.72, 0.74), uWeather.y*0.7*smoothstep(0.25, 0.0, abs(e)));
@@ -1060,7 +1086,7 @@ function post(t){
 
 /* ---------------- Above-water scene: boat, rod, float, line (rasterised, depth-tested against the water) ---------------- */
 let SUNV = [0,1,0];
-const ENV = { weather:[0,0,0,0], expo:1, sunC:[6,5.4,4.44], skyK:[1,1,1], night:0, sigA:[0.40,0.074,0.088], sigS:[0.028,0.052,0.068], depthP:[2.5,1.0,1.5,3.5], depthQ:[0.02,1.3,0.4,2.4], bed:[0,1,1,1], land:1 };
+const ENV = { hor: new Float32Array(32).fill(0.04), horD: new Float32Array(32).fill(3), snow: 0, weather:[0,0,0,0], expo:1, sunC:[6,5.4,4.44], skyK:[1,1,1], night:0, sigA:[0.40,0.074,0.088], sigS:[0.028,0.052,0.068], depthP:[2.5,1.0,1.5,3.5], depthQ:[0.02,1.3,0.4,2.4], bed:[0,1,1,1], land:1 };
 function setEnv(e){
   Object.assign(ENV, e);
   const el = (e.sunEl ?? 31)*Math.PI/180, az = (e.sunAz ?? 6)*Math.PI/180;
@@ -1365,7 +1391,8 @@ function render(S){
   gl.uniform1f(u.uRipSize, RSIZE); gl.uniform2fv(u.uRipCenter, ripCenter); gl.uniform2fv(u.uCausShift, causShift);
   gl.uniform1f(u.uPixAng, 2*Math.tan(VFOV/2)/H);
   gl.uniform3fv(u.uSigA, ENV.sigA); gl.uniform3fv(u.uSigS, ENV.sigS); gl.uniform4fv(u.uDepthP, ENV.depthP); gl.uniform4fv(u.uDepthQ, ENV.depthQ);
-  gl.uniform4fv(u.uBed, ENV.bed); gl.uniform1f(u.uLand, ENV.land);
+  gl.uniform4fv(u.uBed, ENV.bed); gl.uniform1f(u.uLand, 1.0);
+  gl.uniform1fv(u.uHor, ENV.hor); gl.uniform1fv(u.uHorD, ENV.horD); gl.uniform1f(u.uSnow, ENV.snow);
   gl.uniform3fv(u.uSunC, ENV.sunC); gl.uniform4fv(u.uWeather, ENV.weather); gl.uniform3fv(u.uSkyK, ENV.skyK); gl.uniform1f(u.uNight, ENV.night);
   const fl = S.fish.slice(0, MAXF);
   fl.forEach((f,i) => {

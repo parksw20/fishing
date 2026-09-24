@@ -1589,12 +1589,52 @@ function drawSonar(){
 
 /* ---------------- regions & world map ---------------- */
 function hashf(a){ const x = Math.sin(a*127.1 + 311.7)*43758.5453; return x - Math.floor(x); }
+// Horizon from the world map: in 32 directions find how far the nearest land is (sea spots march over the
+// coastline data; lakes are ringed by their shore) and turn it into an elevation angle for the terrain's height.
+function computeHorizon(spot){
+  const hor = new Float32Array(32), horD = new Float32Array(32);
+  const lake = BIOMES[spot.biome].water === 'fresh';
+  const H = spot.relief ?? (lake ? 200 + 500*hashf(spot.lat*7 + spot.lon) : 350);
+  const s1 = hashf(spot.lat)*6.28, s2 = hashf(spot.lon)*6.28, clat = Math.max(0.2, Math.cos(spot.lat*Math.PI/180));
+  // a sea spot that falls on land at this map resolution is moved to the nearest open water
+  let lat0 = spot.lat, lon0 = spot.lon;
+  if (!lake && isLand(lat0, lon0)){
+    search: for (const rk of [1, 2, 4, 7, 11, 16, 24]) for (let k = 0; k < 12; k++){
+      const b = k/12*TAU, la = spot.lat + Math.cos(b)*rk/111, lo = spot.lon + Math.sin(b)*rk/(111*clat);
+      if (!isLand(la, lo)){ lat0 = la; lon0 = lo; break search; }
+    }
+  }
+  for (let i = 0; i < 32; i++){
+    const a = -Math.PI + TAU*i/32, east = Math.cos(a), north = -Math.sin(a);
+    let dist = -1;
+    if (lake){
+      const shore = spot.shore ?? (0.8 + 3*hashf(spot.lon*3 + spot.lat));
+      dist = shore*(1 + 0.45*Math.sin(a*2 + s1) + 0.25*Math.sin(a*3 + s2));
+      if (shore > 10 && Math.sin(a + s1) > 0.3) dist = -1;            // big lakes: open water to the horizon on one side
+    } else {
+      for (const dk of [0.4, 1, 2, 3, 5, 8, 12, 18, 25, 35, 50, 70, 100, 140]){
+        if (isLand(lat0 + north*dk/111, lon0 + east*dk/(111*clat))){ dist = dk; break; }
+      }
+    }
+    if (dist <= 0){ hor[i] = 0; horD[i] = 200; continue; }
+    // terrain climbs from the shore and peaks a few km inland; earth curvature hides far land
+    const peak = dist + 1.5 + H/400, h = H - peak*peak/(2*6371)*1000;
+    hor[i] = h > 0 ? Math.min(0.14, Math.atan2(h, peak*1000)) : 0; horD[i] = dist;
+  }
+  // directions with no land borrow the nearest land's distance so the haze fades smoothly where the coast ends
+  for (let pass = 0; pass < 16; pass++) for (let i = 0; i < 32; i++) if (hor[i] === 0){
+    const l = horD[(i + 31) % 32], r = horD[(i + 1) % 32]; horD[i] = Math.min(horD[i], Math.min(l, r) + 1);
+  }
+  const snow = (H > 1200 && Math.abs(spot.lat) > 38) || (H > 600 && Math.abs(spot.lat) > 58) || H > 3000 ? 1 : 0;
+  return { hor, horD, snow };
+}
 function applyRegion(spot, first){
   const W = WATERS[spot.water];
   const seedA = hashf(spot.lat*3.1 + spot.lon*0.7)*6.28, seedB = hashf(spot.lon*1.7 - spot.lat)*6.28;
   REGION = { spot, biome: spot.biome, water: spot.water,
     depthP: W.depth.slice(), depthQ: [W.scale, seedA, seedB, spot.start || Math.min(3, W.depth[0])] };
   const sunEl = clamp(72 - Math.abs(spot.lat)*0.72, 18, 68), sunAz = (hashf(spot.lon) - 0.5)*40;
+  Rn.setEnv(computeHorizon(spot));
   Rn.setEnv({ sigA: W.sigA, sigS: W.sigS, depthP: REGION.depthP, depthQ: REGION.depthQ, bed: W.bed, land: W.land, sunEl, sunAz });
   BOAT.pos = [0, 0, 0]; BOAT.heading = 0; G.boatV = 0; G.aimYaw = 0; G.orbit = 0;
   G.rig = null; G.lure = null; G.hooked = null; G.fight = null; G.engaged = null; G.strike = null;
@@ -1811,5 +1851,5 @@ function frame(now){
 }
 buildToolbar(); updateLog();
 requestAnimationFrame(frame);
-window.__game = { G, fishes, cam, mouse, hookFish, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
+window.__game = { G, fishes, cam, mouse, hookFish, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
 })();

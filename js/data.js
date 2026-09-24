@@ -228,21 +228,21 @@ window.GameData = (function(){
 
   // preset spots on the world map (lat, lon)
   const SPOTS = [
-    { id:'soyang',   name:'소양호',            country:'대한민국', lat:37.95, lon:127.85, biome:'kr_fresh',  water:'lake_clear', start:2.6 },
-    { id:'jeju',     name:'제주 서귀포 앞바다', country:'대한민국', lat:33.20, lon:126.55, biome:'temp_sea',  water:'sea_temp',   start:4 },
-    { id:'ulleung',  name:'울릉도',            country:'대한민국', lat:37.50, lon:130.90, biome:'temp_sea',  water:'sea_temp',   start:6 },
-    { id:'biwa',     name:'비와호',            country:'일본',     lat:35.25, lon:136.10, biome:'kr_fresh',  water:'lake_green', start:3 },
-    { id:'corsica',  name:'코르시카',          country:'프랑스',   lat:42.00, lon:9.00,   biome:'temp_sea',  water:'sea_temp',   start:2.4 },
-    { id:'lofoten',  name:'로포텐 제도',       country:'노르웨이', lat:68.20, lon:14.50,  biome:'cold_sea',  water:'sea_cold',   start:6 },
-    { id:'kenai',    name:'케나이 호',         country:'미국 알래스카', lat:60.45, lon:-150.2, biome:'cold_fresh', water:'cold_lake', start:3 },
-    { id:'ontario',  name:'온타리오 호',       country:'캐나다',   lat:43.70, lon:-77.90, biome:'na_fresh',  water:'lake_clear', start:3 },
-    { id:'okeechobee', name:'오키초비 호',     country:'미국 플로리다', lat:26.95, lon:-80.80, biome:'na_fresh', water:'lake_green', start:2.2 },
-    { id:'kona',     name:'코나 앞바다',       country:'미국 하와이', lat:19.60, lon:-156.10, biome:'trop_sea', water:'sea_trop', start:5 },
-    { id:'maldives', name:'몰디브 환초',       country:'몰디브',   lat:4.20,  lon:73.50,  biome:'trop_sea',  water:'sea_trop',   start:2 },
-    { id:'gbr',      name:'그레이트배리어리프', country:'호주',    lat:-18.30, lon:147.70, biome:'trop_sea', water:'sea_trop',  start:2.5 },
-    { id:'amazon',   name:'아마존 강',         country:'브라질',   lat:-3.10, lon:-60.00, biome:'trop_fresh', water:'river_brown', start:3 },
-    { id:'victoria', name:'빅토리아 호',       country:'우간다',   lat:-0.50, lon:33.00,  biome:'trop_fresh', water:'lake_green', start:3 },
-    { id:'patagonia', name:'나우엘우아피 호',  country:'아르헨티나', lat:-41.10, lon:-71.40, biome:'cold_fresh', water:'cold_lake', start:3 },
+    { id:'soyang',   name:'소양호',            country:'대한민국', lat:37.95, lon:127.85, biome:'kr_fresh',  water:'lake_clear', start:2.6 , relief:650, shore:1.6 },
+    { id:'jeju',     name:'제주 서귀포 앞바다', country:'대한민국', lat:33.20, lon:126.55, biome:'temp_sea',  water:'sea_temp',   start:4 , relief:900 },
+    { id:'ulleung',  name:'울릉도',            country:'대한민국', lat:37.50, lon:130.90, biome:'temp_sea',  water:'sea_temp',   start:6 , relief:900 },
+    { id:'biwa',     name:'비와호',            country:'일본',     lat:35.25, lon:136.10, biome:'kr_fresh',  water:'lake_green', start:3 , relief:800, shore:7 },
+    { id:'corsica',  name:'코르시카',          country:'프랑스',   lat:41.85, lon:8.62,   biome:'temp_sea',  water:'sea_temp',   start:2.4 , relief:1500 },
+    { id:'lofoten',  name:'로포텐 제도',       country:'노르웨이', lat:68.20, lon:14.50,  biome:'cold_sea',  water:'sea_cold',   start:6 , relief:900 },
+    { id:'kenai',    name:'케나이 호',         country:'미국 알래스카', lat:60.45, lon:-150.2, biome:'cold_fresh', water:'cold_lake', start:3 , relief:1300, shore:4 },
+    { id:'ontario',  name:'온타리오 호',       country:'캐나다',   lat:43.70, lon:-77.90, biome:'na_fresh',  water:'lake_clear', start:3 , relief:90, shore:25 },
+    { id:'okeechobee', name:'오키초비 호',     country:'미국 플로리다', lat:26.95, lon:-80.80, biome:'na_fresh', water:'lake_green', start:2.2 , relief:15, shore:12 },
+    { id:'kona',     name:'코나 앞바다',       country:'미국 하와이', lat:19.60, lon:-156.10, biome:'trop_sea', water:'sea_trop', start:5 , relief:1800 },
+    { id:'maldives', name:'몰디브 환초',       country:'몰디브',   lat:4.20,  lon:73.50,  biome:'trop_sea',  water:'sea_trop',   start:2 , relief:4 },
+    { id:'gbr',      name:'그레이트배리어리프', country:'호주',    lat:-18.30, lon:147.70, biome:'trop_sea', water:'sea_trop',  start:2.5 , relief:60 },
+    { id:'amazon',   name:'아마존 강',         country:'브라질',   lat:-3.10, lon:-60.00, biome:'trop_fresh', water:'river_brown', start:3 , relief:35, shore:1.2 },
+    { id:'victoria', name:'빅토리아 호',       country:'우간다',   lat:-0.50, lon:33.00,  biome:'trop_fresh', water:'lake_green', start:3 , relief:150, shore:20 },
+    { id:'patagonia', name:'나우엘우아피 호',  country:'아르헨티나', lat:-41.10, lon:-71.40, biome:'cold_fresh', water:'cold_lake', start:3 , relief:1600, shore:5 },
   ];
 
   // 대낚시 (float fishing with a long pole, no reel); sea names in nameSea
