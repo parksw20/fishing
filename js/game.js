@@ -36,6 +36,14 @@ function column(x, z){ return Math.min(floorDepth(x, z), VIS_DEPTH); }
 const BOAT = { pos:[0,0,0], heading:0, pitch:0, roll:0 };
 const HULL = { l:2.05, w:0.72 };
 const SEAT = [0, 1.02, 1.30];               // eye position in the boat (sitting on the stern thwart)
+// boat model per boat tier: the starter boat is the b_1.glb RIB, the others the built-in rowboat for now
+const BOAT_MODELS = [{ key: 'b1', hull: [1.45, 0.36, 1.08], seat: [0, 1.55, 1.02] }];
+const ROWBOAT = { key: null, hull: [2.05, 0.37, 0.72], seat: [0, 1.02, 1.30] };
+function applyBoatModel(){
+  let m = BOAT_MODELS[P.tier.boat] || ROWBOAT;
+  if (!Rn.setBoat(m.key, m.hull)){ m = ROWBOAT; Rn.setBoat(null, m.hull); }
+  HULL.l = m.hull[0]; HULL.w = m.hull[2]; SEAT.splice(0, 3, ...m.seat);
+}
 const MODES = {
   pole: { name:'대낚시', rodLen:4.5, minCast:4.0, maxCast:9.0, lineKg:4.0, items:BAITS },
   lure: { name:'루어',   rodLen:2.1, minCast:6.0, maxCast:36.0, lineKg:7.0, items:LURES },
@@ -682,6 +690,7 @@ function updateLog(){
   $('count').textContent = P.net.length; $('cap').textContent = netCap();
   const val = P.net.reduce((a, f) => a + f.price, 0);
   $('netval').textContent = P.net.length ? `≈ ${val.toLocaleString()}🪙` : '';
+  $('releaseall').title = '방생: 판매가의 25% + 🍀 한 마리당 1분간 입질 +20% (최대 10분)';
   const ul = $('catches'); ul.innerHTML = '';
   for (const [i, c] of P.net.entries()){
     const li = document.createElement('li'); const sp = BY_ID[c.id];
@@ -704,7 +713,8 @@ function sellFish(idx){
 function releaseAll(){
   if (!P.net.length) return;
   const bonus = Math.round(P.net.reduce((a, f) => a + f.price, 0)*0.25);
-  say(`🐟 ${P.net.length}마리 방생 · 방생 보너스 +${bonus}🪙`, 2.2); P.coins += bonus; P.net = []; updateLog(); save();
+  const n = P.net.length; P.luckUntil = Math.min(Math.max(Date.now(), P.luckUntil || 0) + n*60000, Date.now() + 600000);
+  say(`🐟 ${n}마리 방생 · +${bonus}🪙 · 🍀 행운 ${Math.round(luckLeft()/60)}분 (입질 +20%)`, 3, 'hot'); P.coins += bonus; P.net = []; updateLog(); save();
 }
 $('sellall').addEventListener('click', e => { e.stopPropagation(); sellFish(P.net.map((f, i) => i)); });
 $('releaseall').addEventListener('click', e => { e.stopPropagation(); releaseAll(); });
@@ -923,7 +933,7 @@ $('shop').addEventListener('pointerdown', e => { if (e.target === $('shop')) clo
 
 let targetT = 0;
 function updateTarget(dt){
-  $('clock').textContent = `${fmtClock()} ${PERIOD_NAME[period()]} · ${G.weather === 'clear' && period() === 'night' ? '🌙' : WEATHERS[G.weather].icon} ${WEATHERS[G.weather].name}`;
+  $('clock').textContent = `${fmtClock()} ${PERIOD_NAME[period()]} · ${G.weather === 'clear' && period() === 'night' ? '🌙' : WEATHERS[G.weather].icon} ${WEATHERS[G.weather].name}${luckLeft() > 0 ? ` · 🍀${Math.ceil(luckLeft()/60)}분` : ''}`;
   targetT -= dt; if (targetT > 0) return; targetT = 0.4;
   const el = $('target'), sp = questTarget();
   if (!sp || !(G.state === 'idle' || G.state === 'wait' || G.state === 'charge')){ el.hidden = true; return; }
@@ -1279,7 +1289,7 @@ function retrieveFactor(sp){
 function gearFactor(sp){ const k = lineKg()/baseLineKg(); return 1 - sp.wary*clamp((k - 1)*0.3, 0, 0.6); }   // thick line spooks wary fish
 function biteFactor(sp, d, x, z){
   if (sp.sight) return 0;
-  return (sp.pref[curItem().id] || 0) * depthFactor(sp, d, x, z) * activity(sp) * weatherFactor(sp) * gearFactor(sp) * retrieveFactor(sp);
+  return (sp.pref[curItem().id] || 0) * depthFactor(sp, d, x, z) * activity(sp) * weatherFactor(sp) * gearFactor(sp) * retrieveFactor(sp) * luckFactor();
 }
 // 0..1 rating of the current rig for a species (shown for the quest target)
 function matchRating(sp){
@@ -1295,7 +1305,7 @@ function matchRating(sp){
 /* ---------------- save data ---------------- */
 const SAVE_KEY = 'boatfish.v2';
 const P = { coins: 200, owned: {}, tier: { rod: 0, reel: 0, line: 0, hook: 0, sonar: 0, engine: 0, boat: 0, net: 0 }, sightings: {}, quests: [], done: 0,
-  net: [], caught: {}, daily: {}, att: { last: '', streak: 0, log: [] }, week: { key: '', issued: 0, done: 0 } };
+  net: [], caught: {}, daily: {}, luckUntil: 0, att: { last: '', streak: 0, log: [] }, week: { key: '', issued: 0, done: 0 } };
 for (const it of [...BAITS, ...LURES]) if (!it.cost) P.owned[it.id] = true;
 function save(){
   try { localStorage.setItem(SAVE_KEY, JSON.stringify({ P, best: G.best, score: G.score, catches: G.catches.slice(0, 30).map(c => ({ id: c.sp.id, len: c.len, weight: c.weight, pts: c.pts })), clock: G.clock, spot: REGION && REGION.spot })); } catch(e){}
@@ -1305,7 +1315,7 @@ function load(){
     const d = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); if (!d) return null;
     Object.assign(P.tier, d.P.tier || {}); Object.assign(P.owned, d.P.owned || {}); P.coins = d.P.coins ?? P.coins;
     P.sightings = d.P.sightings || {};
-    P.net = (d.P.net || []).filter(f => BY_ID[f.id]); P.caught = d.P.caught || {}; P.daily = d.P.daily || {};
+    P.net = (d.P.net || []).filter(f => BY_ID[f.id]); P.caught = d.P.caught || {}; P.daily = d.P.daily || {}; P.luckUntil = d.P.luckUntil || 0;
     Object.assign(P.att, d.P.att || {}); Object.assign(P.week, d.P.week || {});
     if (!d.P.caught) for (const c of d.catches || []) if (BY_ID[c.id]) P.caught[c.id] = (P.caught[c.id] || 0) + 1;
     P.quests = (d.P.quests || []).filter(q => q.sp ? BY_ID[q.sp] : true); P.done = d.P.done || 0;
@@ -1350,12 +1360,23 @@ function spawnVisitor(sp){
   f.heading = Math.atan2(dir[1], dir[0]);
   fishes.push(f);
 }
-function checkSightings(){
+// release luck: every fish set free adds a minute of +20% bites (up to 10 minutes)
+function luckLeft(){ return Math.max(0, (P.luckUntil || 0) - Date.now())/1000; }
+function luckFactor(){ return luckLeft() > 0 ? 1.2 : 1; }
+// a visitor only counts once you have really looked at it: on screen near the middle, close enough to see through
+// this water (murky lakes hide a whale a few metres down), and in view for a moment
+function waterVis(){ const W = WATERS[REGION.spot.water], k = (W.sigA[1] + W.sigS[1] + W.sigA[2] + W.sigS[2])/2; return clamp(2.2/k, 3, 30); }
+function checkSightings(dt){
+  if (G.mapOpen) return;
+  const vis = waterVis();
   for (const f of fishes){
     if (!f.visitor || f.seen) continue;
-    const s = Rn.project(f.pos); if (!s) continue;
-    if (s[0] < 0 || s[0] > innerWidth || s[1] < 0 || s[1] > innerHeight) continue;
-    if (dist3(f.pos, cam.pos) > 38) continue;
+    const s = Rn.project(f.pos), d = dist3(f.pos, cam.pos), depth = Math.max(0, -f.pos[1] - f.len*0.25);
+    const under = d*depth/Math.max(0.3, depth + cam.pos[1]);   // how much of the sight line runs underwater
+    const ok = s && s[0] > innerWidth*0.12 && s[0] < innerWidth*0.88 && s[1] > innerHeight*0.1 && s[1] < innerHeight*0.9
+      && d < 32 && under < vis && !insideHull(f.pos[0], f.pos[2], 0.2);
+    f.lookT = ok ? (f.lookT || 0) + dt : Math.max(0, (f.lookT || 0) - dt*0.5);
+    if (f.lookT < 1.2) continue;
     f.seen = true;
     const first = !P.sightings[f.sp.id];
     P.sightings[f.sp.id] = (P.sightings[f.sp.id] || 0) + 1;
@@ -1554,7 +1575,7 @@ function renderShop(){
   $('shopgrid').innerHTML = `<h3>장비 업그레이드</h3><div class="grid">${up}</div><h3>대낚시 미끼</h3><div class="grid">${itemCards(BAITS)}</div><h3>루어</h3><div class="grid">${itemCards(LURES)}</div>`;
   for (const b of $('shopgrid').querySelectorAll('[data-up]')) b.onclick = () => {
     const s = shopItem(b.dataset.up), next = s.tiers[P.tier[s.id] + 1]; if (!next || P.coins < next.cost) return;
-    P.coins -= next.cost; P.tier[s.id]++; sfx.win(); say(`${s.name} → ${next.name}`, 1.8); save(); renderShop(); updateLog();
+    P.coins -= next.cost; P.tier[s.id]++; if (s.id === 'boat') applyBoatModel(); sfx.win(); say(`${s.name} → ${next.name}`, 1.8); save(); renderShop(); updateLog();
   };
   for (const b of $('shopgrid').querySelectorAll('[data-buy]')) b.onclick = () => {
     const it = [...BAITS, ...LURES].find(i => i.id === b.dataset.buy); if (P.coins < it.cost) return;
@@ -2112,7 +2133,7 @@ function update(dt){
     if (keys.KeyW || keys.ArrowUp) G.aimPitch = clamp(G.aimPitch + dt*0.8, -0.9, 0.35);
     if (keys.KeyS || keys.ArrowDown) G.aimPitch = clamp(G.aimPitch - dt*0.8, -0.9, 0.35);
   }
-  mouseLook(dt); updateWeather(dt); updateClock(dt); updateRain(dt); updateVisitors(dt); checkSightings(); updateTarget(dt);
+  mouseLook(dt); updateWeather(dt); updateClock(dt); updateRain(dt); updateVisitors(dt); checkSightings(dt); updateTarget(dt);
   updateWake(); updateParticles(dt);
   applyJoy(dt); SONAR.dt = dt; updateSonar(dt); updateEngine(); updateTouchUI();
   if (G.state === 'charge'){ G.chargeT += dt; const p = (G.chargeT/1.15) % 2; G.power = p < 1 ? p : 2 - p; }
@@ -2125,7 +2146,7 @@ function update(dt){
 }
 let last = performance.now(), started = false;
 const SUBSTEPS = Math.max(1, +(new URLSearchParams(location.search).get('sim')) || 1);   // test aid: extra simulation steps per frame
-{ const saved = load(); applyRegion(saved ? (SPOTS.find(s => s.id === saved.id) || saved) : SPOTS[0], true); fillQuests(); }
+{ const saved = load(); applyBoatModel(); applyRegion(saved ? (SPOTS.find(s => s.id === saved.id) || saved) : SPOTS[0], true); fillQuests(); }
 { const v = new URLSearchParams(location.search).get('visit'); if (v && BY_ID[v]) setTimeout(() => spawnVisitor(BY_ID[v]), 500); }
 setInterval(save, 15000);
 function frame(now){

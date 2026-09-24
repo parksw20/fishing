@@ -355,7 +355,8 @@ float horizonAt(float a, out float dkm){
 #define SIG_T (uSigA + uSigS)
 #define SUN uSunC
 const float PI = 3.14159265359;
-const vec3 HULL = vec3(2.05, 0.37, 0.72);
+uniform vec3 uHullR;       // traced hull ellipsoid radii (half-length, draft, half-width) of the current boat
+#define HULL uHullR
 
 float hash12(vec2 p){ vec3 p3 = fract(vec3(p.xyx)*.1031); p3 += dot(p3, p3.yzx+33.33); return fract((p3.x+p3.y)*p3.z); }
 float vnoise(vec2 p){ vec2 i=floor(p), f=fract(p); vec2 u=f*f*(3.-2.*f);
@@ -1086,7 +1087,7 @@ function post(t){
 
 /* ---------------- Above-water scene: boat, rod, float, line (rasterised, depth-tested against the water) ---------------- */
 let SUNV = [0,1,0];
-const ENV = { hor: new Float32Array(32).fill(0.04), horD: new Float32Array(32).fill(3), snow: 0, weather:[0,0,0,0], expo:1, sunC:[6,5.4,4.44], skyK:[1,1,1], night:0, sigA:[0.40,0.074,0.088], sigS:[0.028,0.052,0.068], depthP:[2.5,1.0,1.5,3.5], depthQ:[0.02,1.3,0.4,2.4], bed:[0,1,1,1], land:1 };
+const ENV = { hor: new Float32Array(32).fill(0.04), horD: new Float32Array(32).fill(3), snow: 0, weather:[0,0,0,0], expo:1, sunC:[6,5.4,4.44], skyK:[1,1,1], night:0, sigA:[0.40,0.074,0.088], sigS:[0.028,0.052,0.068], depthP:[2.5,1.0,1.5,3.5], depthQ:[0.02,1.3,0.4,2.4], bed:[0,1,1,1], land:1, hull:[2.05,0.37,0.72], boat:null };
 function setEnv(e){
   Object.assign(ENV, e);
   const el = (e.sunEl ?? 31)*Math.PI/180, az = (e.sunAz ?? 6)*Math.PI/180;
@@ -1251,6 +1252,80 @@ function buildBoat(){
   return g.array();
 }
 const boatMesh = makeMesh(false); boatMesh.set(buildBoat());
+
+// Textured boat models from .glb (one primitive with a baseColor texture, e.g. Tripo exports), embedded as base64
+// so they also load from file://. The fit bakes them into the boat frame: bow toward -z, waterline at y = 0.
+const pTexMesh = prog(`#version 300 es
+layout(location=0) in vec3 aP; layout(location=1) in vec3 aN; layout(location=2) in vec2 aT;
+uniform mat4 uM; uniform vec3 uCam, uR, uU, uF; uniform float uTanF, uAspect;
+out vec3 vN, vW; out vec2 vT;
+void main(){
+  vec4 w = uM*vec4(aP,1.0); vW = w.xyz; vN = mat3(uM)*aN; vT = aT;
+  vec3 v = w.xyz - uCam; float dz = dot(v, uF);
+  gl_Position = vec4(dot(v,uR)/(uAspect*uTanF), dot(v,uU)/uTanF, ${ZA.toFixed(8)}*dz + (${ZB.toFixed(8)}), dz);
+}`, `#version 300 es
+precision highp float;
+in vec3 vN, vW; in vec2 vT; out vec4 o;
+uniform sampler2D uTex; uniform vec3 uSun, uCam, uSunC, uSkyK; uniform float uGain;
+void main(){
+  vec3 n = normalize(vN), v = normalize(uCam - vW);
+  if (dot(n, v) < 0.0) n = -n;
+  vec3 c = texture(uTex, vT).rgb*uGain;
+  float nl = max(dot(n,uSun),0.0);
+  vec3 skyE = (vec3(0.62,0.70,0.78)*1.5*(0.55+0.45*n.y) + vec3(0.30,0.40,0.40)*0.5*max(-n.y,0.0))*uSkyK;
+  vec3 col = c/3.14159*(uSunC*nl + skyE);
+  vec3 h = normalize(v+uSun); col += uSunC*0.04*pow(max(dot(n,h),0.0),40.0)*nl;
+  o = vec4(col,1);
+}`, 'texmesh');
+const glbModels = {};
+function loadGLB(key, b64, fit){
+  const bytes = Uint8Array.from(atob(b64), c => c.charCodeAt(0)), buf = bytes.buffer, dv = new DataView(buf);
+  const jl = dv.getUint32(12, true), J = JSON.parse(new TextDecoder().decode(bytes.subarray(20, 20 + jl))), bin = 20 + jl + 8;
+  const acc = i => { const a = J.accessors[i], v = J.bufferViews[a.bufferView], n = { SCALAR:1, VEC2:2, VEC3:3 }[a.type], off = bin + (v.byteOffset||0) + (a.byteOffset||0);
+    const T = a.componentType === 5126 ? Float32Array : a.componentType === 5123 ? Uint16Array : a.componentType === 5125 ? Uint32Array : Uint8Array;
+    return new T(buf.slice(off, off + a.count*n*T.BYTES_PER_ELEMENT)); };
+  const pr = J.meshes[0].primitives[0];
+  const P = acc(pr.attributes.POSITION), N = acc(pr.attributes.NORMAL), UV = acc(pr.attributes.TEXCOORD_0), I = acc(pr.indices);
+  const s = fit.scale, ct = Math.cos(fit.tilt), st = Math.sin(fit.tilt), nv = P.length/3, V = new Float32Array(nv*8);
+  for (let i = 0; i < nv; i++){
+    const x = P[i*3]*s, y = P[i*3+1]*s, z = P[i*3+2]*s, nx = N[i*3], ny = N[i*3+1], nz = N[i*3+2];
+    V.set([x, y*ct + z*st + fit.lift, -y*st + z*ct + fit.zoff, nx, ny*ct + nz*st, -ny*st + nz*ct, UV[i*2], UV[i*2+1]], i*8);   // bow-down tilt about x
+  }
+  const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+  gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer()); gl.bufferData(gl.ARRAY_BUFFER, V, gl.STATIC_DRAW);
+  for (let k = 0; k < 3; k++){ gl.enableVertexAttribArray(k); gl.vertexAttribPointer(k, k === 2 ? 2 : 3, gl.FLOAT, false, 32, k*12); }
+  gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer()); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, I, gl.STATIC_DRAW);
+  gl.bindVertexArray(null);
+  const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 1, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, new Uint8Array([60, 64, 70, 255]));
+  const m = { vao, n: I.length, type: I instanceof Uint32Array ? gl.UNSIGNED_INT : I instanceof Uint16Array ? gl.UNSIGNED_SHORT : gl.UNSIGNED_BYTE, tex: t, gain: fit.gain || 1 };
+  glbModels[key] = m;
+  const mat = J.materials && J.materials[pr.material], bt = mat && mat.pbrMetallicRoughness && mat.pbrMetallicRoughness.baseColorTexture;
+  if (bt){
+    const im = J.images[J.textures[bt.index].source], v = J.bufferViews[im.bufferView];
+    const size = Math.min(2048, gl.getParameter(gl.MAX_TEXTURE_SIZE));
+    createImageBitmap(new Blob([bytes.subarray(bin + (v.byteOffset||0), bin + (v.byteOffset||0) + v.byteLength)], { type: im.mimeType }), { resizeWidth: size, resizeHeight: size, resizeQuality: 'high' })
+      .then(img => {
+        gl.bindTexture(gl.TEXTURE_2D, t);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.SRGB8_ALPHA8, gl.RGBA, gl.UNSIGNED_BYTE, img);
+        gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        if (extAniso) gl.texParameterf(gl.TEXTURE_2D, extAniso.TEXTURE_MAX_ANISOTROPY_EXT, 8);
+      }).catch(() => {});
+  }
+}
+// starter boat: inflatable RIB (b_1.glb, 1 x 0.75 x 0.79 model units)
+if (window.BOAT_GLB) try { loadGLB('b1', window.BOAT_GLB, { scale: 3.0, tilt: 0.10, lift: -0.42, zoff: 0, gain: 1.6 }); } catch(e){ console.warn('b_1.glb', e); }
+function drawBoat(M){
+  const m = ENV.boat && glbModels[ENV.boat];
+  if (!m){ drawMesh(boatMesh, M, { inner:true }); return; }
+  gl.useProgram(pTexMesh.p); setCamUniforms(pTexMesh, lastBasis);
+  gl.uniform3fv(pTexMesh.u.uSun, SUNV); gl.uniform3fv(pTexMesh.u.uSunC, ENV.sunC); gl.uniform3fv(pTexMesh.u.uSkyK, ENV.skyK);
+  gl.uniformMatrix4fv(pTexMesh.u.uM, false, M); gl.uniform1f(pTexMesh.u.uGain, m.gain);
+  gl.activeTexture(gl.TEXTURE15); gl.bindTexture(gl.TEXTURE_2D, m.tex); gl.uniform1i(pTexMesh.u.uTex, 15); gl.activeTexture(gl.TEXTURE0);
+  gl.bindVertexArray(m.vao); gl.drawElements(gl.TRIANGLES, m.n, m.type, 0);
+  gl.useProgram(pMesh.p);
+}
 const rodMesh = makeMesh(true);
 const bobMesh = makeMesh(true);
 { // float: fluorescent antenna with bands above a slim body; origin at the nominal waterline mark
@@ -1417,13 +1492,13 @@ function render(S){
   wakeBuf.fill(0); for (let i = 0; i < Math.min(20, wk.length); i++) wakeBuf.set(wk[i], i*4);
   gl.uniform4fv(u.uWake, wakeBuf); gl.uniform1i(u.uWakeN, Math.min(20, wk.length));
   const bt = S.boat;
-  gl.uniform4f(u.uBoat, bt.pos[0], 0.02 + bt.pos[1], bt.pos[2], bt.heading);
+  gl.uniform4f(u.uBoat, bt.pos[0], 0.02 + bt.pos[1], bt.pos[2], bt.heading); gl.uniform3fv(u.uHullR, ENV.hull);
   fullscreen();
 
   // ---- boat, rod, float, line ----
   gl.depthFunc(gl.LESS);
   gl.useProgram(pMesh.p); setCamUniforms(pMesh, B); gl.uniform3fv(pMesh.u.uSun, SUNV); gl.uniform3fv(pMesh.u.uSunC, ENV.sunC); gl.uniform3fv(pMesh.u.uSkyK, ENV.skyK);
-  drawMesh(boatMesh, mat4TRS(bt.pos, bt.heading, bt.pitch, bt.roll), { inner:true });
+  drawBoat(mat4TRS(bt.pos, bt.heading, bt.pitch, bt.roll));
   let tip = null;
   if (S.rod){ tip = buildRod(S.rod); if (!S.hideRod) drawMesh(rodMesh, IDENT); }
   // at night the float lights up like an electronic float (전자찌), bright enough to bloom
@@ -1468,6 +1543,7 @@ const $dbg = document.getElementById('dbg'); if (DEBUG && $dbg) $dbg.hidden = fa
 
 return {
   render,
+  setBoat(key, hull){ ENV.boat = key && glbModels[key] ? key : null; if (hull) ENV.hull = hull; return !!ENV.boat; },
   ready: () => pebReady,
   splash(x, z, r, s){ drops_pending.push({x, z, r, s, ttl: 90}); },
   project(p){
