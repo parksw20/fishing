@@ -1,7 +1,7 @@
 "use strict";
 // 보트 낚시 — game logic: casting, float (대낚시) and lure fishing, fish AI, fight, HUD.
 (function(){
-const { SPECIES, BY_ID, BIOMES, WATERS, SPOTS, BAITS, LURES } = window.GameData;
+const { SPECIES, BY_ID, BIOMES, WATERS, SPOTS, BAITS, LURES, SHOP } = window.GameData;
 const Rn = window.Renderer;
 const $ = id => document.getElementById(id);
 const rand = (a,b) => a + Math.random()*(b-a);
@@ -44,7 +44,7 @@ const MODES = {
 const G = {
   time: 0, mode: 'pole', item: { pole:0, lure:0 },
   state: 'idle',             // idle | charge | fly | wait | hooked | result | boat
-  boatV: 0, boatSteer: 0, camDist: 9, mapOpen: false,
+  clock: 6.0, boatV: 0, boatSteer: 0, camDist: 9, mapOpen: false,
   aimYaw: 0, aimPitch: -0.2, orbit: 0,
   power: 0, chargeT: 0,
   fly: null, rig: null, lure: null, engaged: null, strike: null,
@@ -110,7 +110,8 @@ function pushOutOfHull(p, m){
 }
 function isSalt(){ return BIOMES[REGION.biome].water === 'salt'; }
 function itemName(it){ return isSalt() && it.nameSea ? it.nameSea : it.name; }
-function lineKg(){ return G.mode === 'pole' ? (isSalt() ? 6 : 4) : (isSalt() ? 14 : 7); }
+function lineKg(){ return baseLineKg()*tierOf('line').mult; }
+const GAME_HOUR = 45;   // real seconds per in-game hour
 function yawDir(y){ return [Math.sin(y), 0, -Math.cos(y)]; }
 function tipXZ(){ return [G.tipS[0], 0, G.tipS[2]]; }
 function insideHull(x, z, margin){ const [a, b] = toBoatLocal(x, z); const lx = a/(HULL.w+margin), lz = b/(HULL.l+margin); return lx*lx + lz*lz < 1; }
@@ -124,21 +125,31 @@ function kg(w){ return w < 1 ? Math.round(w*1000) + 'g' : w.toFixed(2) + 'kg'; }
 /* ---------------- fish ---------------- */
 const FISH_N = 10;
 const fishes = [];
-function pickSpecies(){
-  const pool = BIOMES[REGION.biome].fish;
-  let tot = 0; for (const [, w] of pool) tot += w;
-  let r = Math.random()*tot; for (const [id, w] of pool){ r -= w; if (r <= 0) return BY_ID[id]; }
+// how well a spot suits a species: water depth under it vs the depth band anglers find it in
+function habitat(sp, fd){
+  let h = 1;
+  if (fd < sp.dmin*0.6) h *= 0.08 + 0.9*fd/(sp.dmin*0.6);          // too shallow for a deep-water fish
+  if (sp.zone === 'bottom' && fd > sp.dmax + 6) h *= 0.35;           // bottom feeders stay where the bed is within reach
+  return h;
+}
+function pickSpecies(x, z){
+  const pool = BIOMES[REGION.biome].fish, fd = floorDepth(x, z);
+  const ws = pool.map(([id, w]) => { const sp = BY_ID[id]; return w*habitat(sp, fd)*(0.35 + 0.65*activity(sp)); });
+  let tot = 0; for (const w of ws) tot += w;
+  let r = Math.random()*tot; for (let i = 0; i < pool.length; i++){ r -= ws[i]; if (r <= 0) return BY_ID[pool[i][0]]; }
   return BY_ID[pool[0][0]];
 }
+function depthBand(sp){ const lo = Math.min(sp.dmin, VIS_DEPTH - 1); return [lo, Math.max(lo + 0.6, Math.min(sp.dmax, VIS_DEPTH + 1))]; }
 function fishDepthFor(sp, x, z){
-  const fd = floorDepth(x, z), col = column(x, z);
-  return -clamp(col*sp.depth*rand(0.8, 1.1), 0.35, Math.min(fd - 0.18, VIS_DEPTH));
+  const fd = floorDepth(x, z), [lo, hi] = depthBand(sp);
+  let d = sp.zone === 'bottom' ? Math.min(fd - 0.3, hi) - rand(0, 0.6) : sp.zone === 'top' ? rand(0.3, Math.min(1.4, hi)) : rand(lo, hi);
+  return -clamp(d, 0.35, Math.min(fd - 0.18, VIS_DEPTH));
 }
-function newFish(focus, rmin, rmax){
-  const sp = pickSpecies();
-  const L = lerp(sp.minLen, sp.maxLen, Math.pow(Math.random(), 1.9));
+function newFish(focus, rmin, rmax, spForce){
   let x, z, k = 0;
   do { const a = rand(0, TAU), d = rand(rmin, rmax); x = focus[0] + Math.cos(a)*d; z = focus[2] + Math.sin(a)*d; } while (insideHull(x, z, 1.5) && ++k < 20);
+  const sp = spForce || pickSpecies(x, z);
+  const L = lerp(sp.minLen, sp.maxLen, Math.pow(Math.random(), 1.9));
   return { sp, len: L, weight: sp.wk*Math.pow(L*100, 3), pos: [x, fishDepthFor(sp, x, z), z],
     heading: rand(-Math.PI, Math.PI), pitch: 0, speed: sp.speed*0.5, tailPh: rand(0, TAU), tail: 0,
     state: 'wander', target: null, ty: 0, timer: 0, think: rand(0, 1), cooldown: rand(0, 4) };
@@ -201,6 +212,12 @@ function updateFish(f, dt){
     swim(f, f.target[0], f.ty, f.target[2], f.cruise, dt, 1.4);
     if (f.think <= 0){ f.think = 1; interest(f); }
     break; }
+  case 'cruise':      // passing visitor (whale, shark, sunfish …): swims through and leaves
+    swim(f, f.target[0], f.ty, f.target[2], f.cruise, dt, 0.5);
+    if (f.pos[1] > -1.2 && Math.random() < dt*0.08) Rn.splash(f.pos[0], f.pos[2], 0.25, 0.04);
+    if (dist2(f.pos, f.target) < 4){ fishes.splice(fishes.indexOf(f), 1); return; }
+    if (f.think <= 0){ f.think = 1; if (!f.sp.sight) interest(f); }
+    break;
   case 'flee':
     swim(f, f.target[0], f.ty, f.target[2], sp.speed*2.0, dt, 3.5);
     if (f.timer <= 0){ f.state = 'wander'; f.target = null; }
@@ -231,12 +248,12 @@ function updateFish(f, dt){
     if (f.state === 'inspect' && f.timer <= 0){
       const bait = curItem();
       const size = (f.len - sp.minLen)/(sp.maxLen - sp.minLen);
-      const p = (sp.pref[bait.id]||0) * depthMatch(sp, -rig.bait[1], rig.bait[0], rig.bait[2]) * (0.85 - sp.wary*0.45*size);
+      const p = Math.min(0.95, 1.6*biteFactor(sp, -rig.bait[1], rig.bait[0], rig.bait[2])) * (0.85 - sp.wary*0.45*size);
       if (Math.random() < p){ f.state = 'nibble'; f.nibbles = sp.bite === 'rise' ? Math.floor(rand(0, 3)) : Math.floor(rand(1, 4)); f.timer = rand(0.35, 0.8); }
       else flee(f, rig.bait, rand(12, 25));
     } else if (f.state === 'nibble' && f.timer <= 0){
       if (f.nibbles-- > 0){ rig.bobV -= sp.bite === 'rise' ? 0.18 : 0.32; f.timer = rand(0.4, 1.1); Rn.splash(rig.pos[0], rig.pos[2], 0.035, 0.008); }
-      else { f.state = 'take'; f.timer = sp.bite === 'rise' ? rand(1.6, 2.2) : rand(1.0, 1.5); rig.take = { style: sp.bite, t: 0 }; }
+      else { f.state = 'take'; f.timer = (sp.bite === 'rise' ? rand(1.6, 2.2) : rand(1.0, 1.5))*tierOf('hook').window; rig.take = { style: sp.bite, t: 0 }; }
     } else if (f.state === 'take'){
       if (sp.bite === 'sink'){ // swim off with the bait, dragging the float under
         const a = f.heading; f.pos[0] += Math.cos(a)*0.22*dt; f.pos[2] += Math.sin(a)*0.22*dt; f.pos[1] -= 0.05*dt;
@@ -264,7 +281,7 @@ function updateFish(f, dt){
     if (f.think <= 0 && dm < 0.6){
       f.think = 0.5;
       const recent = (G.time - L.toggleT) < 0.9;
-      const p = 0.2*(sp.pref[curItem().id]||0)*sp.aggr*(recent ? 2.3 : 1)*(L.falling ? 1.4 : 1)*(1 - 0.3*sp.wary);
+      const p = 0.3*biteFactor(sp, -L.pos[1], L.pos[0], L.pos[2])*sp.aggr*(recent ? 2.0 : 1)*(L.falling ? 1.3 : 1)*(1 - 0.3*sp.wary);
       if (Math.random() < p){ strike(f); break; }
       if (Math.random() < 0.09) flee(f, L.pos, rand(8, 16));
     }
@@ -285,20 +302,20 @@ function updateFish(f, dt){
   }
 }
 function interest(f){
-  if (f.cooldown > 0) return;
+  if (f.cooldown > 0 || f.sp.sight) return;
   const sp = f.sp;
   if (G.state === 'wait' && G.mode === 'pole' && G.rig && G.rig.settled && !G.rig.baitGone){
     const rig = G.rig, d = dist3(f.pos, rig.bait);
     const scent = Math.min(1, rig.age/20);
     const radius = 6 + (curItem().id === 'paste' ? 4*scent : 1.5*scent);
     if (d < radius){
-      const p = 0.16*(sp.pref[curItem().id]||0)*depthMatch(sp, -rig.bait[1], rig.bait[0], rig.bait[2])*(0.6 + 0.4*scent);
+      const p = 0.2*biteFactor(sp, -rig.bait[1], rig.bait[0], rig.bait[2])*(0.6 + 0.4*scent);
       if (Math.random() < p){ f.state = 'approach'; f.timer = 0; }
     }
   } else if (G.state === 'wait' && G.mode === 'lure' && G.lure && !G.strike){
     const L = G.lure, d = dist3(f.pos, L.pos);
     if (d < 7 && L.active && dist2(L.pos, tipXZ()) > 4.5){
-      const p = 0.35*(sp.pref[curItem().id]||0)*sp.aggr*(L.falling ? 1.3 : 1);
+      const p = 0.4*biteFactor(sp, -L.pos[1], L.pos[0], L.pos[2])*sp.aggr*(L.falling ? 1.3 : 1);
       if (Math.random() < p){ f.state = 'chase'; f.think = 0.5; }
     }
   }
@@ -310,10 +327,10 @@ function manageFish(dt){
   const c = focusPoint();
   for (let i = fishes.length-1; i >= 0; i--){
     const f = fishes[i];
-    if (f.state !== 'hooked' && f !== G.engaged && dist2(f.pos, c) > 30) fishes.splice(i, 1);
+    if (f.state !== 'hooked' && f !== G.engaged && dist2(f.pos, c) > (f.visitor ? 80 : 30)) fishes.splice(i, 1);
   }
-  while (fishes.filter(f => f.state !== 'hooked').length < FISH_N) fishes.push(newFish(c, 15, 24));
-  for (const f of fishes) updateFish(f, dt);
+  while (fishes.filter(f => f.state !== 'hooked' && !f.visitor).length < FISH_N) fishes.push(newFish(c, 15, 24));
+  for (const f of fishes.slice()) updateFish(f, dt);
   if (Math.abs(G.boatV) > 1.2) for (const f of fishes) if (f.state === 'wander' && dist2(f.pos, BOAT.pos) < 4 + Math.abs(G.boatV)) flee(f, BOAT.pos, 4);
 }
 
@@ -323,7 +340,7 @@ function startCharge(){
   G.state = 'charge'; G.chargeT = 0; G.power = 0;
 }
 function landingPoint(power){
-  const m = modeCfg(), e = eyeWorld(), d = lerp(m.minCast, m.maxCast, power);
+  const m = modeCfg(), e = eyeWorld(), d = lerp(m.minCast, m.maxCast*castScale(), power);
   let p = add(e, mul(yawDir(G.aimYaw), d)); p[1] = 0;
   let k = 0; while (insideHull(p[0], p[2], 0.6) && ++k < 40) p = add(p, mul(yawDir(G.aimYaw), 0.2));
   return p;
@@ -408,14 +425,16 @@ function updateLure(dt){
   const it = curItem();
   const reeling = mouse.down;
   if (reeling !== L.reeling){ L.reeling = reeling; L.toggleT = G.time; }
+  L.duty = lerp(L.duty ?? 0.6, reeling ? 1 : 0, Math.min(1, dt/3));   // share of time spent reeling: slow stop-and-go vs steady fast
   const t = tipXZ();
   const dx = t[0] - L.pos[0], dz = t[2] - L.pos[2], dh = Math.hypot(dx, dz) || 1;
   const fd = floorDepth(L.pos[0], L.pos[2]);
   const bottom = -Math.min(fd - 0.04, VIS_DEPTH);
   if (reeling){
-    const sp = it.reel;
+    const sp = it.reel*reelScale();
     L.hv[0] = lerp(L.hv[0], dx/dh*sp, Math.min(1, dt*6)); L.hv[1] = lerp(L.hv[1], dz/dh*sp, Math.min(1, dt*6));
-    const ty = it.diveDepth > 0 ? -Math.min(it.diveDepth, fd - 0.15) : bottom + 0.2;
+    const ty = it.idle === 'surface' ? -0.03 : it.diveDepth > 0 ? -Math.min(it.diveDepth, fd - 0.15) : bottom + 0.2;
+    if (it.idle === 'surface'){ G.popT = (G.popT || 0) - dt; if (G.popT <= 0){ G.popT = 0.35; Rn.splash(L.pos[0], L.pos[2], 0.06, 0.02); } }
     L.pos[1] += clamp(ty - L.pos[1], -0.55*dt, 0.55*dt);
     // the line angle lifts the lure as it comes close
     if (dh < 6) L.pos[1] = Math.max(L.pos[1], -dh*0.25);
@@ -424,14 +443,16 @@ function updateLure(dt){
     const k = Math.exp(-dt*3); L.hv[0] *= k; L.hv[1] *= k;
     if (it.idle === 'float') L.pos[1] = Math.min(-0.02, L.pos[1] + 0.16*dt);
     else if (it.idle === 'sink') L.pos[1] -= 0.45*dt;
+    else if (it.idle === 'fastsink') L.pos[1] -= 0.95*dt;
+    else if (it.idle === 'surface') L.pos[1] = -0.03;
     else L.pos[1] -= 0.18*dt;
   }
   L.pos[1] = clamp(L.pos[1], bottom, -0.02);
   L.pos[0] += L.hv[0]*dt; L.pos[2] += L.hv[1]*dt;
   L.speed = Math.hypot(L.hv[0], L.hv[1]);
   L.bottom = L.pos[1] <= bottom + 0.005;
-  L.falling = !reeling && it.idle !== 'float' && !L.bottom;
-  L.active = L.speed > 0.12 || L.falling || (it.idle === 'float' && L.pos[1] < -0.05);
+  L.falling = !reeling && it.idle !== 'float' && it.idle !== 'surface' && !L.bottom;
+  L.active = L.speed > 0.12 || L.falling || (it.idle === 'float' && L.pos[1] < -0.05) || (it.idle === 'surface' && G.time - L.toggleT < 1.5);
   // orientation: faces the rod while moving, wobbles; nose down while sinking
   let yaw = Math.atan2(dz, dx);
   if (L.speed > 0.1) yaw += Math.sin(G.time*(it.id === 'spoon' ? 20 : 14))*(it.id === 'softworm' ? 0.1 : 0.28);
@@ -450,7 +471,7 @@ function strike(f){
   const L = G.lure;
   if (L.pos[1] > -0.6){ Rn.splash(L.pos[0], L.pos[2], 0.12, 0.05); sfx.splash(0.3); }
   if (mouse.down){ hookFish(f); return; }
-  G.strike = { f, t: 0.5 };
+  G.strike = { f, t: 0.5*tierOf('hook').window };
   say('바이트! 감아요!', 0.8, 'hot');
 }
 
@@ -517,7 +538,7 @@ function updateFight(dt){
   if (G.mode === 'lure'){
     if (lift){
       T += 0.08 + 0.3*pullNow;
-      F.lineOut -= (d < F.lineOut - 0.3 ? 1.7 : 1.25*(1 - 0.55*Math.min(F.tension, 1)))*dt;
+      F.lineOut -= (d < F.lineOut - 0.3 ? 1.7 : 1.25*(1 - 0.55*Math.min(F.tension, 1)))*reelScale()*dt;
       AU.reelT -= dt; if (AU.reelT <= 0){ sfx.click(0.03); AU.reelT = 0.07; }
     }
   } else {
@@ -525,6 +546,7 @@ function updateFight(dt){
     if (d < F.lineOut - 0.3) F.lineOut = Math.max(d + 0.3, F.lineOut - 1.5*dt);   // the angler raises the pole to keep contact
     T *= 0.72;
   }
+  T *= rodAbsorb();
   const slack = F.lineOut - d;
   if (slack > 0.2) T *= clamp(1 - (slack - 0.2)/1.2, 0, 1);
   if (G.mode === 'lure'){
@@ -549,7 +571,7 @@ function updateFight(dt){
   // outcomes
   if (F.tension > 1.0){ F.breakT += dt; if (F.breakT > 0.6) return lose('break'); } else F.breakT = Math.max(0, F.breakT - dt*0.7);
   if (G.mode === 'lure' && F.lineOut > 120) return lose('spool');
-  if (F.tension < 0.05 && f.stamina > 0.15){ F.slackT += dt; if (F.slackT > 1.8 && Math.random() < dt*0.6) return lose('slack'); } else F.slackT = Math.max(0, F.slackT - dt);
+  if (F.tension < 0.05 && f.stamina > 0.15){ F.slackT += dt; if (F.slackT > 1.8 && Math.random() < dt*0.6*hookHold()) return lose('slack'); } else F.slackT = Math.max(0, F.slackT - dt);
   if (F.lineOut <= 2.4 && d <= 2.9){
     if (f.stamina < 0.4) return landFish();
     f.run.heading = Math.atan2(away[1], away[0]) + rand(-0.5, 0.5); f.run.burst = true; f.run.timer = 1.5; F.lineOut = 2.4;
@@ -565,7 +587,7 @@ function lose(why){
 }
 function landFish(){
   const f = G.hooked, sp = f.sp;
-  const pts = Math.round(f.weight*100*sp.rare + f.len*100);
+  const pts = Math.round(20 + Math.sqrt(f.weight)*60*sp.rare + f.len*40);
   const rec = { name: sp.name, len: f.len, weight: f.weight, pts, sp };
   const prev = G.best[sp.id];
   const isBest = !prev || f.len > prev.len;
@@ -574,8 +596,10 @@ function landFish(){
   fishes.splice(fishes.indexOf(f), 1);
   G.hooked = null; G.fight = null; G.state = 'result';
   Rn.splash(f.pos[0], f.pos[2], 0.2, 0.05); sfx.splash(0.6); sfx.win();
+  P.coins += pts;
   showCard(rec, isBest && !!prev, !prev);
-  updateLog();
+  questEvent({ type: 'catch', rec });
+  updateLog(); save();
 }
 
 /* ---------------- UI ---------------- */
@@ -587,6 +611,8 @@ function showCard(r, record, first){
   c.querySelector('.wt').textContent = kg(r.weight);
   c.querySelector('.pts').textContent = '+' + r.pts + '점';
   c.querySelector('.badge').textContent = first ? '첫 포획! 도감 등록' : record ? '개인 최대어 갱신!' : '';
+  c.querySelector('.tipc').textContent = (r.sp.tip ? '💡 ' + r.sp.tip : '') + (r.sp.feeding ? ` · ${r.sp.feeding}` : '');
+  c.querySelector('.pts').textContent = `+${r.pts}점 · +${r.pts}🪙`;
   drawFishIcon(c.querySelector('canvas'), r.sp);
   c.hidden = false;
 }
@@ -616,6 +642,7 @@ function drawFishIcon(cv, sp){
 function mulberry32(a){ return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0)/4294967296; }; }
 function updateLog(){
   $('score').textContent = G.score.toLocaleString();
+  $('coins').textContent = P.coins.toLocaleString() + '🪙';
   $('count').textContent = G.catches.length;
   const ul = $('catches'); ul.innerHTML = '';
   for (const c of G.catches.slice(0, 7)){
@@ -627,6 +654,7 @@ function updateLog(){
   const got = SPECIES.filter(s => G.best[s.id]).length;
   $('dexcount').textContent = `도감 ${got}/${SPECIES.length} · 이 지역 어종`;
   for (const [id] of BIOMES[REGION.biome].fish){ const s = BY_ID[id]; const b = G.best[s.id]; const el = document.createElement('span'); el.className = b ? 'got' : ''; el.title = b ? `${s.name} 최대 ${(b.len*100).toFixed(1)}cm` : '미발견'; el.textContent = b ? s.name : '?'; dex.appendChild(el); }
+  for (const [id] of BIOMES[REGION.biome].visitors || []){ const s = BY_ID[id]; if (!s.sight) continue; const n = P.sightings[id]; const el = document.createElement('span'); el.className = n ? 'got' : ''; el.title = n ? `${s.name} 목격 ${n}회` : '미목격 (관찰 대상)'; el.textContent = n ? (s.icon || '👀') + s.name : '👀?'; dex.appendChild(el); }
 }
 function buildToolbar(){
   const modes = $('modes'); modes.innerHTML = '';
@@ -636,6 +664,7 @@ function buildToolbar(){
   }
   const items = $('items'); items.innerHTML = '';
   modeCfg().items.forEach((it, i) => {
+    if (!P.owned[it.id]) return;
     const b = document.createElement('button'); b.textContent = itemName(it); b.title = it.desc; b.className = G.item[G.mode] === i ? 'on' : '';
     b.onclick = e => { e.stopPropagation(); setItem(i); }; items.appendChild(b);
   });
@@ -647,12 +676,13 @@ function setMode(k){
 }
 function setItem(i){
   if (G.state !== 'idle' && G.state !== 'charge' && G.state !== 'boat'){ say('채비를 회수한 뒤 바꿀 수 있어요 (R)', 1.8); return; }
+  if (!P.owned[modeCfg().items[i].id]) return;
   G.item[G.mode] = i; buildToolbar(); say((G.mode === 'pole' ? '미끼: ' : '루어: ') + itemName(curItem()), 1.2);
 }
 const HELP = {
   idle: () => (G.mode === 'pole'
     ? '<b>좌클릭 길게</b> 캐스팅 · <b>우클릭 드래그 / A·D</b> 방향 · <b>휠</b> 찌 수심 · <b>1/2</b> 채비 · <b>B</b> 미끼'
-    : '<b>좌클릭 길게</b> 캐스팅 · <b>우클릭 드래그 / A·D</b> 방향 · <b>휠</b> 드랙 · <b>1/2</b> 채비 · <b>B</b> 루어') + ' · <b>Tab</b> 보트 운전 · <b>M</b> 지도',
+    : '<b>좌클릭 길게</b> 캐스팅 · <b>우클릭 드래그 / A·D</b> 방향 · <b>휠</b> 드랙 · <b>1/2</b> 채비 · <b>B</b> 루어') + ' · <b>Tab</b> 보트 · <b>M</b> 지도 · <b>Q</b> 퀘스트 · <b>P</b> 상점 · <b>T</b> 시간',
   boat: () => '<b>W/S</b> 전진·후진 · <b>A/D</b> 방향 · <b>드래그</b> 시점 · <b>휠</b> 줌 · 어탐기로 수심·어군 확인 · <b>Tab</b> 낚시 · <b>M</b> 지도',
   charge: () => '버튼을 놓으면 던집니다',
   fly: () => '',
@@ -732,7 +762,7 @@ hud.addEventListener('pointerup', up); hud.addEventListener('pointercancel', up)
 window.addEventListener('blur', () => { mouse.down = false; mouse.rdown = false; for (const k in keys) keys[k] = false; });
 hud.addEventListener('wheel', e => { e.preventDefault(); wheel(e.deltaY < 0 ? 1 : -1); }, { passive: false });
 window.addEventListener('keydown', e => {
-  if (G.mapOpen){ if (e.code === 'Escape' || e.code === 'KeyM') closeMap(); return; }
+  if (G.mapOpen){ if (!$('shop').hidden){ if (e.code === 'Escape' || e.code === 'KeyP') closeShop(); } else if (e.code === 'Escape' || e.code === 'KeyM') closeMap(); return; }
   if (e.repeat && !['KeyA','KeyD','KeyW','KeyS','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.code)) return;
   keys[e.code] = true; audioInit();
   switch (e.code){
@@ -740,7 +770,10 @@ window.addEventListener('keydown', e => {
     case 'KeyM': openMap(); break;
     case 'Digit1': setMode('pole'); break;
     case 'Digit2': setMode('lure'); break;
-    case 'KeyB': setItem((G.item[G.mode] + 1) % modeCfg().items.length); break;
+    case 'KeyB': { const its = modeCfg().items; let i = G.item[G.mode]; do { i = (i + 1) % its.length; } while (!P.owned[its[i].id]); setItem(i); break; }
+    case 'KeyQ': toggleQuests(); break;
+    case 'KeyP': openShop(); break;
+    case 'KeyT': skipTime(); break;
     case 'KeyR': retrieve(); break;
     case 'KeyH': G.help = !G.help; say(G.help ? '입질 표시 켬' : '입질 표시 끔', 1.2); break;
     case 'Space': e.preventDefault(); if (!mouse.down){ mouse.down = true; mouse.downT = G.time; press(); } break;
@@ -800,6 +833,28 @@ function updateTouchUI(){
   const adj = G.state === 'boat' ? '줌' : pole ? '수심' : '드랙';
   const key = lbl + hot + adj + G.state;
   if (key !== actCache){ actCache = key; act.innerHTML = lbl; act.classList.toggle('hot', !!hot); $('tadj').textContent = adj; $('tnav').textContent = G.state === 'boat' ? '🎣' : '⛵'; }
+}
+function toggleQuests(){ const q = $('questbox'); q.hidden = !q.hidden; if (!q.hidden) renderQuests(); }
+$('navquest').addEventListener('click', e => { e.stopPropagation(); toggleQuests(); });
+$('questclose').addEventListener('click', e => { e.stopPropagation(); $('questbox').hidden = true; });
+$('navshop').addEventListener('click', e => { e.stopPropagation(); openShop(); });
+$('shopclose').addEventListener('click', closeShop);
+$('shop').addEventListener('pointerdown', e => { if (e.target === $('shop')) closeShop(); });
+$('navtime').addEventListener('click', e => { e.stopPropagation(); skipTime(); });
+let targetT = 0;
+function updateTarget(dt){
+  $('clock').textContent = `${fmtClock()} ${PERIOD_NAME[period()]}`;
+  targetT -= dt; if (targetT > 0) return; targetT = 0.4;
+  const el = $('target'), sp = questTarget();
+  if (!sp || !(G.state === 'idle' || G.state === 'wait' || G.state === 'charge')){ el.hidden = true; return; }
+  const { v, parts } = matchRating(sp);
+  const names = { bait: G.mode === 'pole' ? '미끼가 안 맞아요' : '루어가 안 맞아요', depth: `수심이 안 맞아요 (${depthBand(sp)[0].toFixed(1)}–${depthBand(sp)[1].toFixed(1)}m${sp.zone === 'bottom' ? ', 바닥층' : sp.zone === 'top' ? ', 수면층' : ''})`,
+    time: `지금은 활성도가 낮아요 (${Object.entries(sp.act).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k]) => PERIOD_NAME[k]).join('·')}에 활발)`, gear: '원줄이 너무 굵어 경계해요', retrieve: `감기 속도: ${ {slow:'느리게(감다 멈추기)', medium:'보통', fast:'빠르게 계속'}[sp.retrieve] }` };
+  const worst = Object.entries(parts).sort((a, b) => a[1] - b[1])[0];
+  const habitatNote = habitat(sp, floorDepth(...(G.rig ? [G.rig.pos[0], G.rig.pos[2]] : G.lure ? [G.lure.pos[0], G.lure.pos[2]] : [BOAT.pos[0], BOAT.pos[2]]))) < 0.5 ? ' · 여기는 서식 수심이 아니에요' : '';
+  el.innerHTML = `🎯 <b>${sp.name}</b> 공략도 <span class="st">${stars(v)}</span><br><span class="why">${worst[1] < 0.6 ? names[worst[0]] : '좋은 조건이에요!'}${habitatNote}</span>`;
+  el.hidden = false;
+  el.style.top = TOUCH.on ? '' : ($('toolbar').offsetHeight + 24) + 'px';
 }
 $('navfish').addEventListener('click', e => { e.stopPropagation(); audioInit(); setNav(false); });
 $('navboat').addEventListener('click', e => { e.stopPropagation(); audioInit(); setNav(true); });
@@ -884,8 +939,8 @@ function rodSpec(){
 }
 function scene(dt){
   const S = { t: G.time, dt, cam: { pos: cam.pos, look: cam.look }, boat: BOAT, fish: [], lure: null, bobber: null, lineUnder: null, lineTo: null, lineSag: 0, flyObj: null };
-  const byDist = fishes.slice().sort((a, b) => dist3(a.pos, cam.pos) - dist3(b.pos, cam.pos));
-  S.fish = byDist.slice(0, 12).map(f => ({ pos: f.pos, len: f.len, dir: fishDir(f), tail: f.tail, back: f.sp.back, belly: f.sp.belly, pattern: f.sp.pattern, hr: f.sp.hr }));
+  const byDist = fishes.slice().sort((a, b) => dist3(a.pos, cam.pos) - (a.visitor ? 25 : 0) - dist3(b.pos, cam.pos) + (b.visitor ? 25 : 0));
+  S.fish = byDist.slice(0, 12).map(f => ({ pos: f.pos, len: f.len, dir: fishDir(f), tail: f.tail, back: f.sp.back, belly: f.sp.belly, pattern: f.sp.pattern, hr: f.sp.hr, shape: f.sp.shape }));
   const rod = rodSpec(); S.rod = G.state === 'boat' ? null : rod;
   S.hideRod = dist3(cam.pos, eyeWorld()) > 2.0;
   if (G.state === 'boat') return S;
@@ -1036,6 +1091,231 @@ function updateGauges(){
   $('navfish').className = G.state === 'boat' ? '' : 'on'; $('navboat').className = G.state === 'boat' ? 'on' : '';
 }
 
+/* ---------------- time of day ---------------- */
+const PERIOD_NAME = { dawn: '새벽', day: '낮', dusk: '해질녘', night: '밤' };
+function period(h){ h = h ?? G.clock; return h >= 4.5 && h < 7.5 ? 'dawn' : h >= 7.5 && h < 17 ? 'day' : h >= 17 && h < 19.8 ? 'dusk' : 'night'; }
+function activity(sp){ return Math.max(0.05, (sp.act || {})[period()] ?? 0.7); }
+function updateClock(dt){
+  G.clock = (G.clock + dt/GAME_HOUR) % 24;
+  const lat = REGION.spot.lat, h = G.clock;
+  const noon = clamp(90 - Math.abs(lat - 10), 22, 82);
+  const el = noon*Math.sin(Math.PI*(h - 5.5)/13.5);           // sunrise 05:30, sunset 19:00
+  const az = lat >= 0 ? 90 + (h - 5.5)*13.3 : 90 - (h - 5.5)*13.3;
+  const dayK = clamp((el + 6)/16, 0, 1), warm = el > 0 ? 1 - clamp((el - 2)/22, 0, 1) : 1;
+  Rn.setLight(el, az, dayK, warm);
+}
+function skipTime(){
+  if (G.state !== 'idle' && G.state !== 'boat') return;
+  const order = [['dawn', 5], ['day', 10], ['dusk', 17.5], ['night', 21]];
+  const i = order.findIndex(o => o[0] === period());
+  const [p, h] = order[(i + 1) % order.length];
+  G.clock = h; say(`⏩ ${PERIOD_NAME[p]} (${fmtClock()})`, 1.6);
+}
+function fmtClock(){ const h = Math.floor(G.clock), m = Math.floor((G.clock - h)*60); return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`; }
+
+/* ---------------- bite model: does the angler's approach match how this species feeds? ---------------- */
+function depthFactor(sp, d, x, z){
+  const fd = floorDepth(x, z), [lo, hi] = depthBand(sp);
+  let f = d < lo ? Math.exp(-(lo - d)/1.2) : d > hi ? Math.exp(-(d - hi)/1.2) : 1;
+  if (sp.zone === 'bottom' && fd - d > 0.8) f *= 0.3;        // bottom feeders want the bait on or near the bed
+  if (sp.zone === 'top' && d > 1.6) f *= 0.45;
+  return Math.max(0.03, f);
+}
+function retrieveFactor(sp){
+  if (G.mode !== 'lure' || !G.lure) return 1;
+  const duty = G.lure.duty, got = duty < 0.45 ? 'slow' : duty > 0.85 ? 'fast' : 'medium';
+  if (got === sp.retrieve) return 1.25;
+  return (got === 'medium' || sp.retrieve === 'medium') ? 0.7 : 0.35;
+}
+function gearFactor(sp){ const k = lineKg()/baseLineKg(); return 1 - sp.wary*clamp((k - 1)*0.3, 0, 0.6); }   // thick line spooks wary fish
+function biteFactor(sp, d, x, z){
+  if (sp.sight) return 0;
+  return (sp.pref[curItem().id] || 0) * depthFactor(sp, d, x, z) * activity(sp) * gearFactor(sp) * retrieveFactor(sp);
+}
+// 0..1 rating of the current rig for a species (shown for the quest target)
+function matchRating(sp){
+  let d, x, z;
+  if (G.rig){ d = -G.rig.bait[1]; x = G.rig.pos[0]; z = G.rig.pos[2]; }
+  else if (G.lure){ d = -G.lure.pos[1]; x = G.lure.pos[0]; z = G.lure.pos[2]; }
+  else { const p = landingPoint(0.5); x = p[0]; z = p[2]; d = G.mode === 'pole' ? Math.min(G.depthSet, floorDepth(x, z) - 0.03) : 1; }
+  const parts = { bait: sp.pref[curItem().id] || 0, depth: depthFactor(sp, d, x, z), time: activity(sp), gear: gearFactor(sp), retrieve: Math.min(1, retrieveFactor(sp)) };
+  const v = parts.bait*parts.depth*parts.time*parts.gear*parts.retrieve;
+  return { v, parts };
+}
+
+/* ---------------- save data ---------------- */
+const SAVE_KEY = 'boatfish.v2';
+const P = { coins: 200, owned: {}, tier: { rod: 0, reel: 0, line: 0, hook: 0, sonar: 0, engine: 0 }, sightings: {}, quests: [], done: 0 };
+for (const it of [...BAITS, ...LURES]) if (!it.cost) P.owned[it.id] = true;
+function save(){
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify({ P, best: G.best, score: G.score, catches: G.catches.slice(0, 30).map(c => ({ id: c.sp.id, len: c.len, weight: c.weight, pts: c.pts })), clock: G.clock, spot: REGION && REGION.spot })); } catch(e){}
+}
+function load(){
+  try {
+    const d = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); if (!d) return null;
+    Object.assign(P.tier, d.P.tier || {}); Object.assign(P.owned, d.P.owned || {}); P.coins = d.P.coins ?? P.coins;
+    P.sightings = d.P.sightings || {}; P.quests = (d.P.quests || []).filter(q => q.sp ? BY_ID[q.sp] : true); P.done = d.P.done || 0;
+    G.score = d.score || 0; G.clock = d.clock ?? G.clock;
+    for (const k in (d.best || {})) if (BY_ID[k]) G.best[k] = Object.assign(d.best[k], { sp: BY_ID[k] });
+    G.catches = (d.catches || []).filter(c => BY_ID[c.id]).map(c => ({ ...c, sp: BY_ID[c.id], name: BY_ID[c.id].name }));
+    return d.spot || null;
+  } catch(e){ return null; }
+}
+
+/* ---------------- gear ---------------- */
+function shopItem(id){ return SHOP.find(s => s.id === id); }
+function tierOf(id){ return shopItem(id).tiers[P.tier[id]]; }
+function baseLineKg(){ return G.mode === 'pole' ? (isSalt() ? 6 : 4) : (isSalt() ? 14 : 7); }
+function castScale(){ return tierOf('rod').cast; }
+function rodAbsorb(){ return tierOf('rod').absorb; }
+function reelScale(){ return tierOf('reel').speed; }
+function hookHold(){ return tierOf('hook').hold; }
+function boatMax(){ return tierOf('engine').speed; }
+
+/* ---------------- rare visitors: whales, sharks, sunfish … sometimes just swim past ---------------- */
+function updateVisitors(dt){
+  G.visitT = (G.visitT ?? 8) - dt;
+  if (G.visitT > 0) return;
+  G.visitT = 10;
+  if (fishes.some(f => f.visitor)) return;
+  const list = BIOMES[REGION.biome].visitors || [];
+  for (const [id, perMin] of list){
+    if (Math.random() < perMin*10/60){ spawnVisitor(BY_ID[id]); break; }
+  }
+}
+function spawnVisitor(sp){
+  const c = focusPoint(), a = rand(0, TAU), side = rand(-9, 9);
+  const dir = [Math.cos(a), Math.sin(a)], perp = [-dir[1], dir[0]];
+  const start = [c[0] - dir[0]*38 + perp[0]*side, 0, c[2] - dir[1]*38 + perp[1]*side];
+  const f = newFish(start, 0, 0.1, sp);
+  f.pos = [start[0], 0, start[2]];
+  const fd = floorDepth(start[0], start[2]);
+  f.pos[1] = -clamp(rand(sp.dmin, Math.min(sp.dmax, VIS_DEPTH - 1)), 0.6 + f.len*0.12, Math.max(1, fd - f.len*0.2));
+  f.state = 'cruise'; f.visitor = true; f.cruise = sp.speed*rand(0.7, 1);
+  f.target = [c[0] + dir[0]*45 + perp[0]*side, 0, c[2] + dir[1]*45 + perp[1]*side]; f.ty = f.pos[1];
+  f.heading = Math.atan2(dir[1], dir[0]);
+  fishes.push(f);
+}
+function checkSightings(){
+  for (const f of fishes){
+    if (!f.visitor || f.seen) continue;
+    const s = Rn.project(f.pos); if (!s) continue;
+    if (s[0] < 0 || s[0] > innerWidth || s[1] < 0 || s[1] > innerHeight) continue;
+    if (dist3(f.pos, cam.pos) > 38) continue;
+    f.seen = true;
+    const first = !P.sightings[f.sp.id];
+    P.sightings[f.sp.id] = (P.sightings[f.sp.id] || 0) + 1;
+    const bonus = first ? f.sp.sightCoins || 300 : Math.round((f.sp.sightCoins || 300)*0.2);
+    P.coins += bonus;
+    say(`${f.sp.icon || '👀'} ${f.sp.name} 목격! +${bonus}🪙${first ? ' (첫 목격)' : ''}`, 3.5, 'hot');
+    sfx.win();
+    questEvent({ type: 'sight', sp: f.sp });
+    updateLog(); save();
+  }
+}
+
+/* ---------------- quests ---------------- */
+function catchables(biome){ return BIOMES[biome].fish.map(([id, w]) => [BY_ID[id], w]).filter(([sp]) => !sp.sight); }
+function genQuest(){
+  const pool = catchables(REGION.biome);
+  const pick = () => { let t = 0; for (const [, w] of pool) t += w; let r = Math.random()*t; for (const [sp, w] of pool){ r -= w; if (r <= 0) return sp; } return pool[0][0]; };
+  const r = Math.random(); let q;
+  const rareMul = sp => 1 + sp.rare;
+  if (r < 0.34){
+    const sp = pick(), n = sp.rare < 1.2 ? Math.floor(rand(2, 4)) : 1;
+    q = { type: 'species', sp: sp.id, n, got: 0, text: `${sp.name} ${n}마리 잡기`, reward: Math.round(120*n*rareMul(sp)) };
+  } else if (r < 0.6){
+    const sp = pick(), L = Math.round(lerp(sp.minLen, sp.maxLen, rand(0.35, 0.7))*100);
+    q = { type: 'length', sp: sp.id, len: L, got: 0, n: 1, text: `${sp.name} ${L}cm 이상`, reward: Math.round(260*rareMul(sp)*(1 + L/100)) };
+  } else if (r < 0.78){
+    const maxW = Math.max(...pool.map(([sp]) => sp.wk*Math.pow(sp.maxLen*100, 3)));
+    const kgT = Math.max(0.3, Math.round(maxW*rand(0.15, 0.35)*10)/10);
+    q = { type: 'weight', kg: kgT, got: 0, n: 1, text: `이 지역에서 ${kgT}kg 이상 한 마리`, reward: Math.round(200 + kgT*90) };
+  } else if (r < 0.92){
+    const night = pool.filter(([sp]) => (sp.act?.night ?? 0) > 0.7 || (sp.act?.dawn ?? 0) > 0.8);
+    const sp = (night.length ? night[Math.floor(Math.random()*night.length)] : pool[0])[0];
+    const per = ['dawn', 'day', 'dusk', 'night'].reduce((a, b) => (sp.act?.[a] ?? 0) >= (sp.act?.[b] ?? 0) ? a : b);
+    q = { type: 'time', sp: sp.id, period: per, got: 0, n: 1, text: `${PERIOD_NAME[per]}에 ${sp.name} 잡기`, reward: Math.round(220*rareMul(sp)) };
+  } else {
+    const vis = (BIOMES[REGION.biome].visitors || []).map(v => BY_ID[v[0]]);
+    const all = Object.values(BIOMES).flatMap(b => (b.visitors || []).map(v => BY_ID[v[0]]));
+    const sp = (vis.length ? vis : all)[Math.floor(Math.random()*(vis.length || all.length))];
+    q = { type: 'sight', sp: sp.id, got: 0, n: 1, text: `${sp.name} 목격하기`, reward: Math.round((sp.sightCoins || 300)*1.2) };
+  }
+  q.id = Math.random().toString(36).slice(2, 8); q.where = REGION.spot.name;
+  return q;
+}
+function fillQuests(){
+  let guard = 0;
+  while (P.quests.length < 3 && guard++ < 40){
+    const q = genQuest();
+    if (P.quests.some(o => o.text === q.text || (o.sp && o.sp === q.sp && o.type === q.type))) continue;
+    P.quests.push(q);
+  }
+  renderQuests();
+}
+function questEvent(e){
+  let changed = false;
+  for (const q of P.quests){
+    if (q.got >= q.n) continue;
+    let ok = false;
+    if (e.type === 'catch'){
+      const c = e.rec;
+      if (q.type === 'species') ok = c.sp.id === q.sp;
+      else if (q.type === 'length') ok = c.sp.id === q.sp && c.len*100 >= q.len;
+      else if (q.type === 'weight') ok = c.weight >= q.kg && q.where === REGION.spot.name;
+      else if (q.type === 'time') ok = c.sp.id === q.sp && period() === q.period;
+    } else if (e.type === 'sight') ok = q.type === 'sight' && e.sp.id === q.sp;
+    if (ok){ q.got++; changed = true;
+      if (q.got >= q.n){ P.coins += q.reward; P.done++; say(`📜 퀘스트 완료: ${q.text} · +${q.reward}🪙`, 3.5, 'hot'); sfx.win(); q.doneAt = G.time; } }
+  }
+  if (changed){ setTimeout(() => { P.quests = P.quests.filter(q => q.got < q.n); fillQuests(); save(); }, 2500); renderQuests(); }
+}
+function questTarget(){
+  const here = new Set(BIOMES[REGION.biome].fish.map(f => f[0]));
+  const q = P.quests.find(q => q.sp && q.got < q.n && q.type !== 'sight' && here.has(q.sp));
+  return q ? BY_ID[q.sp] : null;
+}
+function stars(v){ const n = v > 0.45 ? 5 : v > 0.25 ? 4 : v > 0.12 ? 3 : v > 0.05 ? 2 : v > 0.015 ? 1 : 0; return '★'.repeat(n) + '☆'.repeat(5 - n); }
+function renderQuests(){
+  const el = $('quests'); if (!el) return;
+  el.innerHTML = P.quests.map(q => {
+    const sp = q.sp ? BY_ID[q.sp] : null;
+    const tip = sp ? `<div class="tip">💡 ${sp.tip || ''}</div>` : '';
+    const prog = q.n > 1 ? ` <span class="prog">${q.got}/${q.n}</span>` : '';
+    return `<div class="q${q.got >= q.n ? ' done' : ''}"><div class="qt"><b>${q.text}</b>${prog}<span class="rw">${q.reward}🪙</span></div>${tip}<div class="qw">${q.where}${q.type === 'sight' ? ' · 관찰 퀘스트' : ''}</div></div>`;
+  }).join('') + `<div class="qfoot">완료한 퀘스트 ${P.done}개 <button id="qreroll">새 퀘스트로 바꾸기</button></div>`;
+  $('qreroll').onclick = e => { e.stopPropagation(); P.quests = []; fillQuests(); save(); };
+}
+
+/* ---------------- shop ---------------- */
+function openShop(){
+  if (G.state !== 'idle' && G.state !== 'boat'){ say('채비를 회수한 뒤 상점을 열 수 있어요 (R)', 1.8); return; }
+  G.mapOpen = true; $('shop').hidden = false; renderShop();
+}
+function closeShop(){ G.mapOpen = false; $('shop').hidden = true; buildToolbar(); }
+function renderShop(){
+  $('coins2').textContent = P.coins.toLocaleString();
+  const up = SHOP.map(s => {
+    const cur = s.tiers[P.tier[s.id]], next = s.tiers[P.tier[s.id] + 1];
+    return `<div class="card"><div class="ct">${s.icon} ${s.name}</div><div class="cur">현재: <b>${cur.name}</b><br><span>${cur.desc}</span></div>` +
+      (next ? `<div class="nx">다음: <b>${next.name}</b><br><span>${next.desc}</span></div><button data-up="${s.id}" ${P.coins < next.cost ? 'disabled' : ''}>${next.cost.toLocaleString()}🪙 업그레이드</button>`
+            : `<div class="nx max">최고 등급</div>`) + `</div>`;
+  }).join('');
+  const items = [...BAITS.map(b => [b, '대낚시 미끼']), ...LURES.map(l => [l, '루어'])].filter(([it]) => it.cost).map(([it, kind]) =>
+    `<div class="card"><div class="ct">${kind} · ${it.name}</div><div class="cur"><span>${it.desc}</span></div>` +
+    (P.owned[it.id] ? `<div class="nx max">보유 중</div>` : `<button data-buy="${it.id}" ${P.coins < it.cost ? 'disabled' : ''}>${it.cost.toLocaleString()}🪙 구매</button>`) + `</div>`).join('');
+  $('shopgrid').innerHTML = `<h3>장비 업그레이드</h3><div class="grid">${up}</div><h3>미끼 · 루어</h3><div class="grid">${items}</div>`;
+  for (const b of $('shopgrid').querySelectorAll('[data-up]')) b.onclick = () => {
+    const s = shopItem(b.dataset.up), next = s.tiers[P.tier[s.id] + 1]; if (!next || P.coins < next.cost) return;
+    P.coins -= next.cost; P.tier[s.id]++; sfx.win(); say(`${s.name} → ${next.name}`, 1.8); save(); renderShop(); updateLog();
+  };
+  for (const b of $('shopgrid').querySelectorAll('[data-buy]')) b.onclick = () => {
+    const it = [...BAITS, ...LURES].find(i => i.id === b.dataset.buy); if (P.coins < it.cost) return;
+    P.coins -= it.cost; P.owned[it.id] = true; sfx.win(); say(`${it.name} 구매!`, 1.6); save(); renderShop(); updateLog();
+  };
+}
+
 /* ---------------- boat driving ---------------- */
 function setNav(boat){
   if (G.mapOpen) return;
@@ -1068,7 +1348,7 @@ function updateBoat(dt){
   let thr = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
   let st = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
   if (JOY.active){ if (Math.abs(JOY.y) > 0.15) thr = -JOY.y; if (Math.abs(JOY.x) > 0.12) st = JOY.x; }
-  if (thr > 0.05) G.boatV = Math.min(8*Math.max(thr, 0.35), G.boatV + (G.boatV < 0 ? 4 : 1.8)*thr*dt) || G.boatV;
+  if (thr > 0.05) G.boatV = Math.min(boatMax()*Math.max(thr, 0.35), G.boatV + (G.boatV < 0 ? 4 : 1.8)*thr*dt) || G.boatV;
   else if (thr < -0.05) G.boatV = Math.max(-2.2, G.boatV + (G.boatV > 0 ? 4 : 1.2)*thr*dt);
   else G.boatV *= Math.exp(-dt*0.45);
   G.boatSteer = lerp(G.boatSteer, st, Math.min(1, dt*4));
@@ -1105,7 +1385,7 @@ function updateSonar(dt){
   SONAR.t = 0.12;
   const d = floorDepth(BOAT.pos[0], BOAT.pos[2]);
   const echoes = [];
-  for (const f of fishes) if (dist2(f.pos, BOAT.pos) < 6 + f.len*4) echoes.push([-f.pos[1], f.len]);
+  for (const f of fishes) if (dist2(f.pos, BOAT.pos) < 6 + f.len*4) echoes.push([-f.pos[1], f.len, f.sp.name]);
   SONAR.cols.push({ d, echoes });
   if (SONAR.cols.length > SONAR.W) SONAR.cols.shift();
 }
@@ -1125,7 +1405,7 @@ function drawSonar(){
     ctx.fillStyle = '#ff5a2a'; ctx.fillRect(x, by, 1, 2);
     ctx.fillStyle = '#b8401c'; ctx.fillRect(x, by + 2, 1, 3);
     ctx.fillStyle = '#6b2a14'; ctx.fillRect(x, by + 5, 1, Math.max(0, top + H - by - 5));
-    for (const [ed, el] of c.echoes){ ctx.fillStyle = el > 0.5 ? '#ff3b3b' : '#ffd84a'; ctx.fillRect(x, top + ed*sy - 1, 1, el > 0.5 ? 3 : 2); }
+    for (const [ed, el] of c.echoes){ ctx.fillStyle = P.tier.sonar ? (el > 1.2 ? '#ff3bd4' : el > 0.5 ? '#ff3b3b' : el > 0.25 ? '#ffd84a' : '#8ff0a8') : '#ffd84a'; ctx.fillRect(x, top + ed*sy - 1, 1, el > 0.5 ? 3 : 2); }
   }
   ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '600 10px system-ui, sans-serif'; ctx.textAlign = 'right';
   for (const r of [range/2, range]) ctx.fillText(r + 'm', x0 + W - 2, top + r*sy - 2);
@@ -1134,6 +1414,11 @@ function drawSonar(){
   ctx.fillText('어탐기', x0, y0 - 8);
   ctx.textAlign = 'right'; ctx.fillStyle = '#fff'; ctx.font = '800 14px system-ui, sans-serif';
   ctx.fillText(d.toFixed(1) + 'm', x0 + W, y0 - 7);
+  if (P.tier.sonar >= 2 && n){
+    const last = SONAR.cols[SONAR.cols.length - 1].echoes;
+    if (last.length){ const big = last.reduce((a, b) => b[1] > a[1] ? b : a); ctx.textAlign = 'left'; ctx.font = '700 11px system-ui, sans-serif'; ctx.fillStyle = '#ffd84a';
+      ctx.fillText(`${big[2]} ${Math.round(big[1]*100)}cm · ${big[0].toFixed(1)}m`, x0 + 2, top + H - 4); }
+  }
   ctx.restore();
 }
 
@@ -1331,6 +1616,7 @@ function update(dt){
     if (keys.KeyW || keys.ArrowUp) G.aimPitch = clamp(G.aimPitch + dt*0.8, -0.9, 0.35);
     if (keys.KeyS || keys.ArrowDown) G.aimPitch = clamp(G.aimPitch - dt*0.8, -0.9, 0.35);
   }
+  updateClock(dt); updateVisitors(dt); checkSightings(); updateTarget(dt);
   applyJoy(dt); updateSonar(dt); updateEngine(); updateTouchUI();
   if (G.state === 'charge'){ G.chargeT += dt; const p = (G.chargeT/1.15) % 2; G.power = p < 1 ? p : 2 - p; }
   if (G.state === 'fly'){ G.fly.t += dt; if (G.fly.t >= G.fly.T) land(); }
@@ -1342,7 +1628,9 @@ function update(dt){
 }
 let last = performance.now(), started = false;
 const SUBSTEPS = Math.max(1, +(new URLSearchParams(location.search).get('sim')) || 1);   // test aid: extra simulation steps per frame
-applyRegion(SPOTS[0], true);
+{ const saved = load(); applyRegion(saved ? (SPOTS.find(s => s.id === saved.id) || saved) : SPOTS[0], true); fillQuests(); }
+{ const v = new URLSearchParams(location.search).get('visit'); if (v && BY_ID[v]) setTimeout(() => spawnVisitor(BY_ID[v]), 500); }
+setInterval(save, 15000);
 function frame(now){
   const dt = Math.min(0.05, (now - last)/1000); last = now;
   if (Rn.ready()){
@@ -1356,5 +1644,5 @@ function frame(now){
 }
 buildToolbar(); updateLog();
 requestAnimationFrame(frame);
-window.__game = { G, fishes, cam, mouse, hookFish, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth };
+window.__game = { G, fishes, cam, mouse, hookFish, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
 })();

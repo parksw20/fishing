@@ -324,6 +324,8 @@ uniform vec4 uFP[MAXF];   // fish: centre xyz, length
 uniform vec4 uFD[MAXF];   // fish: forward xyz, tail angle
 uniform vec4 uFA[MAXF];   // fish: back colour, pattern id
 uniform vec4 uFB[MAXF];   // fish: belly colour, body height ratio
+uniform vec4 uFC[MAXF];   // fish shape: width/length, tail mode (0 fin, 1 fluke, 2 none, 3 sunfish), dorsal scale, tail scale
+uniform vec3 uSunC, uSkyK; uniform float uNight;   // time of day: sun (or moon) radiance, sky tint, night amount
 uniform vec4 uLure;       // lure/bait centre xyz, visible
 uniform vec4 uLureD;      // lure forward xyz, kind
 uniform vec3 uLureS;      // lure semi-axes
@@ -340,7 +342,7 @@ uniform float uLand;           // distant shoreline height (0 = open sea)
 #define SIG_A uSigA
 #define SIG_S uSigS
 #define SIG_T (uSigA + uSigS)
-const vec3 SUN = vec3(1.0, 0.90, 0.74) * 6.0;
+#define SUN uSunC
 const float PI = 3.14159265359;
 const vec3 HULL = vec3(2.05, 0.37, 0.72);
 
@@ -373,6 +375,9 @@ vec3 sky(vec3 d){
   land = mix(land, hor*0.92, 0.38 + 0.25*back);          // aerial perspective
   float w = fwidth(e)*1.2 + 2e-4;
   c = mix(c, land, smoothstep(r+w, r-w, e) * step(-0.3, e) * step(0.01, uLand));
+  c *= uSkyK;
+  // stars at night
+  if (uNight > 0.01 && e > 0.02){ vec2 sq = floor(d.xz/(d.y + 0.25)*260.0); float st = step(0.9993, hash12(sq))*(0.4 + 0.6*hash12(sq + 7.1)); c += vec3(0.9,0.95,1.0)*st*uNight*0.6*smoothstep(0.02, 0.2, e); }
   return c;
 }
 
@@ -470,9 +475,12 @@ vec3 fishAlb(vec3 lp, vec4 A, vec4 Bc){
     c = mix(c, back*0.25, w*0.8);
   } else if (pat < 10.5){                // red breast (piranha, red snapper flank)
     c = mix(c, vec3(0.55,0.10,0.05), smoothstep(-0.05,-0.6,y)*0.85);
-  } else {                               // bright reef colours with scale mesh (parrotfish)
+  } else if (pat < 11.5){               // bright reef colours with scale mesh (parrotfish)
     vec2 q = vec2(x*14.0, y*9.0 + 0.5*floor(x*14.0));
     c = mix(c, c*vec3(1.4,0.8,1.3), 0.25*smoothstep(0.3, 0.5, length(fract(q)-0.5)));
+  } else {                               // pale spots on a dark back (whale shark)
+    vec2 q = vec2(x*16.0, y*9.0); vec2 id = floor(q); vec2 f = fract(q) - 0.5 + (vec2(hash12(id), hash12(id+3.7)) - 0.5)*0.5;
+    c = mix(c, vec3(0.75,0.76,0.72), smoothstep(0.2, 0.12, length(f))*smoothstep(-0.2, 0.2, y));
   }
   c *= 1.9;   // game readability: fish a little brighter than true camouflage
   vec2 e = vec2(x - 0.74, y - 0.16);
@@ -487,25 +495,37 @@ float traceObjects(vec3 ro, vec3 rd, float tMax, out vec3 N, out vec3 alb, out f
   for (int i=0;i<MAXF;i++){
     if (i >= uFishN) break;
     vec4 P4 = uFP[i]; float Lf = P4.w;
-    vec3 oc = ro - P4.xyz; float b = dot(oc, rd), c = dot(oc,oc) - 0.5*Lf*Lf;
+    float br = Lf*max(0.71, 0.5*uFC[i].x + 0.1);   // bounding radius (wide rays need more)
+    vec3 oc = ro - P4.xyz; float b = dot(oc, rd), c = dot(oc,oc) - br*br;
     if (c > 0.0 && (b > 0.0 || b*b < c)) continue;
     vec3 f = uFD[i].xyz; mat3 Bm = fishFrame(f); vec3 up = Bm[1], sd = Bm[2];
-    float hr = uFB[i].w;
+    float hr = uFB[i].w; vec4 sh = uFC[i];
     // body flexes with the tail beat
     float w = uFD[i].w;
     vec3 ctr = P4.xyz + sd*(sin(w)*0.035*Lf);
-    vec3 rad = Lf*vec3(0.5, 0.5*hr, 0.5*hr*0.55);
+    vec3 rad = Lf*vec3(0.5, 0.5*hr, 0.5*sh.x);
     t = iEll(ro, rd, ctr, Bm, rad, lp);
-    if (t > 0.0 && t < bt){ bt = t; N = normalize(Bm*(lp/rad)); alb = fishAlb(lp, uFA[i], uFB[i]); spec = 0.45; }
-    // tail
-    vec3 tf = f*cos(w) + sd*sin(w); mat3 Bt = mat3(tf, up, cross(tf, up));
-    vec3 trad = Lf*vec3(0.11, 0.42*hr, 0.012);
-    t = iEll(ro, rd, P4.xyz - f*0.44*Lf - tf*0.09*Lf, Bt, trad, lp);
-    if (t > 0.0 && t < bt){ bt = t; N = normalize(Bt*(lp/trad)); alb = uFA[i].rgb*1.5 + uFB[i].rgb*0.3; spec = 0.15; }
-    // dorsal fin
-    vec3 drad = Lf*vec3(0.17, 0.20*hr, 0.010);
-    t = iEll(ro, rd, P4.xyz + up*(0.40*hr*Lf) - f*0.04*Lf, Bm, drad, lp);
-    if (t > 0.0 && t < bt){ bt = t; N = normalize(Bm*(lp/drad)); alb = uFA[i].rgb*1.3; spec = 0.1; }
+    if (t > 0.0 && t < bt){ bt = t; N = normalize(Bm*(lp/rad)); alb = fishAlb(lp, uFA[i], uFB[i]); spec = sh.x > 0.5 ? 0.04 : 0.45; }
+    // tail: vertical fin, horizontal fluke (whales), or the sunfish's stubby clavus
+    if (sh.y < 1.5 || sh.y > 2.5){
+      vec3 tf = f*cos(w) + sd*sin(w);
+      mat3 Bt = sh.y > 0.5 && sh.y < 1.5 ? mat3(tf, cross(tf, up), up) : mat3(tf, up, cross(tf, up));
+      vec3 trad = sh.y > 2.5 ? Lf*vec3(0.05, 0.45*hr, 0.02) : Lf*sh.w*vec3(0.11, 0.42*hr, 0.012);
+      if (sh.y > 0.5 && sh.y < 1.5) trad = Lf*sh.w*vec3(0.09, 0.30, 0.012);
+      vec3 tc = sh.y > 2.5 ? P4.xyz - f*0.5*Lf : P4.xyz - f*0.44*Lf - tf*0.09*Lf*sh.w;
+      t = iEll(ro, rd, tc, Bt, trad, lp);
+      if (t > 0.0 && t < bt){ bt = t; N = normalize(Bt*(lp/trad)); alb = uFA[i].rgb*1.5 + uFB[i].rgb*0.3; spec = 0.15; }
+    }
+    // dorsal fin (mirrored as an anal fin on the sunfish)
+    if (sh.z > 0.01){
+      vec3 drad = Lf*vec3(0.17/max(sh.z,1.0)*1.2, 0.20*hr*sh.z, 0.010);
+      t = iEll(ro, rd, P4.xyz + up*(0.40*hr*Lf*min(sh.z,1.6)) - f*(sh.y > 2.5 ? 0.3 : 0.04)*Lf, Bm, drad, lp);
+      if (t > 0.0 && t < bt){ bt = t; N = normalize(Bm*(lp/drad)); alb = uFA[i].rgb*1.3; spec = 0.1; }
+      if (sh.y > 2.5){
+        t = iEll(ro, rd, P4.xyz - up*(0.40*hr*Lf*1.6) - f*0.3*Lf, Bm, drad, lp);
+        if (t > 0.0 && t < bt){ bt = t; N = normalize(Bm*(lp/drad)); alb = uFB[i].rgb*1.1; spec = 0.1; }
+      }
+    }
   }
   if (uLure.w > 0.5){
     mat3 Bl = fishFrame(uLureD.xyz);
@@ -537,7 +557,7 @@ float shadowAt(vec3 X, vec3 ld){
     if (i >= uFishN) break;
     vec4 P4 = uFP[i]; float Lf = P4.w; float hr = uFB[i].w;
     float soft = 0.25 + 0.25*clamp((P4.y - X.y)/1.5, 0.0, 1.0);
-    sh *= mix(0.45, 1.0, oEll(X, ld, P4.xyz, fishFrame(uFD[i].xyz), Lf*vec3(0.5, 0.5*hr, 0.5*hr*0.9), soft));
+    sh *= mix(0.45, 1.0, oEll(X, ld, P4.xyz, fishFrame(uFD[i].xyz), Lf*vec3(0.5, 0.5*hr, 0.5*max(uFC[i].x, hr*0.5)), soft));
   }
   sh *= mix(0.3, 1.0, oEll(X, ld, uBoat.xyz, hullFrame(), HULL, 0.12));
   return sh;
@@ -602,7 +622,7 @@ void main(){
 
   vec3 sunT = refract(-uSun, vec3(0,1,0), 1.0/IOR);
   float Ts = 1.0 - fresnel(uSun.y, IOR);
-  vec3 skyIrr = vec3(0.62, 0.70, 0.78) * PI * 0.22;
+  vec3 skyIrr = vec3(0.62, 0.70, 0.78) * PI * 0.22 * uSkyK;
 
   vec3 oN, oAlb; float oSpec;
   float so = dist < 60.0 ? traceObjects(P, tr, s, oN, oAlb, oSpec) : -1.0;
@@ -698,7 +718,7 @@ void main(){
   // distant haze over the water
   float haze = 1.0 - exp(-dist*0.004);
   float muh = max(dot(normalize(vec3(wd.x,0.0,wd.z)), uSun), 0.0);
-  vec3 hazeC = vec3(0.60, 0.71, 0.82) + vec3(1.0,0.86,0.66)*(0.22*pow(muh,6.0)+0.3*pow(muh,64.0));
+  vec3 hazeC = (vec3(0.60, 0.71, 0.82) + vec3(1.0,0.86,0.66)*(0.22*pow(muh,6.0)+0.3*pow(muh,64.0)))*uSkyK;
   col = mix(col, hazeC*0.95, haze*0.8);
 
   // sky above horizon
@@ -973,19 +993,36 @@ function post(t){
   target(null); gl.useProgram(pFinal.p);
   bindT(0,hdrRT.t); bindT(1,streakRT.t); bindT(2,b1.t); bindT(3,b2.t);
   gl.uniform1i(pFinal.u.uHdr,0); gl.uniform1i(pFinal.u.uStreak,1); gl.uniform1i(pFinal.u.uB1,2); gl.uniform1i(pFinal.u.uB2,3);
-  gl.uniform1f(pFinal.u.uExp, 0.63); gl.uniform1f(pFinal.u.uNoPost, Q.get('view')==='nopost'?1:(Q.get('view')==='glare'?2:0)); gl.uniform1f(pFinal.u.uTime, t); gl.uniform2f(pFinal.u.uRes, W, H);
+  gl.uniform1f(pFinal.u.uExp, 0.63*ENV.expo); gl.uniform1f(pFinal.u.uNoPost, Q.get('view')==='nopost'?1:(Q.get('view')==='glare'?2:0)); gl.uniform1f(pFinal.u.uTime, t); gl.uniform2f(pFinal.u.uRes, W, H);
   fullscreen();
 }
 
 /* ---------------- Above-water scene: boat, rod, float, line (rasterised, depth-tested against the water) ---------------- */
 let SUNV = [0,1,0];
-const ENV = { sigA:[0.40,0.074,0.088], sigS:[0.028,0.052,0.068], depthP:[2.5,1.0,1.5,3.5], depthQ:[0.02,1.3,0.4,2.4], bed:[0,1,1,1], land:1 };
+const ENV = { expo:1, sunC:[6,5.4,4.44], skyK:[1,1,1], night:0, sigA:[0.40,0.074,0.088], sigS:[0.028,0.052,0.068], depthP:[2.5,1.0,1.5,3.5], depthQ:[0.02,1.3,0.4,2.4], bed:[0,1,1,1], land:1 };
 function setEnv(e){
   Object.assign(ENV, e);
   const el = (e.sunEl ?? 31)*Math.PI/180, az = (e.sunAz ?? 6)*Math.PI/180;
   SUNV = [Math.sin(az)*Math.cos(el), Math.sin(el), -Math.cos(az)*Math.cos(el)];
 }
 setEnv({});
+// sun / moon by time of day: dayK 1 = noon-ish daylight, 0 = night (moonlight)
+function setLight(sunEl, sunAz, dayK, warm){
+  const el = sunEl*Math.PI/180, az = sunAz*Math.PI/180;
+  if (sunEl > -4){
+    SUNV = [Math.sin(az)*Math.cos(Math.max(el, 0.03)), Math.sin(Math.max(el, 0.03)), -Math.cos(az)*Math.cos(Math.max(el, 0.03))];
+  } else {   // moon on the other side of the sky
+    const me = 35*Math.PI/180; SUNV = [-Math.sin(az)*Math.cos(me), Math.sin(me), Math.cos(az)*Math.cos(me)];
+  }
+  const k = Math.max(dayK, 0);
+  const moon = [0.06, 0.08, 0.13];
+  const sun = [6*(1), 5.4*(1 - 0.35*warm), 4.44*(1 - 0.6*warm)];
+  ENV.sunC = sunEl > -4 ? sun.map((v, i) => v*Math.max(0.05, k) + moon[i]*(1-k)) : moon;
+  ENV.skyK = [lerp1(0.03, 1 + 0.15*warm, k), lerp1(0.04, 1 - 0.1*warm, k), lerp1(0.09, 1 - 0.3*warm, k)];
+  ENV.night = 1 - Math.min(1, k*4);
+  ENV.expo = 1 + 2.2*(1 - k);
+}
+function lerp1(a, b, t){ return a + (b - a)*t; }
 const VFOV = 60*Math.PI/180;
 
 const MESH_VS = `#version 300 es
@@ -1000,13 +1037,13 @@ void main(){
 const pMesh = prog(MESH_VS, `#version 300 es
 precision highp float;
 in vec3 vN, vC, vW; out vec4 o;
-uniform vec3 uSun, uCam; uniform float uEmis, uInner;
+uniform vec3 uSun, uCam, uSunC, uSkyK; uniform float uEmis, uInner;
 void main(){
   vec3 n = normalize(vN), v = normalize(uCam - vW), c = vC;
   if (dot(n, v) < 0.0){ n = -n; if (uInner > 0.5) c = vec3(0.26,0.16,0.08)*(0.85+0.3*fract(sin(floor(vW.x*9.0+vW.z*1.3)*91.7)*437.5)); }
-  const vec3 SUN = vec3(1.0,0.90,0.74)*6.0;
+  vec3 SUN = uSunC;
   float nl = max(dot(n,uSun),0.0);
-  vec3 skyE = vec3(0.62,0.70,0.78)*1.5*(0.55+0.45*n.y) + vec3(0.30,0.40,0.40)*0.5*max(-n.y,0.0);
+  vec3 skyE = (vec3(0.62,0.70,0.78)*1.5*(0.55+0.45*n.y) + vec3(0.30,0.40,0.40)*0.5*max(-n.y,0.0))*uSkyK;
   vec3 col = c/3.14159*(SUN*nl + skyE);
   vec3 h = normalize(v+uSun); col += SUN*0.05*pow(max(dot(n,h),0.0),48.0)*nl;
   col += c*uEmis;
@@ -1209,7 +1246,7 @@ function setCamUniforms(P, B){
   gl.uniform1f(P.u.uTanF, Math.tan(VFOV/2)); gl.uniform1f(P.u.uAspect, W/H);
 }
 
-const fishBuf = { P:new Float32Array(MAXF*4), D:new Float32Array(MAXF*4), A:new Float32Array(MAXF*4), B:new Float32Array(MAXF*4) };
+const fishBuf = { P:new Float32Array(MAXF*4), D:new Float32Array(MAXF*4), A:new Float32Array(MAXF*4), B:new Float32Array(MAXF*4), C:new Float32Array(MAXF*4) };
 
 function render(S){
   const dt = S.dt, t = S.t;
@@ -1248,15 +1285,17 @@ function render(S){
   gl.uniform1f(u.uPixAng, 2*Math.tan(VFOV/2)/H);
   gl.uniform3fv(u.uSigA, ENV.sigA); gl.uniform3fv(u.uSigS, ENV.sigS); gl.uniform4fv(u.uDepthP, ENV.depthP); gl.uniform4fv(u.uDepthQ, ENV.depthQ);
   gl.uniform4fv(u.uBed, ENV.bed); gl.uniform1f(u.uLand, ENV.land);
+  gl.uniform3fv(u.uSunC, ENV.sunC); gl.uniform3fv(u.uSkyK, ENV.skyK); gl.uniform1f(u.uNight, ENV.night);
   const fl = S.fish.slice(0, MAXF);
   fl.forEach((f,i) => {
     fishBuf.P.set([f.pos[0],f.pos[1],f.pos[2],f.len], i*4);
     fishBuf.D.set([f.dir[0],f.dir[1],f.dir[2],f.tail], i*4);
     fishBuf.A.set([f.back[0],f.back[1],f.back[2],f.pattern], i*4);
     fishBuf.B.set([f.belly[0],f.belly[1],f.belly[2],f.hr], i*4);
+    fishBuf.C.set(f.shape || [f.hr*0.55, 0, 1, 1], i*4);
   });
   gl.uniform1i(u.uFishN, fl.length);
-  gl.uniform4fv(u.uFP, fishBuf.P); gl.uniform4fv(u.uFD, fishBuf.D); gl.uniform4fv(u.uFA, fishBuf.A); gl.uniform4fv(u.uFB, fishBuf.B);
+  gl.uniform4fv(u.uFP, fishBuf.P); gl.uniform4fv(u.uFD, fishBuf.D); gl.uniform4fv(u.uFA, fishBuf.A); gl.uniform4fv(u.uFB, fishBuf.B); gl.uniform4fv(u.uFC, fishBuf.C);
   const lu = S.lure;
   if (lu && lu.pos[1] < -0.005){
     gl.uniform4f(u.uLure, lu.pos[0], lu.pos[1], lu.pos[2], 1);
@@ -1272,7 +1311,7 @@ function render(S){
 
   // ---- boat, rod, float, line ----
   gl.depthFunc(gl.LESS);
-  gl.useProgram(pMesh.p); setCamUniforms(pMesh, B); gl.uniform3fv(pMesh.u.uSun, SUNV);
+  gl.useProgram(pMesh.p); setCamUniforms(pMesh, B); gl.uniform3fv(pMesh.u.uSun, SUNV); gl.uniform3fv(pMesh.u.uSunC, ENV.sunC); gl.uniform3fv(pMesh.u.uSkyK, ENV.skyK);
   drawMesh(boatMesh, mat4TRS(bt.pos, bt.heading, bt.pitch, bt.roll), { inner:true });
   let tip = null;
   if (S.rod){ tip = buildRod(S.rod); if (!S.hideRod) drawMesh(rodMesh, IDENT); }
@@ -1312,7 +1351,7 @@ return {
     return [(x*0.5+0.5)*innerWidth, (0.5-y*0.5)*innerHeight];
   },
   basis: () => lastBasis,
-  setEnv,
+  setEnv, setLight,
 };
 
 })();
