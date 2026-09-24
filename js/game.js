@@ -1959,7 +1959,7 @@ function drawMap(){
     c.fillStyle = '#ffd84a'; c.beginPath(); c.moveTo(x, y - 10); c.lineTo(x - 5, y - 20); c.lineTo(x + 5, y - 20); c.fill(); }
   // voyage: a line grows from here to the destination with the boat riding its tip
   if (MAP.anim){
-    const A = MAP.anim, k = clamp((performance.now() - A.t0)/A.T, 0, 1), e = k < 0.5 ? 2*k*k : 1 - (-2*k + 2)**2/2;
+    const A = MAP.anim, e = voyageE();
     const a = m2s(nearLon(A.from.lon), A.from.lat), bl = nearLon(A.from.lon) + wrapLon(A.to.lon - A.from.lon), b = m2s(bl, A.to.lat);
     const p = [a[0] + (b[0] - a[0])*e, a[1] + (b[1] - a[1])*e];
     c.setLineDash([6, 6]); c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 2; c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
@@ -2019,17 +2019,20 @@ function travel(sp){
   setTimeout(() => { applyRegion(sp); setTimeout(() => f.classList.remove('on'), 150); }, 650);
 }
 // quest travel: show the route on the map, sail it, then arrive
+function voyageE(){ const A = MAP.anim, k = clamp((performance.now() - A.t0)/A.T, 0, 1); return k < 0.5 ? 2*k*k : 1 - (-2*k + 2)**2/2; }
 function voyage(sp){
   openModal('map'); sizeMap();
   const from = REGION.spot, dl = wrapLon(sp.lon - from.lon);
-  MAP.cx = wrapLon(from.lon + dl/2); MAP.cy = (from.lat + sp.lat)/2;
-  MAP.z = clamp(Math.min(MAP.w/(Math.abs(dl)*1.5 + 16), MAP.h/(Math.abs(sp.lat - from.lat)*1.5 + 12)), MAP.minZ, 30);
+  MAP.cx = from.lon; MAP.cy = from.lat;
+  // the map camera rides with the boat, zoomed so the route is a couple of screens long (short hops: a regional view)
+  MAP.z = clamp(Math.min(MAP.w/(Math.abs(dl)*0.6 + 10), MAP.h/(Math.abs(sp.lat - from.lat)*0.6 + 7)), MAP.minZ*1.5, 30);
   MAP.sel = null; $('mapinfo').textContent = `⛵ ${from.name} → ${sp.name}`;
   $('mappanel').innerHTML = `<div class="st"><b>${esc(sp.name)}</b><span>${esc(sp.country || '')} · ${fmtLL(sp.lat, sp.lon)}</span></div><p class="hint">⛵ ${esc(from.name)}에서 출발해 항해 중…</p>`;
   const km = kmBetween(from, sp);
   MAP.anim = { from, to: sp, km, t0: performance.now(), T: clamp(1400 + km*0.12, 1600, 3200) };
   const tick = () => {
     if (!MAP.anim) return;
+    const e = voyageE(); MAP.cx = from.lon + dl*e; MAP.cy = from.lat + (sp.lat - from.lat)*e;
     drawMap();
     if (performance.now() - MAP.anim.t0 < MAP.anim.T + 350) requestAnimationFrame(tick); else travel(sp);
   };
