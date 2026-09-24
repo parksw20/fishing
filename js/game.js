@@ -730,13 +730,16 @@ function buildToolbar(){
   buildItems();
 }
 function buildItems(){
+  // vertical, left-aligned dropdown (like a combo box) opening from the active tackle button
   const items = $('items'); items.innerHTML = '';
   modeCfg().items.forEach((it, i) => {
     if (!P.owned[it.id]) return;
-    const b = document.createElement('button'); b.textContent = itemName(it); b.title = it.desc; b.className = G.item[G.mode] === i ? 'on' : '';
+    const b = document.createElement('button'); b.className = G.item[G.mode] === i ? 'on' : '';
+    b.innerHTML = '<b></b><small></small>'; b.firstChild.textContent = (G.item[G.mode] === i ? '✓ ' : '') + itemName(it); b.lastChild.textContent = it.desc;
     b.onclick = e => { e.stopPropagation(); setItem(i); $('itempop').hidden = true; }; items.appendChild(b);
   });
-  $('itemdesc').textContent = curItem().desc;
+  const mb = $('modes').children[G.mode === 'pole' ? 0 : 1];
+  if (mb) $('itempop').style.left = mb.offsetLeft + 'px';
 }
 function setMode(k){
   if (G.state !== 'idle' && G.state !== 'charge' && G.state !== 'boat'){ say('채비를 회수한 뒤 바꿀 수 있어요 (R)', 1.8); return; }
@@ -816,7 +819,7 @@ hud.addEventListener('pointermove', e => {
     const dx = e.clientX - mouse.lx, dy = e.clientY - mouse.ly; mouse.lx = e.clientX; mouse.ly = e.clientY;
     if (G.state === 'boat'){ G.orbit -= dx*0.006; G.camPitch = clamp((G.camPitch ?? 0.32) + dy*0.004, 0.08, 1.2); }
     else if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw += dx*0.005; G.aimPitch = clamp(G.aimPitch - dy*0.004, -0.9, 0.35); }
-    else G.orbit -= dx*0.006;
+    else { G.orbit -= dx*0.006; tiltView(dy*0.004); }
   }
   if (e.pointerType !== 'touch' || G.state !== 'hooked') { mouse.x = e.clientX; mouse.y = e.clientY; if (e.pointerType === 'mouse') mouse.moved = true; }
 });
@@ -850,7 +853,13 @@ window.addEventListener('keydown', e => {
     case 'KeyR': retrieve(); break;
     case 'KeyH': G.help = !G.help; say(G.help ? '입질 표시 켬' : '입질 표시 끔', 1.2); break;
     case 'Space': e.preventDefault(); if (!mouse.down){ mouse.down = true; mouse.downT = G.time; press(); } break;
-    case 'Escape': case 'Enter': if (G.state === 'result') hideCard(); break;
+    case 'Enter': if (G.state === 'result') hideCard(); break;
+    case 'Escape':   // Esc: close whatever is up (catch card, menu, tackle popup), otherwise open the menu
+      if (G.state === 'result') hideCard();
+      else if (!$('menu').hidden) $('menu').hidden = true;
+      else if (!$('itempop').hidden) $('itempop').hidden = true;
+      else $('menu').hidden = false;
+      break;
     case 'BracketRight': case 'Equal': wheel(1); break;
     case 'BracketLeft': case 'Minus': wheel(-1); break;
   }
@@ -879,7 +888,7 @@ function applyJoy(dt){
   }
   if (!JOY.active || G.state === 'boat') return;
   if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw += JOY.x*dt*1.3; G.aimPitch = clamp(G.aimPitch - JOY.y*dt*0.8, -0.9, 0.35); }
-  else G.orbit -= JOY.x*dt*1.4;
+  else { G.orbit -= JOY.x*dt*1.4; tiltView(JOY.y*dt*0.9); }
 }
 /* action button: hold = cast charge / reel / lift, tap = hook set; the label follows the situation */
 const act = $('act');
@@ -918,6 +927,8 @@ function updateTouchUI(){
   if (key !== actCache){ actCache = key; act.innerHTML = lbl; act.classList.toggle('hot', !!hot); $('tadj').textContent = adj; $('tnav').textContent = G.state === 'boat' ? '🎣' : '⛵'; }
 }
 function toggleQuests(){ if (!$('questm').hidden) closeModal(); else openQuests(); }
+// buttons never keep keyboard focus: otherwise Space (cast) or Enter would click the last button again (e.g. reopen the menu)
+document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('button'); if (b) b.blur(); }, true);
 $('menubtn').addEventListener('click', e => { e.stopPropagation(); $('menu').hidden = !$('menu').hidden; });
 for (const b of document.querySelectorAll('#menu button')) b.addEventListener('click', e => {
   e.stopPropagation(); $('menu').hidden = true;
@@ -976,8 +987,15 @@ function baitView(focus, back, up, side){
   let dx = focus[0] - e[0], dz = focus[2] - e[2]; const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
   const oa = G.orbit + (side||0) + (G.state === 'hooked' ? 0 : (G.lookX || 0));
   const c = Math.cos(oa), s = Math.sin(oa); const rx = dx*c - dz*s, rz = dx*s + dz*c;
-  return { pos: [focus[0] - rx*back, up, focus[2] - rz*back], look: [focus[0], -0.25, focus[2]] };
+  // after casting the view can be tilted up/down around the rig (drag, W/S, joystick), but the camera stays above the water
+  const R = Math.hypot(back, up), el = clamp(Math.atan2(up, back) + (G.viewTilt || 0), 0.1, 1.35);
+  let h = Math.max(0.45, R*Math.sin(el)), b = R*Math.cos(el);
+  // never put the camera inside the boat: come closer to the rig, and if that is not enough rise above the gunwale
+  for (let i = 0; i < 8 && insideHull(focus[0] - rx*b, focus[2] - rz*b, 0.35); i++) b *= 0.75;
+  if (insideHull(focus[0] - rx*b, focus[2] - rz*b, 0.35)) h = Math.max(h, SEAT[1] + 0.2);
+  return { pos: [focus[0] - rx*b, h, focus[2] - rz*b], look: [focus[0], -0.25 + Math.max(0, 0.35 - el)*2.5, focus[2]] };
 }
+function tiltView(d){ G.viewTilt = clamp((G.viewTilt || 0) + d, -0.7, 0.8); }
 function boatView(){
   const e = eyeWorld(), yw = viewYaw(), pt = viewPitch(), cp = Math.cos(pt);
   return { pos: e, look: add(e, [Math.sin(yw)*cp*10, Math.sin(pt)*10, -Math.cos(yw)*cp*10]) };
@@ -1427,6 +1445,7 @@ function genQuest(){
 }
 function questSpot(q){
   if (q.spot) return SPOTS.find(s => s.id === q.spot) || null;
+  const named = SPOTS.find(s => s.name === q.where); if (named) return named;   // quests saved before locations were stored
   if (q.lat != null){ const s = classify(q.lat, q.lon); s.name = q.where; return s; }
   return null;
 }
@@ -1548,11 +1567,14 @@ function kmBetween(a, b){
   return Math.round(12742*Math.asin(Math.min(1, Math.sqrt(s))));
 }
 function askTravel(q){
-  const sp = q && questSpot(q); if (!sp) return;
-  if (!idleOnly('이동할 수 있어요')) return;
-  if (spotZone(sp) > boatZone()){ say(`🔒 ${zoneBoat(spotZone(sp)).name}가 필요해요`, 2); return; }
-  confirmBox(`<b>${esc(sp.name)}</b>(으)로 이동할까요?<br><span style="opacity:.7;font-size:12px">약 ${kmBetween(REGION.spot, sp).toLocaleString()}km · ${esc(q.text)}</span>`,
-    '⛵ 이동', () => voyage(sp), () => openQuests());
+  const sp = q && questSpot(q), back = () => openQuests();
+  const info = (html, yes = '확인') => confirmBox(html, yes, back, back);
+  if (!sp){ info(`<b>${esc(q ? q.where : '')}</b>의 위치 정보가 없어요.<br><span style="opacity:.7;font-size:12px">지도(M)에서 직접 찾아가 주세요.</span>`); return; }
+  if (spotZone(sp) > boatZone()){ info(`🔒 <b>${esc(sp.name)}</b>에 가려면 <b>${zoneBoat(spotZone(sp)).name}</b> 이상이 필요해요.`); return; }
+  if (G.state === 'hooked' || G.state === 'fly' || G.state === 'charge'){ info('물고기와 싸우는 중이거나 던지는 중에는 이동할 수 없어요.'); return; }
+  const cast = G.state === 'wait';
+  confirmBox(`<b>${esc(sp.name)}</b>(으)로 이동할까요?<br><span style="opacity:.7;font-size:12px">약 ${kmBetween(REGION.spot, sp).toLocaleString()}km · ${esc(q.text)}${cast ? '<br>던져 둔 채비는 회수해요' : ''}</span>`,
+    '⛵ 이동', () => { if (G.state === 'result') hideCard(); if (G.state === 'wait') retrieve(true); voyage(sp); }, back);
 }
 
 /* ---------------- shop ---------------- */
@@ -2130,8 +2152,9 @@ function update(dt){
     if (Math.abs(G.boatV) > 0.02) moveBoat(dt);
     if (keys.KeyA || keys.ArrowLeft) { if (G.state === 'idle' || G.state === 'charge') G.aimYaw -= dt*1.2; else G.orbit += dt*1.2; }
     if (keys.KeyD || keys.ArrowRight){ if (G.state === 'idle' || G.state === 'charge') G.aimYaw += dt*1.2; else G.orbit -= dt*1.2; }
-    if (keys.KeyW || keys.ArrowUp) G.aimPitch = clamp(G.aimPitch + dt*0.8, -0.9, 0.35);
-    if (keys.KeyS || keys.ArrowDown) G.aimPitch = clamp(G.aimPitch - dt*0.8, -0.9, 0.35);
+    const aiming = G.state === 'idle' || G.state === 'charge';
+    if (keys.KeyW || keys.ArrowUp){ if (aiming) G.aimPitch = clamp(G.aimPitch + dt*0.8, -0.9, 0.35); else tiltView(-dt*0.9); }
+    if (keys.KeyS || keys.ArrowDown){ if (aiming) G.aimPitch = clamp(G.aimPitch - dt*0.8, -0.9, 0.35); else tiltView(dt*0.9); }
   }
   mouseLook(dt); updateWeather(dt); updateClock(dt); updateRain(dt); updateVisitors(dt); checkSightings(dt); updateTarget(dt);
   updateWake(); updateParticles(dt);

@@ -55,7 +55,7 @@
   #help { position:fixed; left:50%; bottom:calc(22px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%); padding:9px 16px; font-size:13px; border-radius:999px; white-space:nowrap; z-index:4; pointer-events:none; max-width:calc(100vw - 260px); overflow:hidden; text-overflow:ellipsis; }
   #help:empty { display:none; }
   #help b { color:#ffe27a; font-weight:700; }
-  #msg { position:fixed; left:50%; top:22%; transform:translate(-50%, 10px); font-size:24px; font-weight:800; text-shadow:0 2px 12px rgba(0,0,0,.55); opacity:0; transition:opacity .25s, transform .25s; pointer-events:none; z-index:6; white-space:nowrap; }
+  #msg { position:fixed; left:50%; top:22%; transform:translate(-50%, 10px); font-size:24px; font-weight:800; text-shadow:0 2px 12px rgba(0,0,0,.55); opacity:0; transition:opacity .25s, transform .25s; pointer-events:none; z-index:16; white-space:nowrap; }
   #msg.show { opacity:1; transform:translate(-50%, 0); }
   #msg.hot { color:#ffdf4a; font-size:34px; }
   #msg.bad { color:#ff9a8a; }
@@ -140,9 +140,23 @@
   #ginfo span { opacity:.65; }
   #bottombar { position:fixed; left:50%; bottom:calc(14px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%); display:flex; gap:10px; align-items:center; z-index:6; }
   #bottombar.locked #modes, #bottombar.locked #navtoggle { opacity:.5; }
-  #itempop { position:absolute; bottom:calc(100% + 8px); left:50%; transform:translateX(-50%); padding:10px 12px; min-width:260px; display:flex; flex-direction:column; gap:6px; background:rgba(8,26,30,.82); }
-  #items { display:flex; flex-wrap:wrap; gap:6px; justify-content:center; }
-  #itemdesc { font-size:11px; opacity:.7; text-align:center; }
+  #itempop { position:absolute; bottom:calc(100% + 6px); left:0; width:max-content; max-width:240px; padding:5px; display:flex; flex-direction:column; background:rgba(8,26,30,.9); border-radius:12px; }
+  #items { display:flex; flex-direction:column; align-items:stretch; gap:2px; }
+  #items button { display:flex; flex-direction:column; align-items:flex-start; gap:1px; text-align:left; border:0; border-radius:8px; background:transparent; padding:6px 10px; white-space:normal; }
+  #items button:hover { background:rgba(255,255,255,.1); }
+  #items button.on { background:rgba(255,216,74,.16); color:#ffd84a; }
+  #items button small { font-weight:500; font-size:10.5px; opacity:.65; color:#fff; line-height:1.35; }
+  #itemdesc { display:none; }
+  /* bottom controls 1.5x on desktop */
+  body:not(.touch) #bottombar { transform:translateX(-50%) scale(1.5); transform-origin:50% 100%; }
+  body:not(.touch) #menubtn { transform:scale(1.5); transform-origin:100% 100%; }
+  body:not(.touch) #menu { bottom:calc(76px + env(safe-area-inset-bottom,0px)); transform:scale(1.5); transform-origin:100% 100%; }
+  body:not(.touch) #retrieve { bottom:calc(80px + env(safe-area-inset-bottom,0px)); transform:scale(1.25); transform-origin:100% 100%; }
+  body:not(.touch) #help { bottom:calc(84px + env(safe-area-inset-bottom,0px)) !important; }
+  /* quests 1.5x on desktop: tracker and quest window */
+  body:not(.touch) #qtrack { font-size:18px; padding:12px 18px; max-width:min(460px, calc(100vw - 420px)); }
+  body:not(.touch) #qtrack .qth { font-size:15px; }
+  body:not(.touch) #questm .mbox { zoom:1.5; width:min(900px, calc(100vw/1.5 - 24px)); max-height:calc(100vh/1.5 - 24px); }
   #help { bottom:calc(66px + env(safe-area-inset-bottom,0px)) !important; }
   #menubtn { position:fixed; right:14px; bottom:calc(14px + env(safe-area-inset-bottom,0px)); z-index:6; padding:9px 16px; border-radius:14px; font-size:14px; }
   #menu { position:fixed; right:14px; bottom:calc(62px + env(safe-area-inset-bottom,0px)); z-index:7; padding:8px; display:flex; flex-direction:column; gap:4px; min-width:190px; background:rgba(8,26,30,.85); }
@@ -247,7 +261,7 @@
 </div>
 
 <!-- bottom right: menu -->
-<button id="menubtn" class="glass">☰ 메뉴</button>
+<button id="menubtn" class="glass">☰ 메뉴 <kbd style="font:600 10px var(--font);opacity:.55">Esc</kbd></button>
 <div id="menu" class="glass" hidden>
   <button data-m="shop">🛒 상점 <kbd>P</kbd></button>
   <button data-m="quest">📜 퀘스트 <kbd>Q</kbd></button>
