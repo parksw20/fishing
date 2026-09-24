@@ -296,6 +296,10 @@ window.GameData = (function(){
       { name:'연안 보트', cost:800, zone:1, desc:'해안에서 20km 이내 연안 바다까지' },
       { name:'근해 낚싯배', cost:2500, zone:2, desc:'해안에서 100km 이내 근해까지' },
       { name:'원양 어선', cost:6000, zone:3, desc:'먼바다 어디든 (제한 없음)' } ] },
+    { id:'net', name:'살림망', icon:'🧺', tiers:[
+      { name:'기본 살림망', cost:0, cap:12, desc:'물고기 12마리 보관' },
+      { name:'대형 살림망', cost:400, cap:20, desc:'물고기 20마리 보관' },
+      { name:'활어통', cost:1500, cap:35, desc:'물고기 35마리 보관' } ] },
     { id:'engine', name:'엔진', icon:'⚙️', tiers:[
       { name:'5마력 선외기', cost:0, speed:8, desc:'최고 15노트' },
       { name:'15마력 선외기', cost:700, speed:11, desc:'최고 21노트' },

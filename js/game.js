@@ -621,13 +621,18 @@ function landFish(){
   const isBest = !prev || f.len > prev.len;
   if (isBest) G.best[sp.id] = rec;
   G.catches.unshift(rec); G.score += pts;
+  P.caught[sp.id] = (P.caught[sp.id] || 0) + 1;
+  const day = dayKey(); P.daily[day] = (P.daily[day] || 0) + 1;
+  let netMsg = '';
+  if (P.net.length < netCap()) P.net.unshift({ id: sp.id, len: f.len, weight: f.weight, price: pts });
+  else netMsg = '살림망이 가득 차 방생했어요 — 판매하세요';
   fishes.splice(fishes.indexOf(f), 1);
   G.hooked = null; G.fight = null; G.state = 'result';
   Rn.splash(f.pos[0], f.pos[2], 0.2, 0.05); sfx.splash(0.6); sfx.win();
-  P.coins += pts;
   showCard(rec, isBest && !!prev, !prev);
+  if (netMsg) setTimeout(() => say(netMsg, 3, 'bad'), 400);
   questEvent({ type: 'catch', rec });
-  updateLog(); save();
+  updateLog(); save(); pushRankSoon();
 }
 
 /* ---------------- UI ---------------- */
@@ -640,7 +645,7 @@ function showCard(r, record, first){
   c.querySelector('.pts').textContent = '+' + r.pts + '점';
   c.querySelector('.badge').textContent = first ? '첫 포획! 도감 등록' : record ? '개인 최대어 갱신!' : '';
   c.querySelector('.tipc').textContent = r.sp.tip ? '💡 ' + r.sp.tip : '';
-  c.querySelector('.pts').textContent = `+${r.pts}점 · +${r.pts}🪙`;
+  c.querySelector('.pts').textContent = `+${r.pts}점 · 🧺 판매가 ${r.pts}🪙`;
   // real photo (iNaturalist, CC-licensed) when available, otherwise the drawn icon
   const ph = (window.FISH_PHOTOS || {})[r.sp.id], img = c.querySelector('.photo'), cred = c.querySelector('.credit'), cv = c.querySelector('canvas');
   if (ph){ img.src = ph.file; img.alt = r.sp.name; img.hidden = false; cv.hidden = true; cred.hidden = false; cred.textContent = `📷 ${ph.author} · ${ph.license.toUpperCase()} · iNaturalist`; }
@@ -674,30 +679,52 @@ function mulberry32(a){ return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = M
 function updateLog(){
   $('score').textContent = G.score.toLocaleString();
   $('coins').textContent = P.coins.toLocaleString() + '🪙';
-  $('count').textContent = G.catches.length;
+  $('count').textContent = P.net.length; $('cap').textContent = netCap();
+  const val = P.net.reduce((a, f) => a + f.price, 0);
+  $('netval').textContent = P.net.length ? `≈ ${val.toLocaleString()}🪙` : '';
   const ul = $('catches'); ul.innerHTML = '';
-  for (const c of G.catches.slice(0, 7)){
-    const li = document.createElement('li');
-    li.innerHTML = `<b>${c.name}</b><span>${(c.len*100).toFixed(1)}cm · ${kg(c.weight)}</span>`;
+  for (const [i, c] of P.net.entries()){
+    const li = document.createElement('li'); const sp = BY_ID[c.id];
+    li.innerHTML = `<b></b><span>${(c.len*100).toFixed(1)}cm · ${kg(c.weight)}</span>`; li.firstChild.textContent = sp.name;
+    li.title = `클릭: ${c.price}🪙에 판매`; li.style.cursor = 'pointer';
+    li.onclick = e => { e.stopPropagation(); sellFish([i]); };
     ul.appendChild(li);
   }
-  const dex = $('dex'); dex.innerHTML = '';
-  const got = SPECIES.filter(s => G.best[s.id]).length;
-  $('dexcount').textContent = `도감 ${got}/${SPECIES.length} · 이 지역 어종`;
-  for (const [id] of BIOMES[REGION.biome].fish){ const s = BY_ID[id]; const b = G.best[s.id]; const el = document.createElement('span'); el.className = b ? 'got' : ''; el.title = b ? `${s.name} 최대 ${(b.len*100).toFixed(1)}cm` : '미발견'; el.textContent = b ? s.name : '?'; dex.appendChild(el); }
-  for (const [id] of BIOMES[REGION.biome].visitors || []){ const s = BY_ID[id]; if (!s.sight) continue; const n = P.sightings[id]; const el = document.createElement('span'); el.className = n ? 'got' : ''; el.title = n ? `${s.name} 목격 ${n}회` : '미목격 (관찰 대상)'; el.textContent = n ? (s.icon || '👀') + s.name : '👀?'; dex.appendChild(el); }
+  if (!P.net.length){ const li = document.createElement('li'); li.innerHTML = '<span>비어 있어요 — 잡은 물고기가 여기 담겨요</span>'; ul.appendChild(li); }
+  $('sellall').disabled = $('releaseall').disabled = !P.net.length;
 }
+function netCap(){ return tierOf('net').cap; }
+// keep net: catches wait here until sold (full price) or released (small good-will bonus)
+function sellFish(idx){
+  const list = idx.map(i => P.net[i]).filter(Boolean); if (!list.length) return;
+  const sum = list.reduce((a, f) => a + f.price, 0);
+  P.net = P.net.filter((f, i) => !idx.includes(i)); P.coins += sum;
+  say(`🪙 ${list.length}마리 판매 +${sum.toLocaleString()}🪙`, 2); sfx.win(); updateLog(); save();
+}
+function releaseAll(){
+  if (!P.net.length) return;
+  const bonus = Math.round(P.net.reduce((a, f) => a + f.price, 0)*0.25);
+  say(`🐟 ${P.net.length}마리 방생 · 방생 보너스 +${bonus}🪙`, 2.2); P.coins += bonus; P.net = []; updateLog(); save();
+}
+$('sellall').addEventListener('click', e => { e.stopPropagation(); sellFish(P.net.map((f, i) => i)); });
+$('releaseall').addEventListener('click', e => { e.stopPropagation(); releaseAll(); });
 function buildToolbar(){
   const modes = $('modes'); modes.innerHTML = '';
   for (const k of ['pole', 'lure']){
-    const b = document.createElement('button'); b.textContent = MODES[k].name; b.className = G.mode === k ? 'on' : '';
-    b.onclick = e => { e.stopPropagation(); setMode(k); }; modes.appendChild(b);
+    const b = document.createElement('button'); b.className = G.mode === k ? 'on' : '';
+    const it = MODES[k].items[G.item[k]];
+    b.innerHTML = `${MODES[k].name}<small></small> ▴`; b.querySelector('small').textContent = itemName(it);
+    b.onclick = e => { e.stopPropagation(); if (G.mode !== k) setMode(k); const pop = $('itempop'); pop.hidden = !(pop.hidden || G.mode !== pop.dataset.mode); pop.dataset.mode = k; buildItems(); };
+    modes.appendChild(b);
   }
+  buildItems();
+}
+function buildItems(){
   const items = $('items'); items.innerHTML = '';
   modeCfg().items.forEach((it, i) => {
     if (!P.owned[it.id]) return;
     const b = document.createElement('button'); b.textContent = itemName(it); b.title = it.desc; b.className = G.item[G.mode] === i ? 'on' : '';
-    b.onclick = e => { e.stopPropagation(); setItem(i); }; items.appendChild(b);
+    b.onclick = e => { e.stopPropagation(); setItem(i); $('itempop').hidden = true; }; items.appendChild(b);
   });
   $('itemdesc').textContent = curItem().desc;
 }
@@ -793,7 +820,10 @@ hud.addEventListener('pointerup', up); hud.addEventListener('pointercancel', up)
 window.addEventListener('blur', () => { mouse.down = false; mouse.rdown = false; for (const k in keys) keys[k] = false; });
 hud.addEventListener('wheel', e => { e.preventDefault(); wheel(e.deltaY < 0 ? 1 : -1); }, { passive: false });
 window.addEventListener('keydown', e => {
-  if (G.mapOpen){ if (!$('shop').hidden){ if (e.code === 'Escape' || e.code === 'KeyP') closeShop(); } else if (e.code === 'Escape' || e.code === 'KeyM') closeMap(); return; }
+  if (G.mapOpen){ const own = { KeyM: 'map', KeyP: 'shop', KeyQ: 'questm', KeyK: 'rankm', KeyI: 'dexm' }[e.code];
+    if (e.code === 'Escape' || own && !$(own).hidden) closeModal();
+    else if (own && !MAP.anim && $('confirm').hidden){ closeModal(); ({ map: openMap, shop: openShop, questm: openQuests, rankm: openRank, dexm: openDex })[own](); }
+    return; }
   if (e.repeat && !['KeyA','KeyD','KeyW','KeyS','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.code)) return;
   keys[e.code] = true; audioInit();
   switch (e.code){
@@ -804,6 +834,8 @@ window.addEventListener('keydown', e => {
     case 'KeyB': { const its = modeCfg().items; let i = G.item[G.mode]; do { i = (i + 1) % its.length; } while (!P.owned[its[i].id]); setItem(i); break; }
     case 'KeyQ': toggleQuests(); break;
     case 'KeyP': openShop(); break;
+    case 'KeyK': openRank(); break;
+    case 'KeyI': openDex(); break;
     case 'KeyT': skipTime(); break;
     case 'KeyR': retrieve(); break;
     case 'KeyH': G.help = !G.help; say(G.help ? '입질 표시 켬' : '입질 표시 끔', 1.2); break;
@@ -863,8 +895,7 @@ for (const [id, dir] of [['tplus', 1], ['tminus', -1]]){
   b.addEventListener('contextmenu', e => e.preventDefault());
 }
 $('tnav').addEventListener('click', e => { e.stopPropagation(); audioInit(); setNav(G.state !== 'boat'); });
-$('tmap').addEventListener('click', e => { e.stopPropagation(); openMap(); });
-$('tmenu').addEventListener('click', e => { e.stopPropagation(); $('toolbar').classList.toggle('open'); });
+$('tmap').addEventListener('click', e => { e.stopPropagation(); $('menu').hidden = !$('menu').hidden; });
 let actCache = '';
 function updateTouchUI(){
   if (!TOUCH.on) return;
@@ -876,13 +907,20 @@ function updateTouchUI(){
   const key = lbl + hot + adj + G.state;
   if (key !== actCache){ actCache = key; act.innerHTML = lbl; act.classList.toggle('hot', !!hot); $('tadj').textContent = adj; $('tnav').textContent = G.state === 'boat' ? '🎣' : '⛵'; }
 }
-function toggleQuests(){ const q = $('questbox'); q.hidden = !q.hidden; if (!q.hidden) renderQuests(); }
-$('navquest').addEventListener('click', e => { e.stopPropagation(); toggleQuests(); });
-$('questclose').addEventListener('click', e => { e.stopPropagation(); $('questbox').hidden = true; });
-$('navshop').addEventListener('click', e => { e.stopPropagation(); openShop(); });
+function toggleQuests(){ if (!$('questm').hidden) closeModal(); else openQuests(); }
+$('menubtn').addEventListener('click', e => { e.stopPropagation(); $('menu').hidden = !$('menu').hidden; });
+for (const b of document.querySelectorAll('#menu button')) b.addEventListener('click', e => {
+  e.stopPropagation(); $('menu').hidden = true;
+  ({ shop: openShop, quest: openQuests, map: openMap, rank: openRank, dex: openDex, time: skipTime })[b.dataset.m]();
+});
+$('qtrack').addEventListener('click', e => { e.stopPropagation(); openQuests(); });
+document.addEventListener('pointerdown', e => {
+  if (!$('menu').hidden && !e.target.closest('#menu, #menubtn, #tmap')) $('menu').hidden = true;
+  if (!$('itempop').hidden && !e.target.closest('#bottombar')) $('itempop').hidden = true;
+});
 $('shopclose').addEventListener('click', closeShop);
 $('shop').addEventListener('pointerdown', e => { if (e.target === $('shop')) closeShop(); });
-$('navtime').addEventListener('click', e => { e.stopPropagation(); skipTime(); });
+
 let targetT = 0;
 function updateTarget(dt){
   $('clock').textContent = `${fmtClock()} ${PERIOD_NAME[period()]} · ${G.weather === 'clear' && period() === 'night' ? '🌙' : WEATHERS[G.weather].icon} ${WEATHERS[G.weather].name}`;
@@ -896,11 +934,11 @@ function updateTarget(dt){
   const habitatNote = habitat(sp, floorDepth(...(G.rig ? [G.rig.pos[0], G.rig.pos[2]] : G.lure ? [G.lure.pos[0], G.lure.pos[2]] : [BOAT.pos[0], BOAT.pos[2]]))) < 0.5 ? ' · 여기는 서식 수심이 아니에요' : '';
   el.innerHTML = `🎯 <b>${sp.name}</b> 공략도 <span class="st">${stars(v)}</span><br><span class="why">${worst[1] < 0.6 ? names[worst[0]] : '좋은 조건이에요!'}${habitatNote}</span>`;
   el.hidden = false;
-  el.style.top = TOUCH.on ? '' : ($('toolbar').offsetHeight + 24) + 'px';
+  el.style.top = TOUCH.on ? '' : ($('qtrack').getBoundingClientRect().bottom + 10) + 'px';
 }
 $('navfish').addEventListener('click', e => { e.stopPropagation(); audioInit(); setNav(false); });
 $('navboat').addEventListener('click', e => { e.stopPropagation(); audioInit(); setNav(true); });
-$('navmap').addEventListener('click', e => { e.stopPropagation(); openMap(); });
+
 
 function press(){
   switch (G.state){
@@ -1111,9 +1149,9 @@ function updateGauges(){
   const m = modeCfg();
   const F = G.fight;
   const T = F ? F.tension : 0;
-  $('tfill').style.height = (clamp(T, 0, 1.1)/1.1*100).toFixed(1) + '%';
+  $('tfill').style.width = (clamp(T, 0, 1.1)/1.1*100).toFixed(1) + '%';
   $('tfill').className = T > 0.85 ? 'danger' : T > 0.6 ? 'warn' : '';
-  $('dragmark').style.bottom = (clamp(G.drag, 0, 1.1)/1.1*100).toFixed(1) + '%';
+  $('dragmark').style.left = (clamp(G.drag, 0, 1.1)/1.1*100).toFixed(1) + '%';
   $('dragmark').style.display = G.mode === 'lure' ? 'block' : 'none';
   const lines = [];
   const lk = lineKg();
@@ -1136,7 +1174,7 @@ function updateGauges(){
   const h = lines.join('');
   if (h !== gaugeCache){ $('ginfo').innerHTML = h; gaugeCache = h; }
   $('retrieve').hidden = G.state !== 'wait';
-  $('toolbar').classList.toggle('locked', G.state !== 'idle' && G.state !== 'charge' && G.state !== 'boat');
+  $('bottombar').classList.toggle('locked', G.state !== 'idle' && G.state !== 'charge' && G.state !== 'boat');
   $('navfish').className = G.state === 'boat' ? '' : 'on'; $('navboat').className = G.state === 'boat' ? 'on' : '';
 }
 
@@ -1256,7 +1294,8 @@ function matchRating(sp){
 
 /* ---------------- save data ---------------- */
 const SAVE_KEY = 'boatfish.v2';
-const P = { coins: 200, owned: {}, tier: { rod: 0, reel: 0, line: 0, hook: 0, sonar: 0, engine: 0, boat: 0 }, sightings: {}, quests: [], done: 0 };
+const P = { coins: 200, owned: {}, tier: { rod: 0, reel: 0, line: 0, hook: 0, sonar: 0, engine: 0, boat: 0, net: 0 }, sightings: {}, quests: [], done: 0,
+  net: [], caught: {}, daily: {}, att: { last: '', streak: 0, log: [] }, week: { key: '', issued: 0, done: 0 } };
 for (const it of [...BAITS, ...LURES]) if (!it.cost) P.owned[it.id] = true;
 function save(){
   try { localStorage.setItem(SAVE_KEY, JSON.stringify({ P, best: G.best, score: G.score, catches: G.catches.slice(0, 30).map(c => ({ id: c.sp.id, len: c.len, weight: c.weight, pts: c.pts })), clock: G.clock, spot: REGION && REGION.spot })); } catch(e){}
@@ -1265,7 +1304,11 @@ function load(){
   try {
     const d = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); if (!d) return null;
     Object.assign(P.tier, d.P.tier || {}); Object.assign(P.owned, d.P.owned || {}); P.coins = d.P.coins ?? P.coins;
-    P.sightings = d.P.sightings || {}; P.quests = (d.P.quests || []).filter(q => q.sp ? BY_ID[q.sp] : true); P.done = d.P.done || 0;
+    P.sightings = d.P.sightings || {};
+    P.net = (d.P.net || []).filter(f => BY_ID[f.id]); P.caught = d.P.caught || {}; P.daily = d.P.daily || {};
+    Object.assign(P.att, d.P.att || {}); Object.assign(P.week, d.P.week || {});
+    if (!d.P.caught) for (const c of d.catches || []) if (BY_ID[c.id]) P.caught[c.id] = (P.caught[c.id] || 0) + 1;
+    P.quests = (d.P.quests || []).filter(q => q.sp ? BY_ID[q.sp] : true); P.done = d.P.done || 0;
     G.score = d.score || 0; G.clock = d.clock ?? G.clock;
     for (const k in (d.best || {})) if (BY_ID[k]) G.best[k] = Object.assign(d.best[k], { sp: BY_ID[k] });
     G.catches = (d.catches || []).filter(c => BY_ID[c.id]).map(c => ({ ...c, sp: BY_ID[c.id], name: BY_ID[c.id].name }));
@@ -1327,8 +1370,12 @@ function checkSightings(){
 
 /* ---------------- quests ---------------- */
 function catchables(biome){ return BIOMES[biome].fish.map(([id, w]) => [BY_ID[id], w]).filter(([sp]) => !sp.sight); }
+function questSpots(){ const z = boatZone(); return SPOTS.filter(s => spotZone(s) <= z); }
 function genQuest(){
-  const pool = catchables(REGION.biome);
+  // half the quests send you somewhere else your boat can reach
+  let loc = REGION.spot;
+  if (Math.random() < 0.5){ const l = questSpots().filter(s => s.name !== loc.name); if (l.length) loc = l[Math.floor(Math.random()*l.length)]; }
+  const pool = catchables(loc.biome);
   const pick = () => { let t = 0; for (const [, w] of pool) t += w; let r = Math.random()*t; for (const [sp, w] of pool){ r -= w; if (r <= 0) return sp; } return pool[0][0]; };
   const r = Math.random(); let q;
   const rareMul = sp => 1 + sp.rare;
@@ -1341,27 +1388,36 @@ function genQuest(){
   } else if (r < 0.78){
     const maxW = Math.max(...pool.map(([sp]) => sp.wk*Math.pow(sp.maxLen*100, 3)));
     const kgT = Math.max(0.3, Math.round(maxW*rand(0.15, 0.35)*10)/10);
-    q = { type: 'weight', kg: kgT, got: 0, n: 1, text: `이 지역에서 ${kgT}kg 이상 한 마리`, reward: Math.round(200 + kgT*90) };
+    q = { type: 'weight', kg: kgT, got: 0, n: 1, text: `${loc.name}에서 ${kgT}kg 이상 한 마리`, reward: Math.round(200 + kgT*90) };
   } else if (r < 0.92){
     const night = pool.filter(([sp]) => (sp.act?.night ?? 0) > 0.7 || (sp.act?.dawn ?? 0) > 0.8);
     const sp = (night.length ? night[Math.floor(Math.random()*night.length)] : pool[0])[0];
     const per = ['dawn', 'day', 'dusk', 'night'].reduce((a, b) => (sp.act?.[a] ?? 0) >= (sp.act?.[b] ?? 0) ? a : b);
     q = { type: 'time', sp: sp.id, period: per, got: 0, n: 1, text: `${PERIOD_NAME[per]}에 ${sp.name} 잡기`, reward: Math.round(220*rareMul(sp)) };
   } else {
-    const vis = (BIOMES[REGION.biome].visitors || []).map(v => BY_ID[v[0]]);
+    const vis = (BIOMES[loc.biome].visitors || []).map(v => BY_ID[v[0]]);
     const all = Object.values(BIOMES).flatMap(b => (b.visitors || []).map(v => BY_ID[v[0]]));
     const sp = (vis.length ? vis : all)[Math.floor(Math.random()*(vis.length || all.length))];
     q = { type: 'sight', sp: sp.id, got: 0, n: 1, text: `${sp.name} 목격하기`, reward: Math.round((sp.sightCoins || 300)*1.2) };
   }
-  q.id = Math.random().toString(36).slice(2, 8); q.where = REGION.spot.name;
+  q.id = Math.random().toString(36).slice(2, 8); q.where = loc.name;
+  q.spot = SPOTS.includes(loc) ? loc.id : null; q.lat = loc.lat; q.lon = loc.lon;
   return q;
 }
+function questSpot(q){
+  if (q.spot) return SPOTS.find(s => s.id === q.spot) || null;
+  if (q.lat != null){ const s = classify(q.lat, q.lon); s.name = q.where; return s; }
+  return null;
+}
+function questHere(q){ return !q.where || q.where === REGION.spot.name; }
+function questReachable(q){ const s = questSpot(q); return !s || questHere(q) || spotZone(s) <= boatZone(); }
 function fillQuests(){
+  weekRoll();
   let guard = 0;
   while (P.quests.length < 3 && guard++ < 40){
     const q = genQuest();
     if (P.quests.some(o => o.text === q.text || (o.sp && o.sp === q.sp && o.type === q.type))) continue;
-    P.quests.push(q);
+    P.quests.push(q); P.week.issued++;
   }
   renderQuests();
 }
@@ -1378,7 +1434,7 @@ function questEvent(e){
       else if (q.type === 'time') ok = c.sp.id === q.sp && period() === q.period;
     } else if (e.type === 'sight') ok = q.type === 'sight' && e.sp.id === q.sp;
     if (ok){ q.got++; changed = true;
-      if (q.got >= q.n){ P.coins += q.reward; P.done++; say(`📜 퀘스트 완료: ${q.text} · +${q.reward}🪙`, 3.5, 'hot'); sfx.win(); q.doneAt = G.time; } }
+      if (q.got >= q.n){ weekRoll(); P.coins += q.reward; P.done++; P.week.done++; say(`📜 퀘스트 완료: ${q.text} · +${q.reward}🪙`, 3.5, 'hot'); sfx.win(); q.doneAt = G.time; } }
   }
   if (changed){ setTimeout(() => { P.quests = P.quests.filter(q => q.got < q.n); fillQuests(); save(); }, 2500); renderQuests(); }
 }
@@ -1388,23 +1444,102 @@ function questTarget(){
   return q ? BY_ID[q.sp] : null;
 }
 function stars(v){ const n = v > 0.45 ? 5 : v > 0.25 ? 4 : v > 0.12 ? 3 : v > 0.05 ? 2 : v > 0.015 ? 1 : 0; return '★'.repeat(n) + '☆'.repeat(5 - n); }
+function esc(s){ return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[c]); }
+// top-left tracker: titles only, always visible
 function renderQuests(){
-  const el = $('quests'); if (!el) return;
-  el.innerHTML = P.quests.map(q => {
-    const sp = q.sp ? BY_ID[q.sp] : null;
-    const tip = sp ? `<div class="tip">💡 ${sp.tip || ''}</div>` : '';
-    const prog = q.n > 1 ? ` <span class="prog">${q.got}/${q.n}</span>` : '';
-    return `<div class="q${q.got >= q.n ? ' done' : ''}"><div class="qt"><b>${q.text}</b>${prog}<span class="rw">${q.reward}🪙</span></div>${tip}<div class="qw">${q.where}${q.type === 'sight' ? ' · 관찰 퀘스트' : ''}</div></div>`;
-  }).join('') + `<div class="qfoot">완료한 퀘스트 ${P.done}개 <button id="qreroll">새 퀘스트로 바꾸기</button></div>`;
+  const list = P.quests.filter(questReachable);
+  $('qlist').innerHTML = list.map(q => `<div class="${q.got >= q.n ? 'done' : ''}"><b>${q.got >= q.n ? '✓ ' : ''}${esc(q.text)}</b><span>${questHere(q) ? (q.n > 1 ? `${q.got}/${q.n}` : '') : '📍' + esc(q.where)}</span></div>`).join('')
+    || '<div><span>새 퀘스트를 준비 중…</span></div>';
+  if (!$('questm').hidden) renderQuestModal();
+}
+
+/* ---------------- modals ---------------- */
+const MODALS = ['map', 'shop', 'questm', 'rankm', 'dexm', 'confirm'];
+function openModal(id){
+  for (const m of MODALS) $(m).hidden = m !== id;
+  G.mapOpen = true; mouse.down = false; mouse.rdown = false; $('menu').hidden = true; $('itempop').hidden = true;
+  for (const k in keys) keys[k] = false;
+}
+function closeModal(){
+  if (MAP.anim) return;
+  const shop = !$('shop').hidden;
+  for (const m of MODALS) $(m).hidden = true;
+  G.mapOpen = false;
+  if (shop) buildToolbar();
+}
+function idleOnly(what){ if (G.state === 'result') hideCard(); if (G.state === 'idle' || G.state === 'boat' || G.state === 'result') return true; say(`채비를 회수한 뒤 ${what} (R)`, 1.8); return false; }
+for (const b of document.querySelectorAll('.mclose')) b.addEventListener('click', e => { e.stopPropagation(); closeModal(); });
+for (const id of ['questm', 'rankm', 'dexm']) $(id).addEventListener('pointerdown', e => { if (e.target === $(id)) closeModal(); });
+$('confirm').addEventListener('pointerdown', e => { if (e.target === $('confirm')) $('cno').click(); });
+function confirmBox(html, yes, onYes, onNo){
+  openModal('confirm'); $('ctext').innerHTML = html; $('cyes').textContent = yes;
+  $('cyes').onclick = e => { e.stopPropagation(); onYes(); };
+  $('cno').onclick = e => { e?.stopPropagation?.(); if (onNo) onNo(); else closeModal(); };
+}
+
+/* ---------------- dates: attendance and weekly stats ---------------- */
+function dayKey(d = new Date()){ return d.getFullYear()*10000 + (d.getMonth() + 1)*100 + d.getDate() + ''; }
+function weekDays(){ const d = new Date(), m = new Date(d.getFullYear(), d.getMonth(), d.getDate() - (d.getDay() + 6)%7); return [...Array(7)].map((_, i) => dayKey(new Date(m.getFullYear(), m.getMonth(), m.getDate() + i))); }
+function weekKey(){ return weekDays()[0]; }
+function weekRoll(){ const k = weekKey(); if (P.week.key !== k){ P.week.key = k; P.week.issued = P.quests.filter(q => q.got < q.n).length; P.week.done = 0; } }
+function yesterdayKey(){ const d = new Date(); d.setDate(d.getDate() - 1); return dayKey(d); }
+function attReward(streak){ return 100 + 50*Math.min(streak - 1, 6); }
+function attend(){
+  const a = P.att, t = dayKey(); if (a.last === t) return;
+  a.streak = a.last === yesterdayKey() ? a.streak + 1 : 1; a.last = t;
+  a.log = [...a.log.filter(k => k !== t), t].slice(-60);
+  const r = attReward(a.streak); P.coins += r;
+  say(`📅 출석 ${a.streak}일째 · +${r}🪙`, 2.5, 'hot'); sfx.win(); updateLog(); save(); renderQuestModal();
+}
+$('attbtn').addEventListener('click', e => { e.stopPropagation(); attend(); });
+
+function openQuests(){ openModal('questm'); renderQuestModal(); }
+function renderQuestModal(){
+  weekRoll();
+  const a = P.att, t = dayKey(), alive = a.last === t || a.last === yesterdayKey(), streak = alive ? a.streak : 0;
+  $('qsub').textContent = `완료한 퀘스트 총 ${P.done}개 · 🚤 ${tierOf('boat').name} (${ZONES[boatZone()]}까지)`;
+  $('streak').textContent = `🔥 ${streak}일 연속`;
+  const names = ['월', '화', '수', '목', '금', '토', '일'];
+  $('attdays').innerHTML = weekDays().map((k, i) => `<i class="${a.log.includes(k) ? 'got' : ''}${k === t ? ' today' : ''}">${names[i]}<br>${a.log.includes(k) ? '✓' : '·'}</i>`).join('');
+  const done = a.last === t;
+  $('attbtn').disabled = done;
+  $('attbtn').textContent = done ? `오늘 출석 완료 ✓ · 내일 +${attReward(streak + 1)}🪙` : `출석하기 +${attReward(alive ? a.streak + 1 : 1)}🪙`;
+  const w = P.week, pct = w.issued ? Math.round(w.done/w.issued*100) : 0;
+  const wkCatch = weekDays().reduce((s, k) => s + (P.daily[k] || 0), 0);
+  const best = Math.max(0, ...weekDays().map(k => P.daily[k] || 0));
+  $('wkpct').textContent = pct + '%'; $('wkfill').style.width = pct + '%';
+  $('wkstat').innerHTML = `완료 <b>${w.done}</b> / 받은 퀘스트 <b>${w.issued}</b><br>이번 주 포획 <b>${wkCatch}</b>마리 · 하루 최다 <b>${best}</b>마리 · 오늘 <b>${P.daily[t] || 0}</b>마리`;
+  const list = P.quests.filter(questReachable);
+  $('quests').innerHTML = list.map(q => {
+    const sp = q.sp ? BY_ID[q.sp] : null, here = questHere(q);
+    const tip = sp && sp.tip ? `<div class="tip">💡 ${esc(sp.tip)}</div>` : '';
+    const prog = q.n > 1 ? `<span class="prog">${q.got}/${q.n}</span>` : '';
+    return `<div class="q${q.got >= q.n ? ' done' : ''}"><div class="qt">${esc(q.text)}${prog}</div><div class="rw">${q.reward}🪙</div>
+      <div class="qw">📍 ${esc(q.where || REGION.spot.name)}${q.type === 'sight' ? ' · 관찰 퀘스트' : ''}${here ? ' · 현재 위치' : ''}</div>
+      ${here ? '<span></span>' : `<button class="go" data-q="${q.id}">⛵ 이동</button>`}${tip}</div>`;
+  }).join('') || '<div class="q"><div class="qt">받을 수 있는 퀘스트가 없어요</div></div>';
+  $('quests').insertAdjacentHTML('beforeend', `<div class="qfoot">보트 등급에 따라 갈 수 있는 지역의 퀘스트만 나와요 <button id="qreroll">새 퀘스트로 바꾸기</button></div>`);
   $('qreroll').onclick = e => { e.stopPropagation(); P.quests = []; fillQuests(); save(); };
+  for (const b of $('quests').querySelectorAll('[data-q]')) b.onclick = e => { e.stopPropagation(); askTravel(P.quests.find(q => q.id === b.dataset.q)); };
+}
+function kmBetween(a, b){
+  const R = Math.PI/180, s = Math.sin((b.lat - a.lat)*R/2)**2 + Math.cos(a.lat*R)*Math.cos(b.lat*R)*Math.sin((b.lon - a.lon)*R/2)**2;
+  return Math.round(12742*Math.asin(Math.min(1, Math.sqrt(s))));
+}
+function askTravel(q){
+  const sp = q && questSpot(q); if (!sp) return;
+  if (!idleOnly('이동할 수 있어요')) return;
+  if (spotZone(sp) > boatZone()){ say(`🔒 ${zoneBoat(spotZone(sp)).name}가 필요해요`, 2); return; }
+  confirmBox(`<b>${esc(sp.name)}</b>(으)로 이동할까요?<br><span style="opacity:.7;font-size:12px">약 ${kmBetween(REGION.spot, sp).toLocaleString()}km · ${esc(q.text)}</span>`,
+    '⛵ 이동', () => voyage(sp), () => openQuests());
 }
 
 /* ---------------- shop ---------------- */
 function openShop(){
-  if (G.state !== 'idle' && G.state !== 'boat'){ say('채비를 회수한 뒤 상점을 열 수 있어요 (R)', 1.8); return; }
-  G.mapOpen = true; $('shop').hidden = false; renderShop();
+  if (!idleOnly('상점을 열 수 있어요')) return;
+  openModal('shop'); renderShop();
 }
-function closeShop(){ G.mapOpen = false; $('shop').hidden = true; buildToolbar(); }
+function closeShop(){ closeModal(); }
 function renderShop(){
   $('coins2').textContent = P.coins.toLocaleString();
   const up = SHOP.map(s => {
@@ -1550,7 +1685,9 @@ function updateSonar(dt){
   if (SONAR.cols.length > SONAR.W) SONAR.cols.shift();
 }
 function drawSonar(){
-  const W = TOUCH.on ? 132 : SONAR.W, H = TOUCH.on ? 70 : 96, x0 = 16, y0 = TOUCH.on ? 90 : hudH - H - 78;
+  const W = TOUCH.on ? 132 : SONAR.W, H = TOUCH.on ? (hudH < 500 ? 56 : 70) : 96, x0 = 16;
+  // desktop: sits right above the gauge panel (bottom-left); touch: under the quest tracker
+  const y0 = TOUCH.on ? $('qtrack').getBoundingClientRect().bottom + 30 : $('gauges').getBoundingClientRect().top - H - 18;
   if (hudW < 520 && !TOUCH.on) return;
   let maxD = 5; for (const c of SONAR.cols) maxD = Math.max(maxD, c.d);
   // the range eases toward the next step instead of snapping (5 → 10 → 20 …)
@@ -1647,7 +1784,7 @@ function applyRegion(spot, first){
   const e = eyeWorld(); cam.pos = e.slice(); cam.look = add(e, [0, -2, -10]);
   $('place').textContent = spot.name;
   buildToolbar(); updateLog();
-  if (!first) say(`📍 ${spot.name} · ${BIOMES[spot.biome].name}`, 3);
+  if (!first){ say(`📍 ${spot.name} · ${WEATHERS[G.weather].icon} ${WEATHERS[G.weather].name}`, 3); fillQuests(); }
 }
 // land rings unwrapped across the 180° meridian; rings that circle a pole are closed through it
 const LAND = (window.WORLD_LAND || []).map(r => {
@@ -1697,24 +1834,26 @@ function classify(lat, lon){
 const MAP = { cx: 128, cy: 30, z: 0, drag: null, hover: null, sel: null };
 const mapCv = $('mapcv'), mctx = mapCv.getContext('2d');
 function openMap(){
-  if (G.state !== 'idle' && G.state !== 'boat'){ say('채비를 회수한 뒤 지도를 열 수 있어요 (R)', 1.8); return; }
-  G.mapOpen = true; $('map').hidden = false; mouse.down = false;
-  for (const k in keys) keys[k] = false;
+  if (!idleOnly('지도를 열 수 있어요')) return;
+  openModal('map');
   const r = REGION.spot; MAP.cx = r.lon; MAP.cy = r.lat; MAP.sel = null;
   sizeMap(); MAP.z = Math.max(MAP.minZ*2.2, MAP.z || 0); drawMap(); showSel(null);
 }
-function closeMap(){ G.mapOpen = false; $('map').hidden = true; }
+function closeMap(){ closeModal(); }
 function sizeMap(){
   const box = mapCv.parentElement.getBoundingClientRect(), d = Math.min(devicePixelRatio || 1, 2);
   MAP.w = box.width; MAP.h = box.height; mapCv.width = MAP.w*d; mapCv.height = MAP.h*d; mctx.setTransform(d, 0, 0, d, 0, 0);
-  MAP.minZ = Math.max(MAP.w/360, MAP.h/150);
+  MAP.minZ = Math.max(MAP.h/150, MAP.w/1080);
   MAP.z = clamp(MAP.z || MAP.minZ, MAP.minZ, 60);
 }
+// the world repeats left/right forever: longitudes are drawn at the copy nearest the view centre
+const wrapLon = lon => ((lon + 180)%360 + 360)%360 - 180;
+const nearLon = lon => MAP.cx + wrapLon(lon - MAP.cx);
 function m2s(lon, lat){ return [MAP.w/2 + (lon - MAP.cx)*MAP.z, MAP.h/2 - (lat - MAP.cy)*MAP.z]; }
 function s2m(x, y){ return [MAP.cx + (x - MAP.w/2)/MAP.z, MAP.cy - (y - MAP.h/2)/MAP.z]; }
 function clampMap(){
-  const hw = MAP.w/2/MAP.z, hh = MAP.h/2/MAP.z;
-  MAP.cx = clamp(MAP.cx, -180 + hw, 180 - hw); if (hw >= 180) MAP.cx = 0;
+  const hh = MAP.h/2/MAP.z;
+  MAP.cx = wrapLon(MAP.cx);
   MAP.cy = clamp(MAP.cy, -62 + hh, 85 - hh); if (hh >= 73) MAP.cy = 11;
 }
 function drawMap(){
@@ -1724,7 +1863,8 @@ function drawMap(){
   c.fillStyle = g; c.fillRect(0, 0, W, H);
   // graticule, tropics and polar circles
   c.lineWidth = 1;
-  for (let lon = -180; lon <= 180; lon += 30){ const [x] = m2s(lon, 0); c.strokeStyle = 'rgba(255,255,255,.06)'; c.beginPath(); c.moveTo(x, 0); c.lineTo(x, H); c.stroke(); }
+  const [gl0] = s2m(0, 0), [gl1] = s2m(W, 0);
+  for (let lon = Math.floor(gl0/30)*30; lon <= gl1; lon += 30){ const [x] = m2s(lon, 0); c.strokeStyle = 'rgba(255,255,255,.06)'; c.beginPath(); c.moveTo(x, 0); c.lineTo(x, H); c.stroke(); }
   for (const [lat, col] of [[0,'rgba(255,255,255,.14)'],[23.44,'rgba(255,200,90,.22)'],[-23.44,'rgba(255,200,90,.22)'],[66.56,'rgba(160,220,255,.22)'],[-66.56,'rgba(160,220,255,.22)'],[30,'rgba(255,255,255,.05)'],[-30,'rgba(255,255,255,.05)'],[60,'rgba(255,255,255,.05)']]){
     const [, y] = m2s(0, lat); c.strokeStyle = col; c.setLineDash(lat % 30 ? [4, 5] : []); c.beginPath(); c.moveTo(0, y); c.lineTo(W, y); c.stroke();
   }
@@ -1735,7 +1875,7 @@ function drawMap(){
   c.beginPath();
   for (const R of LAND){
     const bb = R.bb; if (bb[3] < t1 || bb[1] > t0) continue;
-    for (const off of [0, -360, 360]){
+    for (let off = Math.floor((l0 - bb[2])/360)*360; bb[0] + off <= l1; off += 360){
       if (bb[2] + off < l0 || bb[0] + off > l1) continue;
       const r = R.p;
       for (let i = 0; i < r.length; i += 2){ const x = W/2 + (r[i] + off - MAP.cx)*MAP.z, y = H/2 - (r[i+1] - MAP.cy)*MAP.z; if (i) c.lineTo(x, y); else c.moveTo(x, y); }
@@ -1746,19 +1886,33 @@ function drawMap(){
   // spots
   c.font = '600 12px system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif'; c.textAlign = 'left';
   for (const s of SPOTS){
-    const [x, y] = m2s(s.lon, s.lat); if (x < -20 || x > W + 20 || y < -20 || y > H + 20) continue;
     const salt = BIOMES[s.biome].water === 'salt', locked = spotZone(s) > boatZone() && s !== REGION.spot;
-    c.fillStyle = locked ? '#5b6770' : salt ? '#4fd1ff' : '#8ff0a8'; c.strokeStyle = '#08202a'; c.lineWidth = 2;
-    c.beginPath(); c.arc(x, y, 5, 0, TAU); c.fill(); c.stroke();
-    const lbl = (locked ? '🔒' : '') + s.name;
-    if (MAP.z > MAP.minZ*1.6 || s === MAP.sel){ c.lineWidth = 3; c.strokeStyle = 'rgba(0,0,0,.6)'; c.strokeText(lbl, x + 8, y + 4); c.fillStyle = locked ? '#b8c2c8' : '#fff'; c.fillText(lbl, x + 8, y + 4); }
+    for (let lon = nearLon(s.lon) - 720; lon <= nearLon(s.lon) + 720; lon += 360){
+      const [x, y] = m2s(lon, s.lat); if (x < -20 || x > W + 20 || y < -20 || y > H + 20) continue;
+      c.fillStyle = locked ? '#5b6770' : salt ? '#4fd1ff' : '#8ff0a8'; c.strokeStyle = '#08202a'; c.lineWidth = 2;
+      c.beginPath(); c.arc(x, y, 5, 0, TAU); c.fill(); c.stroke();
+      const lbl = (locked ? '🔒' : '') + s.name;
+      if (MAP.z > MAP.minZ*1.6 || s === MAP.sel){ c.lineWidth = 3; c.strokeStyle = 'rgba(0,0,0,.6)'; c.strokeText(lbl, x + 8, y + 4); c.fillStyle = locked ? '#b8c2c8' : '#fff'; c.fillText(lbl, x + 8, y + 4); }
+    }
   }
   // current location
-  { const r = REGION.spot, [x, y] = m2s(r.lon, r.lat); c.strokeStyle = '#ffd84a'; c.lineWidth = 2.5; c.beginPath(); c.arc(x, y, 10, 0, TAU); c.stroke();
+  { const r = REGION.spot, [x, y] = m2s(nearLon(r.lon), r.lat); c.strokeStyle = '#ffd84a'; c.lineWidth = 2.5; c.beginPath(); c.arc(x, y, 10, 0, TAU); c.stroke();
     c.fillStyle = '#ffd84a'; c.beginPath(); c.moveTo(x, y - 10); c.lineTo(x - 5, y - 20); c.lineTo(x + 5, y - 20); c.fill(); }
+  // voyage: a line grows from here to the destination with the boat riding its tip
+  if (MAP.anim){
+    const A = MAP.anim, k = clamp((performance.now() - A.t0)/A.T, 0, 1), e = k < 0.5 ? 2*k*k : 1 - (-2*k + 2)**2/2;
+    const a = m2s(nearLon(A.from.lon), A.from.lat), bl = nearLon(A.from.lon) + wrapLon(A.to.lon - A.from.lon), b = m2s(bl, A.to.lat);
+    const p = [a[0] + (b[0] - a[0])*e, a[1] + (b[1] - a[1])*e];
+    c.setLineDash([6, 6]); c.strokeStyle = 'rgba(255,255,255,.35)'; c.lineWidth = 2; c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(b[0], b[1]); c.stroke();
+    c.setLineDash([]); c.strokeStyle = '#ffd84a'; c.lineWidth = 3.5; c.beginPath(); c.moveTo(a[0], a[1]); c.lineTo(p[0], p[1]); c.stroke();
+    c.fillStyle = '#ff6a4a'; c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.arc(b[0], b[1], 7, 0, TAU); c.fill(); c.stroke();
+    c.font = '22px system-ui, "Apple Color Emoji", "Segoe UI Emoji", sans-serif'; c.textAlign = 'center'; c.fillText('⛵', p[0], p[1] - 6); c.textAlign = 'left';
+    c.font = '700 13px system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif'; c.lineWidth = 3; c.strokeStyle = 'rgba(0,0,0,.6)';
+    const t = `${A.to.name} · ${Math.round(A.km*e).toLocaleString()} / ${A.km.toLocaleString()}km`; c.strokeText(t, b[0] + 12, b[1] + 5); c.fillStyle = '#fff'; c.fillText(t, b[0] + 12, b[1] + 5);
+  }
   // selection / hover
-  if (MAP.sel){ const [x, y] = m2s(MAP.sel.lon, MAP.sel.lat); c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.moveTo(x - 12, y); c.lineTo(x + 12, y); c.moveTo(x, y - 12); c.lineTo(x, y + 12); c.stroke(); c.beginPath(); c.arc(x, y, 7, 0, TAU); c.stroke(); }
-  if (MAP.hover){ $('mapinfo').textContent = fmtLL(MAP.hover[1], MAP.hover[0]) + (isLand(MAP.hover[1], MAP.hover[0]) ? ' · 육지(호수·강)' : ' · 바다'); }
+  if (MAP.sel && !MAP.anim){ const [x, y] = m2s(nearLon(MAP.sel.lon), MAP.sel.lat); c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.moveTo(x - 12, y); c.lineTo(x + 12, y); c.moveTo(x, y - 12); c.lineTo(x, y + 12); c.stroke(); c.beginPath(); c.arc(x, y, 7, 0, TAU); c.stroke(); }
+  if (MAP.hover && !MAP.anim){ const hl = wrapLon(MAP.hover[0]); $('mapinfo').textContent = fmtLL(MAP.hover[1], hl) + (isLand(MAP.hover[1], hl) ? ' · 육지(호수·강)' : ' · 바다'); }
 }
 /* ---------------- navigation zones: the boat decides how far from land you may go ---------------- */
 const ZONES = ['내륙', '연안', '근해', '원양'];
@@ -1797,15 +1951,32 @@ function showSel(sp){
     <div class="fish">${fish}</div>
     ${locked ? `<div class="need">🔒 <b>${zoneBoat(z).name}</b> 이상이 필요해요<br><span>상점(P) → 보트에서 업그레이드 · 지금 보트: ${tierOf('boat').name} (${ZONES[boatZone()]}까지)</span></div>` : ''}
     <button id="go" class="on" ${locked ? 'disabled' : ''}>${here ? '현재 위치' : locked ? '🔒 갈 수 없음' : '⛵ 이곳으로 출발'}</button>`;
-  $('go').onclick = e => { e.stopPropagation(); if (locked) return; if (!here) travel(sp); else closeMap(); };
+  $('go').onclick = e => { e.stopPropagation(); if (locked) return; if (!here) voyage(sp); else closeMap(); };
 }
 function travel(sp){
   if (spotZone(sp) > boatZone()){ say(`🔒 ${zoneBoat(spotZone(sp)).name}가 필요해요`, 2); return; }
-  closeMap();
+  MAP.anim = null; closeModal();
   const f = $('fade'); f.classList.add('on');
   setTimeout(() => { applyRegion(sp); setTimeout(() => f.classList.remove('on'), 150); }, 650);
 }
-mapCv.addEventListener('pointerdown', e => { mapCv.setPointerCapture(e.pointerId); MAP.drag = { x: e.clientX, y: e.clientY, cx: MAP.cx, cy: MAP.cy, moved: false }; });
+// quest travel: show the route on the map, sail it, then arrive
+function voyage(sp){
+  openModal('map'); sizeMap();
+  const from = REGION.spot, dl = wrapLon(sp.lon - from.lon);
+  MAP.cx = wrapLon(from.lon + dl/2); MAP.cy = (from.lat + sp.lat)/2;
+  MAP.z = clamp(Math.min(MAP.w/(Math.abs(dl)*1.5 + 16), MAP.h/(Math.abs(sp.lat - from.lat)*1.5 + 12)), MAP.minZ, 30);
+  MAP.sel = null; $('mapinfo').textContent = `⛵ ${from.name} → ${sp.name}`;
+  $('mappanel').innerHTML = `<div class="st"><b>${esc(sp.name)}</b><span>${esc(sp.country || '')} · ${fmtLL(sp.lat, sp.lon)}</span></div><p class="hint">⛵ ${esc(from.name)}에서 출발해 항해 중…</p>`;
+  const km = kmBetween(from, sp);
+  MAP.anim = { from, to: sp, km, t0: performance.now(), T: clamp(1400 + km*0.12, 1600, 3200) };
+  const tick = () => {
+    if (!MAP.anim) return;
+    drawMap();
+    if (performance.now() - MAP.anim.t0 < MAP.anim.T + 350) requestAnimationFrame(tick); else travel(sp);
+  };
+  requestAnimationFrame(tick);
+}
+mapCv.addEventListener('pointerdown', e => { if (MAP.anim) return; mapCv.setPointerCapture(e.pointerId); MAP.drag = { x: e.clientX, y: e.clientY, cx: MAP.cx, cy: MAP.cy, moved: false }; });
 mapCv.addEventListener('pointermove', e => {
   const b = mapCv.getBoundingClientRect(), x = e.clientX - b.left, y = e.clientY - b.top;
   MAP.hover = s2m(x, y);
@@ -1814,15 +1985,15 @@ mapCv.addEventListener('pointermove', e => {
   drawMap();
 });
 mapCv.addEventListener('pointerup', e => {
-  const d = MAP.drag; MAP.drag = null; if (!d || d.moved) return;
+  const d = MAP.drag; MAP.drag = null; if (!d || d.moved || MAP.anim) return;
   const b = mapCv.getBoundingClientRect(), x = e.clientX - b.left, y = e.clientY - b.top;
   // snap to a spot marker if clicked near one
-  let hit = null; for (const s of SPOTS){ const [sx, sy] = m2s(s.lon, s.lat); if (Math.hypot(sx - x, sy - y) < 10) hit = s; }
+  let hit = null; for (const s of SPOTS){ const [sx, sy] = m2s(nearLon(s.lon), s.lat); if (Math.hypot(sx - x, sy - y) < 10) hit = s; }
   const [lon, lat] = s2m(x, y);
-  showSel(hit || classify(clamp(lat, -60, 84), clamp(lon, -180, 180))); drawMap();
+  showSel(hit || classify(clamp(lat, -60, 84), wrapLon(lon))); drawMap();
 });
 mapCv.addEventListener('wheel', e => {
-  e.preventDefault();
+  e.preventDefault(); if (MAP.anim) return;
   const b = mapCv.getBoundingClientRect(), x = e.clientX - b.left, y = e.clientY - b.top;
   const [lon, lat] = s2m(x, y);
   MAP.z = clamp(MAP.z*(e.deltaY < 0 ? 1.25 : 0.8), MAP.minZ, 60);
@@ -1831,8 +2002,99 @@ mapCv.addEventListener('wheel', e => {
 }, { passive: false });
 $('mapclose').addEventListener('click', closeMap);
 for (const [id, k] of [['mapin', 1.5], ['mapout', 1/1.5]]) $(id).addEventListener('click', () => { MAP.z = clamp(MAP.z*k, MAP.minZ, 60); drawMap(); });
-$('map').addEventListener('pointerdown', e => { if (e.target === $('map')) closeMap(); });
-addEventListener('resize', () => { if (G.mapOpen){ sizeMap(); drawMap(); } });
+$('map').addEventListener('pointerdown', e => { if (e.target === $('map')) closeModal(); });
+addEventListener('resize', () => { if (!$('map').hidden){ sizeMap(); drawMap(); } });
+
+/* ---------------- ranking (shared across players via the artifact db; local-only elsewhere) ---------------- */
+const RANK = { db: null, user: null, me: null, docs: {}, tab: 'len', sp: null, live: false, t: 0, lastPush: '' };
+(async () => {
+  try {
+    if (!window.claude || !window.claude.use) return;
+    const [db, user] = await Promise.all([window.claude.use('db'), window.claude.use('user')]);
+    RANK.db = db; RANK.user = user;
+    if (user) RANK.me = await user.id();
+    if (!db) return;
+    db.collection('ranks').onSnapshot(snap => {
+      RANK.docs = {}; for (const d of snap.docs) RANK.docs[d.id] = d.data();
+      RANK.live = true; if (!$('rankm').hidden) renderRank();
+    }, err => { RANK.live = false; RANK.err = err && err.code; });
+    pushRankSoon();
+  } catch(e){}
+})();
+function myRankDoc(){
+  const best = {};
+  for (const k in G.best){ const b = G.best[k]; best[k] = { len: Math.round(b.len*1000)/10, kg: Math.round(b.weight*100)/100 }; }
+  let dayBest = { n: 0, day: '' }; for (const [d, n] of Object.entries(P.daily)) if (n > dayBest.n) dayBest = { n, day: d };
+  const t = dayKey();
+  return { best, dayBest, today: { day: t, n: P.daily[t] || 0 }, total: Object.values(P.caught).reduce((a, b) => a + b, 0) };
+}
+function pushRankSoon(){ clearTimeout(RANK.t); RANK.t = setTimeout(pushRank, 1500); }
+async function pushRank(){
+  if (!RANK.db || !RANK.me) return;
+  const d = myRankDoc(), j = JSON.stringify(d); if (j === RANK.lastPush) return;
+  try { await RANK.db.doc('ranks/' + RANK.me).set({ ...d, updated: Date.now() }); RANK.lastPush = j; } catch(e){ RANK.err = e && e.code; }
+}
+function rankRows(){
+  // everyone's docs (or only mine when there is no shared store)
+  const docs = { ...RANK.docs }; docs[RANK.me || 'me'] = myRankDoc();
+  const rows = [];
+  for (const [id, d] of Object.entries(docs)){
+    if (RANK.tab === 'day'){ if (d.dayBest && d.dayBest.n) rows.push({ id, v: d.dayBest.n, sub: fmtDay(d.dayBest.day), extra: `총 ${d.total || 0}마리` }); }
+    else { const b = d.best && d.best[RANK.sp]; if (b) rows.push({ id, v: RANK.tab === 'len' ? b.len : b.kg, sub: RANK.tab === 'len' ? kg(b.kg) : b.len.toFixed(1) + 'cm' }); }
+  }
+  return rows.sort((a, b) => b.v - a.v).slice(0, 50);
+}
+function fmtDay(k){ return k ? `${+k.slice(4, 6)}월 ${+k.slice(6)}일` : ''; }
+function openRank(){
+  openModal('rankm');
+  if (!RANK.sp){ const mine = Object.keys(G.best); RANK.sp = G.catches[0] ? G.catches[0].sp.id : mine[0] || SPECIES.find(s => !s.sight).id; }
+  const counts = {}; for (const d of Object.values(RANK.docs)) for (const k in (d.best || {})) counts[k] = (counts[k] || 0) + 1;
+  for (const k in G.best) counts[k] = Math.max(counts[k] || 0, 1);
+  const opts = SPECIES.filter(s => !s.sight).sort((a, b) => (counts[b.id] || 0) - (counts[a.id] || 0) || a.name.localeCompare(b.name, 'ko'));
+  $('rsp').innerHTML = opts.map(s => `<option value="${s.id}"${s.id === RANK.sp ? ' selected' : ''}>${esc(s.name)}${counts[s.id] ? ` (${counts[s.id]})` : ''}</option>`).join('');
+  renderRank();
+}
+async function renderRank(){
+  for (const b of document.querySelectorAll('.rtabs [data-t]')) b.classList.toggle('on', b.dataset.t === RANK.tab);
+  $('rsp').hidden = RANK.tab === 'day';
+  const n = Object.keys(RANK.docs).length;
+  $('rsub').textContent = RANK.live ? `참가자 ${Math.max(1, n)}명 · 실시간` : '내 기록만 표시 중 (공유 랭킹은 claude.ai에서 열었을 때)';
+  const rows = rankRows(), el = $('rlist');
+  if (!rows.length){ el.innerHTML = `<div class="empty">${RANK.tab === 'day' ? '아직 기록이 없어요. 물고기를 잡아 보세요!' : `아직 ${esc(BY_ID[RANK.sp].name)} 기록이 없어요.`}</div>`; return; }
+  const ids = rows.map(r => r.id).filter(id => id !== 'me');
+  const ps = RANK.user && ids.length ? await RANK.user.profiles(ids) : {};
+  const head = RANK.tab === 'day' ? ['하루 최다', '날짜', '누적'] : RANK.tab === 'len' ? ['크기', '무게', ''] : ['무게', '크기', ''];
+  el.innerHTML = `<table><thead><tr><th>#</th><th>낚시꾼</th><th>${head[0]}</th><th>${head[1]}</th><th>${head[2]}</th></tr></thead><tbody></tbody></table>`;
+  const tb = el.querySelector('tbody');
+  rows.forEach((r, i) => {
+    const me = r.id === RANK.me || r.id === 'me', tr = document.createElement('tr'); if (me) tr.className = 'me';
+    const name = me ? '나' : (ps[r.id] && ps[r.id].name) || '익명 낚시꾼';
+    const v = RANK.tab === 'day' ? r.v + '마리' : RANK.tab === 'len' ? r.v.toFixed(1) + 'cm' : kg(r.v);
+    for (const [cls, txt] of [['rk', i < 3 ? ['🥇', '🥈', '🥉'][i] : i + 1], ['', name], ['', v], ['', r.sub], ['', r.extra || '']]){ const td = document.createElement('td'); if (cls) td.className = cls; td.textContent = txt; tr.appendChild(td); }
+    tb.appendChild(tr);
+  });
+}
+for (const b of document.querySelectorAll('.rtabs [data-t]')) b.addEventListener('click', e => { e.stopPropagation(); RANK.tab = b.dataset.t; renderRank(); });
+$('rsp').addEventListener('change', () => { RANK.sp = $('rsp').value; renderRank(); });
+
+/* ---------------- fish guide (도감): names shown, photos hidden until caught ---------------- */
+function openDex(){ openModal('dexm'); renderDex(); }
+function renderDex(){
+  const photos = window.FISH_PHOTOS || {};
+  let got = 0;
+  const cards = SPECIES.map(sp => {
+    const n = P.caught[sp.id] || (G.best[sp.id] ? 1 : 0), seen = P.sightings[sp.id] || 0;
+    const open = n > 0 || (sp.sight && seen > 0); if (open) got++;
+    const b = G.best[sp.id], ph = photos[sp.id];
+    const salt = Object.values(BIOMES).some(B => B.water === 'salt' && (B.fish.some(f => f[0] === sp.id) || (B.visitors || []).some(v => v[0] === sp.id)));
+    const info = sp.sight ? (seen ? `관찰 ${seen}회` : '관찰 대상 · 아직 못 봤어요')
+      : n ? `최대 ${(b ? b.len*100 : 0).toFixed(1)}cm · ${b ? kg(b.weight) : '-'}<br>잡은 수 ${n}마리${seen ? ` · 목격 ${seen}` : ''}` : `아직 못 잡았어요${seen ? ` · 목격 ${seen}` : ''}`;
+    return `<div class="dx${open ? '' : ' locked'}"><div class="ph">${ph ? `<img loading="lazy" src="${ph.file}" alt="">` : `<span style="font-size:34px">${open ? sp.icon || '🐟' : ''}</span>`}${open ? '' : '<b class="qm">?</b>'}</div>
+      <div class="nm">${esc(sp.name)}<span class="tag">${salt ? '바다' : '민물'}</span>${sp.sight ? '<span class="tag">관찰</span>' : ''}</div><div class="dd">${info}</div></div>`;
+  });
+  $('dexgrid').innerHTML = cards.join('');
+  $('dsub').textContent = `${got} / ${SPECIES.length} 등록 · 잡으면 사진과 최대 기록이 공개돼요`;
+}
 
 /* ---------------- main loop ---------------- */
 function update(dt){
