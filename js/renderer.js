@@ -332,9 +332,13 @@ uniform vec4 uLnA, uLnB;  // underwater line segment (w of A = visible)
 uniform vec4 uBoat;       // hull centre xyz, heading
 
 const float IOR = 1.3335;
-const vec3 SIG_A = vec3(0.40, 0.074, 0.088);
-const vec3 SIG_S = vec3(0.028, 0.052, 0.068);
-const vec3 SIG_T = SIG_A + SIG_S;
+uniform vec3 uSigA, uSigS;   // per-region water: absorption / scattering (1/m)
+uniform vec4 uDepthP, uDepthQ; // depth profile: base, amp, min, max | scale, seed x, seed z, depth at the start anchor
+uniform vec4 uBed;             // seabed: sand fraction, tint rgb
+uniform float uLand;           // distant shoreline height (0 = open sea)
+#define SIG_A uSigA
+#define SIG_S uSigS
+#define SIG_T (uSigA + uSigS)
 const vec3 SUN = vec3(1.0, 0.90, 0.74) * 6.0;
 const float PI = 3.14159265359;
 const vec3 HULL = vec3(2.05, 0.37, 0.72);
@@ -355,7 +359,7 @@ vec3 sky(vec3 d){
   c += vec3(1.0, 0.86, 0.66) * (0.22*pow(max(mu,0.),6.) + 0.30*pow(max(mu,0.),64.) + 1.6*pow(max(mu,0.),2400.));
   // distant headland: pine canopy over pale limestone, softened by ~2 km of air
   float a = atan(d.z, d.x);
-  float r = ridge(a) + 0.0045*(vnoise(vec2(a*260.0, 0.0))-0.5) + 0.002*(vnoise(vec2(a*900.0, 3.0))-0.5);
+  float r = uLand*ridge(a) + 0.0045*(vnoise(vec2(a*260.0, 0.0))-0.5) + 0.002*(vnoise(vec2(a*900.0, 3.0))-0.5);
   float back = smoothstep(-0.3, 0.95, dot(normalize(vec2(d.x,d.z)+1e-5), normalize(vec2(uSun.x,uSun.z))));
   float u = clamp(e / max(r, 1e-3), 0.0, 1.0);
   vec2 q = vec2(a*420.0, e*420.0);
@@ -367,7 +371,7 @@ vec3 sky(vec3 d){
   land *= mix(1.0, 0.45, back);                         // backlit toward the sun
   land = mix(land, hor*0.92, 0.38 + 0.25*back);          // aerial perspective
   float w = fwidth(e)*1.2 + 2e-4;
-  c = mix(c, land, smoothstep(r+w, r-w, e) * step(-0.3, e));
+  c = mix(c, land, smoothstep(r+w, r-w, e) * step(-0.3, e) * step(0.01, uLand));
   return c;
 }
 
@@ -381,8 +385,11 @@ vec4 texBS(sampler2D t, vec2 uv){ // cubic B-spline filtering in 4 bilinear taps
        + (texture(t, vec2(h0.x,h1.y))*g0.x + texture(t, vec2(h1.x,h1.y))*g1.x)*g1.y;
 }
 float floorDepth(vec2 xz){
-  // lake bed: gentle swells, a little deeper away from the anchorage (same formula as game.js, plus fine noise)
-  float d = 2.3 + 0.45*sin(xz.x*0.11+1.3)*sin(xz.y*0.09+0.4) + 0.25*sin(xz.x*0.23 - xz.y*0.17 + 2.0) + min(length(xz)*0.012, 0.6);
+  // region depth profile (same formula as game.js), plus fine shader-only noise
+  float sc = uDepthQ.x; vec2 q = xz*sc;
+  float n = 0.5*sin(q.x + uDepthQ.y)*sin(q.y*0.83 + uDepthQ.z) + 0.3*sin((q.x*0.7 - q.y*0.9)*2.1 + uDepthQ.y*2.0) + 0.2*sin((q.x*1.3 + q.y*0.4)*4.3 + uDepthQ.z*3.0);
+  float d = clamp(uDepthP.x + uDepthP.y*n, uDepthP.z, uDepthP.w);
+  d = mix(uDepthQ.w, d, smoothstep(12.0, 70.0, length(xz)));
   return d + 0.10*(vnoise(xz*0.9+7.0)-0.5);
 }
 vec3 pebbles(vec2 x, float sc, out float hgt){
@@ -432,7 +439,8 @@ vec3 fishAlb(vec3 lp, vec4 A, vec4 Bc){
   vec3 back = A.rgb, belly = Bc.rgb; float pat = A.w;
   float x = lp.x, y = lp.y;
   vec3 c = mix(belly, back, smoothstep(-0.25, 0.85, y));
-  if (pat > 0.5 && pat < 1.5){          // vertical bars (bluegill)
+  if (pat < 0.5){                        // plain
+  } else if (pat < 1.5){                 // vertical bars (bluegill, peacock bass)
     float bar = smoothstep(0.3, 0.7, sin(x*11.0+1.0)) * smoothstep(-0.6, 0.1, y) * step(x, 0.62);
     c = mix(c, back*0.35, bar*0.75);
     c = mix(c, vec3(0.55,0.22,0.04), smoothstep(-0.35,-0.75,y)*0.7);   // orange breast
@@ -451,8 +459,19 @@ vec3 fishAlb(vec3 lp, vec4 A, vec4 Bc){
   } else if (pat < 6.5){                 // large scales (carp family)
     vec2 q = vec2(x*15.0, y*9.0 + 0.5*floor(x*15.0));
     c *= 1.0 - 0.22*smoothstep(0.32, 0.5, length(fract(q)-0.5));
-  } else {                               // silver with faint rose flank (chub)
+  } else if (pat < 7.5){                 // silver with faint rose flank (chub)
     c = mix(c, vec3(0.55,0.35,0.40), smoothstep(0.3,0.0,abs(y+0.25))*0.35);
+  } else if (pat < 8.5){                 // dark spots all over (grouper, pike)
+    float d = smoothstep(0.62, 0.72, vnoise(vec2(x*9.0, y*7.0) + 5.0));
+    c = mix(c, back*0.35 + vec3(0.04,0.02,0.0), d*0.8);
+  } else if (pat < 9.5){                 // mackerel: wavy dark lines on the back
+    float w = step(0.5, fract(x*6.0 + sin(y*9.0)*0.6)) * smoothstep(0.15, 0.45, y);
+    c = mix(c, back*0.25, w*0.8);
+  } else if (pat < 10.5){                // red breast (piranha, red snapper flank)
+    c = mix(c, vec3(0.55,0.10,0.05), smoothstep(-0.05,-0.6,y)*0.85);
+  } else {                               // bright reef colours with scale mesh (parrotfish)
+    vec2 q = vec2(x*14.0, y*9.0 + 0.5*floor(x*14.0));
+    c = mix(c, c*vec3(1.4,0.8,1.3), 0.25*smoothstep(0.3, 0.5, length(fract(q)-0.5)));
   }
   c *= 1.9;   // game readability: fish a little brighter than true camouflage
   vec2 e = vec2(x - 0.74, y - 0.16);
@@ -612,7 +631,7 @@ void main(){
     float coarse = smoothstep(0.45, 0.62, fbm2(FP.xz*0.21 + 40.0));
     vec3 alb = mix(pf, pc, coarse); hgt = mix(hgt, hgt2, coarse);
     float zone = fbm2(FP.xz*0.16 + 3.0) + 0.10*(vnoise(FP.xz*2.5)-0.5);
-    float sandM = smoothstep(hgt + 0.02, hgt + 0.16, (zone - 0.40)*1.6);
+    float sandM = max(smoothstep(hgt + 0.02, hgt + 0.16, (zone - 0.40)*1.6), uBed.x*smoothstep(-0.3, 0.2, zone - 0.35 + uBed.x));
     float marks = 0.5 + 0.5*sin(dot(FP.xz, vec2(0.93, 0.37))*16.0 + 3.0*vnoise(FP.xz*0.8));
     vec3 sand = vec3(0.60, 0.55, 0.44) * (0.82 + 0.22*vnoise(FP.xz*40.0) + 0.10*marks);
     sand = sand*sand*1.4; // to linear-ish, matching the texture
@@ -622,7 +641,7 @@ void main(){
     float big = vnoise(FP.xz*0.45) * 0.65 + vnoise(FP.xz*1.3+3.1) * 0.35;
     float weed = smoothstep(0.50, 0.85, vnoise(FP.xz*0.32 + 11.0));
     alb *= mix(0.62, 1.22, big);
-    alb = mix(alb, alb*vec3(0.45, 0.62, 0.30), weed*0.8); alb = mix(vec3(0.30,0.29,0.27), pow(alb, vec3(1.2)), 0.72) * 0.6;
+    alb = mix(alb, alb*vec3(0.45, 0.62, 0.30), weed*0.8*(1.0-uBed.x)); alb = mix(vec3(0.30,0.29,0.27), pow(alb, vec3(1.2)), 0.72) * 0.6 * uBed.yzw;
 
     // relief: nudge caustic lookup by pseudo height along the sun path; darken gaps a little
     vec2 cuv = (FP.xz - uCausShift + sunT.xz/(-sunT.y)*(hgt-0.35)*0.05)/uL;
@@ -641,7 +660,8 @@ void main(){
   vec3 Tv = exp(-SIG_T*sHit);
   float cosS = dot(sunT, -tr);
   float g = 0.8; float ph = (1.0-g*g)/(4.0*PI*pow(1.0+g*g-2.0*g*cosS, 1.5));
-  vec3 Lmid = SUN*Ts*exp(-SIG_T*depthHere*0.5/(-sunT.y))*(ph+0.02) + skyIrr*exp(-SIG_A*depthHere*0.6)/(4.0*PI);
+  vec3 dmid = min(vec3(depthHere*0.5), 0.8/SIG_T);
+  vec3 Lmid = SUN*Ts*exp(-SIG_T*dmid/(-sunT.y))*(ph+0.02) + skyIrr*exp(-SIG_A*dmid*1.2)/(4.0*PI);
   vec3 Lin = SIG_S/SIG_T * Lmid * (1.0 - Tv) * 3.2;
   vec3 under = Lsurf*Tv + Lin;
   // suspended specks at three depths: tiny sunlit particles that give the water column volume
@@ -957,8 +977,14 @@ function post(t){
 }
 
 /* ---------------- Above-water scene: boat, rod, float, line (rasterised, depth-tested against the water) ---------------- */
-const SUN_EL = 31*Math.PI/180, SUN_AZ = 6*Math.PI/180;
-const SUNV = [Math.sin(SUN_AZ)*Math.cos(SUN_EL), Math.sin(SUN_EL), -Math.cos(SUN_AZ)*Math.cos(SUN_EL)];
+let SUNV = [0,1,0];
+const ENV = { sigA:[0.40,0.074,0.088], sigS:[0.028,0.052,0.068], depthP:[2.5,1.0,1.5,3.5], depthQ:[0.02,1.3,0.4,2.4], bed:[0,1,1,1], land:1 };
+function setEnv(e){
+  Object.assign(ENV, e);
+  const el = (e.sunEl ?? 31)*Math.PI/180, az = (e.sunAz ?? 6)*Math.PI/180;
+  SUNV = [Math.sin(az)*Math.cos(el), Math.sin(el), -Math.cos(az)*Math.cos(el)];
+}
+setEnv({});
 const VFOV = 60*Math.PI/180;
 
 const MESH_VS = `#version 300 es
@@ -1219,6 +1245,8 @@ function render(S){
   gl.uniform1f(u.uL, L); gl.uniform1f(u.uDepth, DEPTH); gl.uniform1f(u.uTime, t);
   gl.uniform1f(u.uRipSize, RSIZE); gl.uniform2fv(u.uRipCenter, ripCenter); gl.uniform2fv(u.uCausShift, causShift);
   gl.uniform1f(u.uPixAng, 2*Math.tan(VFOV/2)/H);
+  gl.uniform3fv(u.uSigA, ENV.sigA); gl.uniform3fv(u.uSigS, ENV.sigS); gl.uniform4fv(u.uDepthP, ENV.depthP); gl.uniform4fv(u.uDepthQ, ENV.depthQ);
+  gl.uniform4fv(u.uBed, ENV.bed); gl.uniform1f(u.uLand, ENV.land);
   const fl = S.fish.slice(0, MAXF);
   fl.forEach((f,i) => {
     fishBuf.P.set([f.pos[0],f.pos[1],f.pos[2],f.len], i*4);
@@ -1283,7 +1311,7 @@ return {
     return [(x*0.5+0.5)*innerWidth, (0.5-y*0.5)*innerHeight];
   },
   basis: () => lastBasis,
-  SUN: SUNV,
+  setEnv,
 };
 
 })();

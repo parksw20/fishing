@@ -10,6 +10,7 @@
   html, body { margin:0; height:100%; background:#0d2a2a; overflow:hidden; touch-action:none; -webkit-user-select:none; user-select:none; font-family:var(--font); color:var(--ink); }
   canvas#c, canvas#hud { position:fixed; inset:0; width:100%; height:100%; display:block; }
   canvas#hud { cursor:crosshair; }
+  [hidden] { display:none !important; }
   .glass { background:var(--glass); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); border-radius:14px; }
   #toolbar { position:fixed; left:14px; top:14px; padding:10px 12px; display:flex; flex-direction:column; gap:8px; z-index:5; max-width:min(420px, calc(100vw - 28px)); }
   #toolbar h1 { margin:0 0 2px; font-size:15px; font-weight:800; letter-spacing:.02em; }
@@ -29,6 +30,25 @@
   #catches li span { opacity:.75; }
   #dex { display:flex; flex-wrap:wrap; gap:4px; margin-top:8px; }
   #dex span { font-size:10px; padding:2px 6px; border-radius:6px; background:rgba(255,255,255,.07); opacity:.5; }
+  #dexcount { margin-top:8px; font-size:10px; opacity:.6; }
+  #map { position:fixed; inset:0; z-index:15; background:rgba(3,12,18,.55); display:grid; place-items:center; padding:16px; box-sizing:border-box; }
+  #map .mapbox { width:min(1100px, 100%); height:min(680px, 100%); display:flex; flex-direction:column; overflow:hidden; background:rgba(6,22,30,.92); }
+  .maphead { display:flex; align-items:center; gap:12px; padding:10px 14px; }
+  .maphead b { font-size:15px; }
+  #mapinfo { flex:1; font-size:12px; opacity:.65; font-variant-numeric:tabular-nums; }
+  .mapbody { flex:1; display:flex; min-height:0; }
+  .mapwrap { flex:1; position:relative; min-width:0; }
+  #mapcv { position:absolute; inset:0; width:100%; height:100%; cursor:crosshair; touch-action:none; }
+  #mappanel { width:240px; padding:14px; font-size:13px; display:flex; flex-direction:column; gap:10px; overflow:auto; }
+  #mappanel .hint { opacity:.7; line-height:1.6; margin:0; }
+  #mappanel .st b { display:block; font-size:18px; }
+  #mappanel .st span { font-size:11px; opacity:.6; }
+  #mappanel .tags { display:flex; flex-wrap:wrap; gap:4px; }
+  #mappanel .tags span { font-size:11px; padding:2px 7px; border-radius:6px; background:rgba(79,209,255,.15); color:#bfeeff; }
+  #mappanel .fish { font-size:12px; line-height:1.6; opacity:.85; }
+  #fade { position:fixed; inset:0; background:#06141c; opacity:0; pointer-events:none; transition:opacity .6s; z-index:25; display:grid; place-items:center; font-size:15px; letter-spacing:.1em; }
+  #fade.on { opacity:1; }
+  @media (max-width: 760px) { .mapbody { flex-direction:column; } #mappanel { width:auto; max-height:40%; } }
   #dex span.got { background:rgba(110,230,140,.25); opacity:1; }
   #gauges { position:fixed; right:14px; bottom:84px; width:200px; padding:12px 14px; display:flex; gap:12px; z-index:5; }
   #tbar { position:relative; width:18px; height:150px; border-radius:9px; background:rgba(0,0,0,.35); overflow:hidden; flex:none; }
@@ -71,7 +91,8 @@
 <canvas id="hud"></canvas>
 
 <div id="toolbar" class="glass">
-  <h1>🎣 보트 낚시<small>Clearwater</small></h1>
+  <h1>🎣 보트 낚시<small id="place"></small></h1>
+  <div class="row"><label>모드</label><div class="row"><button id="navfish" class="on">🎣 낚시</button><button id="navboat">⛵ 보트</button><button id="navmap">🗺 지도</button></div></div>
   <div class="row"><label>채비</label><div id="modes" class="row"></div></div>
   <div class="row"><label>미끼</label><div id="items" class="row"></div></div>
   <div id="itemdesc"></div>
@@ -80,6 +101,7 @@
 <div id="log" class="glass">
   <div class="head"><span>살림망 <span id="count">0</span>마리</span><b id="score">0</b></div>
   <ul id="catches"></ul>
+  <div id="dexcount"></div>
   <div id="dex"></div>
 </div>
 
@@ -103,12 +125,20 @@
   <div class="foot">클릭하여 계속</div>
 </div>
 
+<div id="map" hidden>
+  <div class="mapbox glass">
+    <div class="maphead"><b>🗺 세계 낚시 지도</b><span id="mapinfo"></span><button id="mapclose">닫기 (Esc)</button></div>
+    <div class="mapbody"><div class="mapwrap"><canvas id="mapcv"></canvas></div><div id="mappanel"></div></div>
+  </div>
+</div>
+<div id="fade">⛵ 이동 중…</div>
 <div id="loading">물 위로 나가는 중…</div>
 <div id="dbg" hidden></div>
 <div id="err" hidden></div>
 
 <script src="js/pebbles.js"></script>
 <script src="js/renderer.js"></script>
+<script src="js/world.js"></script>
 <script src="js/data.js"></script>
 <script src="js/game.js"></script>
 </body>

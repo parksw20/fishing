@@ -1,48 +1,199 @@
 "use strict";
-// Species, baits and lures. Colours are linear RGB albedo (rendered under water, so red fades with depth).
-// pref.*: how much the species likes a bait / lure (0..1). depth: preferred depth as a fraction of the water column.
-// bite: 'rise' = lifts the float (classic crucian 찌올림), 'sink' = pulls the float under.
+// Species, baits, lures, water types and fishing regions.
+// Colours are linear RGB albedo (rendered under water, so red fades with depth).
+// pref.*: how much the species likes a bait / lure (0..1). depth: preferred depth as a fraction of the water column
+// (capped at the visible zone). bite: 'rise' = lifts the float (classic crucian 찌올림), 'sink' = pulls it under.
 window.GameData = (function(){
+  const S = (o) => Object.assign({ wary:0.4, aggr:0.6, bite:'sink', rare:1, endurance:1, depth:0.5, hr:0.3, pattern:0 }, o);
   const SPECIES = [
-    { id:'bungeo', name:'붕어', latin:'Carassius auratus', minLen:0.15, maxLen:0.42, wk:1.85e-5, weight:30,
+    // ---- temperate fresh water (Korea / East Asia) ----
+    S({ id:'bungeo', name:'붕어', latin:'Carassius auratus', minLen:0.15, maxLen:0.42, wk:1.85e-5,
       back:[0.10,0.09,0.035], belly:[0.50,0.40,0.17], pattern:6, hr:0.42,
       pref:{ paste:1.0, worm:0.7, shrimp:0.3, minnow:0.0, spoon:0.0, softworm:0.06 },
-      depth:0.85, speed:0.32, power:0.75, endurance:0.8, aggr:0.4, wary:0.55, bite:'rise', rare:1.0 },
-    { id:'ingeo', name:'잉어', latin:'Cyprinus carpio', minLen:0.40, maxLen:0.95, wk:1.45e-5, weight:6,
+      depth:0.85, speed:0.32, power:0.75, endurance:0.8, aggr:0.4, wary:0.55, bite:'rise', rare:1.0 }),
+    S({ id:'ingeo', name:'잉어', latin:'Cyprinus carpio', minLen:0.40, maxLen:0.95, wk:1.45e-5,
       back:[0.12,0.08,0.03], belly:[0.46,0.32,0.12], pattern:6, hr:0.33,
       pref:{ paste:0.9, worm:0.45, shrimp:0.25, minnow:0.0, spoon:0.0, softworm:0.05 },
-      depth:0.85, speed:0.42, power:1.1, endurance:1.7, aggr:0.3, wary:0.75, bite:'rise', rare:1.8 },
-    { id:'bluegill', name:'블루길', latin:'Lepomis macrochirus', minLen:0.10, maxLen:0.25, wk:2.6e-5, weight:26,
+      depth:0.85, speed:0.42, power:1.1, endurance:1.7, aggr:0.3, wary:0.75, bite:'rise', rare:1.8 }),
+    S({ id:'bluegill', name:'블루길', latin:'Lepomis macrochirus', minLen:0.10, maxLen:0.25, wk:2.6e-5,
       back:[0.05,0.09,0.09], belly:[0.52,0.36,0.14], pattern:1, hr:0.50,
       pref:{ paste:0.45, worm:1.0, shrimp:0.7, minnow:0.2, spoon:0.3, softworm:0.5 },
-      depth:0.45, speed:0.34, power:0.6, endurance:0.5, aggr:0.8, wary:0.2, bite:'sink', rare:0.8 },
-    { id:'bass', name:'배스', latin:'Micropterus salmoides', minLen:0.22, maxLen:0.60, wk:1.56e-5, weight:20,
+      depth:0.45, speed:0.34, power:0.6, endurance:0.5, aggr:0.8, wary:0.2, rare:0.8 }),
+    S({ id:'bass', name:'배스', latin:'Micropterus salmoides', minLen:0.22, maxLen:0.62, wk:1.56e-5,
       back:[0.06,0.10,0.035], belly:[0.62,0.62,0.52], pattern:2, hr:0.29,
       pref:{ paste:0.05, worm:0.45, shrimp:0.6, minnow:1.0, spoon:0.6, softworm:0.9 },
-      depth:0.5, speed:0.58, power:1.0, endurance:1.0, aggr:1.0, wary:0.35, bite:'sink', rare:1.3 },
-    { id:'ssogari', name:'쏘가리', latin:'Siniperca scherzeri', minLen:0.22, maxLen:0.52, wk:1.4e-5, weight:6,
+      depth:0.5, speed:0.58, power:1.0, endurance:1.0, aggr:1.0, wary:0.35, rare:1.3 }),
+    S({ id:'ssogari', name:'쏘가리', latin:'Siniperca scherzeri', minLen:0.22, maxLen:0.52, wk:1.4e-5,
       back:[0.20,0.15,0.05], belly:[0.52,0.44,0.22], pattern:3, hr:0.28,
       pref:{ paste:0.0, worm:0.35, shrimp:0.65, minnow:0.8, spoon:0.3, softworm:0.8 },
-      depth:0.8, speed:0.5, power:1.05, endurance:1.1, aggr:0.8, wary:0.55, bite:'sink', rare:2.2 },
-    { id:'kkeuri', name:'끄리', latin:'Opsariichthys uncirostris', minLen:0.18, maxLen:0.40, wk:1.1e-5, weight:16,
+      depth:0.8, speed:0.5, power:1.05, endurance:1.1, aggr:0.8, wary:0.55, rare:2.2 }),
+    S({ id:'kkeuri', name:'끄리', latin:'Opsariichthys uncirostris', minLen:0.18, maxLen:0.40, wk:1.1e-5,
       back:[0.05,0.09,0.13], belly:[0.72,0.68,0.66], pattern:7, hr:0.24,
       pref:{ paste:0.05, worm:0.35, shrimp:0.2, minnow:0.8, spoon:1.0, softworm:0.2 },
-      depth:0.3, speed:0.8, power:0.8, endurance:0.8, aggr:0.9, wary:0.3, bite:'sink', rare:1.1 },
-    { id:'megi', name:'메기', latin:'Silurus asotus', minLen:0.35, maxLen:0.85, wk:8.5e-6, weight:6,
+      depth:0.3, speed:0.8, power:0.8, endurance:0.8, aggr:0.9, wary:0.3, rare:1.1 }),
+    S({ id:'megi', name:'메기', latin:'Silurus asotus', minLen:0.35, maxLen:0.85, wk:8.5e-6,
       back:[0.05,0.05,0.04], belly:[0.38,0.36,0.30], pattern:5, hr:0.20,
       pref:{ paste:0.3, worm:0.85, shrimp:0.8, minnow:0.2, spoon:0.1, softworm:0.35 },
-      depth:0.95, speed:0.34, power:1.1, endurance:1.4, aggr:0.6, wary:0.45, bite:'sink', rare:1.8 },
-    { id:'songeo', name:'무지개송어', latin:'Oncorhynchus mykiss', minLen:0.28, maxLen:0.62, wk:1.2e-5, weight:8,
+      depth:0.95, speed:0.34, power:1.1, endurance:1.4, aggr:0.6, wary:0.45, rare:1.8 }),
+    S({ id:'songeo', name:'무지개송어', latin:'Oncorhynchus mykiss', minLen:0.28, maxLen:0.62, wk:1.2e-5,
       back:[0.07,0.10,0.06], belly:[0.72,0.70,0.64], pattern:4, hr:0.26,
       pref:{ paste:0.1, worm:0.5, shrimp:0.3, minnow:0.7, spoon:0.9, softworm:0.3 },
-      depth:0.4, speed:0.7, power:1.0, endurance:1.1, aggr:0.85, wary:0.4, bite:'sink', rare:1.6 },
+      depth:0.4, speed:0.7, power:1.0, endurance:1.1, aggr:0.85, wary:0.4, rare:1.6 }),
+    // ---- temperate fresh water (North America / Europe) ----
+    S({ id:'pike', name:'강꼬치고기', latin:'Esox lucius', minLen:0.40, maxLen:1.10, wk:6.5e-6,
+      back:[0.07,0.11,0.04], belly:[0.55,0.55,0.40], pattern:8, hr:0.18,
+      pref:{ paste:0.0, worm:0.2, shrimp:0.4, minnow:1.0, spoon:0.95, softworm:0.6 },
+      depth:0.45, speed:0.75, power:1.15, endurance:1.2, aggr:1.0, wary:0.3, rare:1.9 }),
+    S({ id:'walleye', name:'월아이', latin:'Sander vitreus', minLen:0.30, maxLen:0.75, wk:9.5e-6,
+      back:[0.16,0.13,0.05], belly:[0.62,0.60,0.50], pattern:3, hr:0.22,
+      pref:{ paste:0.0, worm:0.8, shrimp:0.5, minnow:0.85, spoon:0.5, softworm:0.7 },
+      depth:0.85, speed:0.5, power:0.9, endurance:1.0, aggr:0.7, wary:0.5, rare:1.5 }),
+    S({ id:'chcat', name:'채널메기', latin:'Ictalurus punctatus', minLen:0.35, maxLen:0.90, wk:9.5e-6,
+      back:[0.12,0.13,0.13], belly:[0.62,0.62,0.58], pattern:8, hr:0.21,
+      pref:{ paste:0.5, worm:0.9, shrimp:0.8, minnow:0.15, spoon:0.1, softworm:0.3 },
+      depth:0.95, speed:0.38, power:1.1, endurance:1.4, aggr:0.6, wary:0.4, rare:1.6 }),
+    // ---- cold fresh water ----
+    S({ id:'char', name:'북극곤들매기', latin:'Salvelinus alpinus', minLen:0.30, maxLen:0.75, wk:1.15e-5,
+      back:[0.07,0.10,0.10], belly:[0.62,0.20,0.08], pattern:4, hr:0.24,
+      pref:{ paste:0.05, worm:0.6, shrimp:0.5, minnow:0.8, spoon:1.0, softworm:0.4 },
+      depth:0.6, speed:0.7, power:1.0, endurance:1.1, aggr:0.8, wary:0.45, rare:2.0 }),
+    S({ id:'salmon', name:'왕연어', latin:'Oncorhynchus tshawytscha', minLen:0.60, maxLen:1.20, wk:1.05e-5,
+      back:[0.08,0.11,0.12], belly:[0.75,0.74,0.70], pattern:8, hr:0.25,
+      pref:{ paste:0.1, worm:0.4, shrimp:0.7, minnow:0.8, spoon:1.0, softworm:0.3 },
+      depth:0.45, speed:0.9, power:1.3, endurance:1.8, aggr:0.7, wary:0.55, rare:2.6 }),
+    // ---- tropical fresh water ----
+    S({ id:'peacock', name:'피콕배스', latin:'Cichla ocellaris', minLen:0.30, maxLen:0.75, wk:1.5e-5,
+      back:[0.12,0.16,0.04], belly:[0.62,0.50,0.12], pattern:1, hr:0.28,
+      pref:{ paste:0.0, worm:0.3, shrimp:0.5, minnow:1.0, spoon:0.8, softworm:0.7 },
+      depth:0.4, speed:0.7, power:1.2, endurance:1.2, aggr:1.0, wary:0.3, rare:1.8 }),
+    S({ id:'piranha', name:'피라냐', latin:'Pygocentrus nattereri', minLen:0.15, maxLen:0.33, wk:2.9e-5,
+      back:[0.10,0.11,0.11], belly:[0.40,0.40,0.38], pattern:10, hr:0.55,
+      pref:{ paste:0.2, worm:0.8, shrimp:1.0, minnow:0.7, spoon:0.8, softworm:0.5 },
+      depth:0.5, speed:0.6, power:0.8, endurance:0.6, aggr:1.0, wary:0.1, rare:1.2 }),
+    S({ id:'arowana', name:'아로와나', latin:'Osteoglossum bicirrhosum', minLen:0.50, maxLen:1.00, wk:5.5e-6,
+      back:[0.20,0.22,0.18], belly:[0.72,0.70,0.60], pattern:6, hr:0.2,
+      pref:{ paste:0.0, worm:0.3, shrimp:0.6, minnow:0.8, spoon:0.5, softworm:0.5 },
+      depth:0.15, speed:0.6, power:1.0, endurance:1.1, aggr:0.7, wary:0.6, rare:2.4 }),
+    S({ id:'tilapia', name:'틸라피아', latin:'Oreochromis niloticus', minLen:0.15, maxLen:0.45, wk:2.2e-5,
+      back:[0.10,0.11,0.09], belly:[0.50,0.48,0.42], pattern:1, hr:0.40,
+      pref:{ paste:1.0, worm:0.7, shrimp:0.4, minnow:0.1, spoon:0.1, softworm:0.2 },
+      depth:0.6, speed:0.35, power:0.7, endurance:0.8, aggr:0.5, wary:0.4, bite:'rise', rare:0.8 }),
+    S({ id:'nileperch', name:'나일퍼치', latin:'Lates niloticus', minLen:0.50, maxLen:1.40, wk:1.2e-5,
+      back:[0.16,0.16,0.13], belly:[0.70,0.68,0.60], pattern:0, hr:0.28,
+      pref:{ paste:0.0, worm:0.3, shrimp:0.6, minnow:1.0, spoon:0.7, softworm:0.6 },
+      depth:0.8, speed:0.6, power:1.35, endurance:1.8, aggr:0.8, wary:0.5, rare:2.8 }),
+    // ---- temperate sea ----
+    S({ id:'ureok', name:'조피볼락(우럭)', latin:'Sebastes schlegelii', minLen:0.20, maxLen:0.55, wk:1.8e-5,
+      back:[0.10,0.09,0.07], belly:[0.40,0.38,0.34], pattern:5, hr:0.33,
+      pref:{ paste:0.3, worm:0.8, shrimp:1.0, minnow:0.6, spoon:0.4, softworm:0.9 },
+      depth:0.9, speed:0.35, power:0.95, endurance:1.0, aggr:0.8, wary:0.3, rare:1.1 }),
+    S({ id:'gwangeo', name:'넙치(광어)', latin:'Paralichthys olivaceus', minLen:0.35, maxLen:0.85, wk:1.1e-5,
+      back:[0.12,0.10,0.06], belly:[0.62,0.62,0.58], pattern:8, hr:0.42,
+      pref:{ paste:0.1, worm:0.6, shrimp:0.8, minnow:0.8, spoon:0.5, softworm:1.0 },
+      depth:0.98, speed:0.4, power:1.05, endurance:1.2, aggr:0.7, wary:0.45, rare:1.7 }),
+    S({ id:'chamdom', name:'참돔', latin:'Pagrus major', minLen:0.25, maxLen:0.80, wk:1.9e-5,
+      back:[0.55,0.18,0.14], belly:[0.72,0.55,0.50], pattern:4, hr:0.38,
+      pref:{ paste:0.9, worm:0.7, shrimp:0.9, minnow:0.4, spoon:0.5, softworm:0.5 },
+      depth:0.7, speed:0.55, power:1.2, endurance:1.4, aggr:0.6, wary:0.6, rare:2.2 }),
+    S({ id:'nongeo', name:'농어', latin:'Lateolabrax japonicus', minLen:0.30, maxLen:0.90, wk:1.0e-5,
+      back:[0.10,0.12,0.12], belly:[0.72,0.72,0.70], pattern:8, hr:0.24,
+      pref:{ paste:0.05, worm:0.6, shrimp:0.7, minnow:1.0, spoon:0.8, softworm:0.6 },
+      depth:0.35, speed:0.75, power:1.1, endurance:1.2, aggr:0.9, wary:0.4, rare:1.7 }),
+    S({ id:'gamseong', name:'감성돔', latin:'Acanthopagrus schlegelii', minLen:0.20, maxLen:0.55, wk:2.0e-5,
+      back:[0.10,0.11,0.12], belly:[0.48,0.50,0.52], pattern:1, hr:0.40,
+      pref:{ paste:1.0, worm:0.6, shrimp:0.8, minnow:0.1, spoon:0.1, softworm:0.3 },
+      depth:0.8, speed:0.45, power:1.05, endurance:1.2, aggr:0.4, wary:0.7, rare:1.9 }),
+    S({ id:'godeungeo', name:'고등어', latin:'Scomber japonicus', minLen:0.20, maxLen:0.45, wk:1.0e-5,
+      back:[0.08,0.20,0.20], belly:[0.75,0.75,0.72], pattern:9, hr:0.22,
+      pref:{ paste:0.8, worm:0.6, shrimp:0.7, minnow:0.7, spoon:1.0, softworm:0.2 },
+      depth:0.2, speed:0.95, power:0.8, endurance:0.8, aggr:1.0, wary:0.15, rare:0.7 }),
+    // ---- tropical sea ----
+    S({ id:'gt', name:'자이언트 트레발리', latin:'Caranx ignobilis', minLen:0.50, maxLen:1.40, wk:1.6e-5,
+      back:[0.16,0.18,0.20], belly:[0.62,0.64,0.66], pattern:0, hr:0.36,
+      pref:{ paste:0.0, worm:0.2, shrimp:0.5, minnow:1.0, spoon:0.9, softworm:0.4 },
+      depth:0.3, speed:1.0, power:1.4, endurance:1.8, aggr:1.0, wary:0.3, rare:2.8 }),
+    S({ id:'barracuda', name:'바라쿠다', latin:'Sphyraena barracuda', minLen:0.50, maxLen:1.30, wk:5.0e-6,
+      back:[0.12,0.16,0.18], belly:[0.75,0.76,0.76], pattern:8, hr:0.14,
+      pref:{ paste:0.0, worm:0.1, shrimp:0.3, minnow:1.0, spoon:1.0, softworm:0.3 },
+      depth:0.25, speed:1.1, power:1.1, endurance:1.0, aggr:1.0, wary:0.3, rare:1.8 }),
+    S({ id:'grouper', name:'붉바리(그루퍼)', latin:'Epinephelus akaara', minLen:0.30, maxLen:0.90, wk:1.6e-5,
+      back:[0.30,0.16,0.08], belly:[0.58,0.42,0.30], pattern:8, hr:0.32,
+      pref:{ paste:0.1, worm:0.5, shrimp:1.0, minnow:0.8, spoon:0.4, softworm:0.9 },
+      depth:0.95, speed:0.4, power:1.25, endurance:1.3, aggr:0.8, wary:0.4, rare:2.2 }),
+    S({ id:'mahi', name:'만새기(마히마히)', latin:'Coryphaena hippurus', minLen:0.50, maxLen:1.30, wk:7.0e-6,
+      back:[0.05,0.28,0.18], belly:[0.62,0.58,0.12], pattern:8, hr:0.30,
+      pref:{ paste:0.0, worm:0.1, shrimp:0.4, minnow:1.0, spoon:0.9, softworm:0.2 },
+      depth:0.12, speed:1.1, power:1.2, endurance:1.3, aggr:0.95, wary:0.3, rare:2.1 }),
+    S({ id:'parrot', name:'비늘돔', latin:'Scarus ghobban', minLen:0.25, maxLen:0.70, wk:1.8e-5,
+      back:[0.04,0.32,0.28], belly:[0.20,0.55,0.50], pattern:11, hr:0.36,
+      pref:{ paste:0.8, worm:0.4, shrimp:0.6, minnow:0.1, spoon:0.1, softworm:0.2 },
+      depth:0.85, speed:0.4, power:0.9, endurance:1.0, aggr:0.3, wary:0.6, rare:1.4 }),
+    S({ id:'snapper', name:'붉은퉁돔', latin:'Lutjanus bohar', minLen:0.30, maxLen:0.85, wk:1.7e-5,
+      back:[0.45,0.12,0.10], belly:[0.65,0.40,0.36], pattern:10, hr:0.34,
+      pref:{ paste:0.3, worm:0.6, shrimp:1.0, minnow:0.8, spoon:0.6, softworm:0.8 },
+      depth:0.8, speed:0.55, power:1.15, endurance:1.2, aggr:0.8, wary:0.4, rare:1.7 }),
+    // ---- cold sea ----
+    S({ id:'cod', name:'대구', latin:'Gadus morhua', minLen:0.40, maxLen:1.20, wk:9.5e-6,
+      back:[0.20,0.18,0.10], belly:[0.62,0.60,0.52], pattern:8, hr:0.24,
+      pref:{ paste:0.3, worm:0.9, shrimp:0.9, minnow:0.7, spoon:0.8, softworm:0.8 },
+      depth:0.9, speed:0.45, power:1.1, endurance:1.3, aggr:0.8, wary:0.3, rare:1.5 }),
+    S({ id:'halibut', name:'넙치가자미(핼리벗)', latin:'Hippoglossus hippoglossus', minLen:0.50, maxLen:1.60, wk:1.0e-5,
+      back:[0.12,0.11,0.08], belly:[0.62,0.62,0.60], pattern:5, hr:0.40,
+      pref:{ paste:0.2, worm:0.7, shrimp:0.9, minnow:0.6, spoon:0.5, softworm:0.9 },
+      depth:0.98, speed:0.45, power:1.4, endurance:2.0, aggr:0.6, wary:0.5, rare:3.0 }),
+    S({ id:'pollock', name:'명태', latin:'Gadus chalcogrammus', minLen:0.30, maxLen:0.70, wk:8.0e-6,
+      back:[0.14,0.13,0.10], belly:[0.66,0.64,0.60], pattern:0, hr:0.22,
+      pref:{ paste:0.4, worm:0.8, shrimp:0.8, minnow:0.6, spoon:0.9, softworm:0.5 },
+      depth:0.7, speed:0.55, power:0.85, endurance:0.9, aggr:0.8, wary:0.25, rare:1.0 }),
+  ];
+  const BY_ID = Object.fromEntries(SPECIES.map(s => [s.id, s]));
+
+  // fish communities: [species id, spawn weight]
+  const BIOMES = {
+    kr_fresh:   { name:'온대 민물', water:'fresh', fish:[['bungeo',30],['ingeo',6],['bluegill',26],['bass',20],['ssogari',6],['kkeuri',16],['megi',6],['songeo',8]] },
+    na_fresh:   { name:'온대 민물', water:'fresh', fish:[['bass',28],['bluegill',26],['pike',12],['walleye',12],['chcat',10],['songeo',10],['ingeo',6]] },
+    cold_fresh: { name:'한대 민물', water:'fresh', fish:[['songeo',26],['char',16],['pike',18],['salmon',10],['walleye',12]] },
+    trop_fresh: { name:'열대 민물', water:'fresh', fish:[['peacock',18],['piranha',26],['arowana',8],['tilapia',26],['nileperch',6],['chcat',6]] },
+    temp_sea:   { name:'온대 바다', water:'salt',  fish:[['ureok',26],['gwangeo',12],['chamdom',8],['nongeo',12],['gamseong',12],['godeungeo',30]] },
+    trop_sea:   { name:'열대 바다', water:'salt',  fish:[['gt',8],['barracuda',14],['grouper',14],['mahi',10],['parrot',24],['snapper',20]] },
+    cold_sea:   { name:'한대 바다', water:'salt',  fish:[['cod',28],['halibut',8],['pollock',30],['godeungeo',16],['salmon',8]] },
+  };
+
+  // water look and bathymetry: sigA/sigS = absorption/scattering (1/m); depth = [base, amp, min, max]; scale = 1/feature size
+  const WATERS = {
+    lake_clear: { name:'맑은 호수', sigA:[0.40,0.074,0.088], sigS:[0.028,0.052,0.068], depth:[4.5,7,1.4,12],   scale:0.018, bed:[0.1,1,1,1],        land:1.0 },
+    lake_green: { name:'녹색 호수', sigA:[0.45,0.11,0.22],   sigS:[0.035,0.07,0.045], depth:[4,5,1.2,9],   scale:0.02,  bed:[0.4,0.75,0.8,0.6], land:1.0 },
+    river_brown:{ name:'열대 강',   sigA:[0.36,0.30,0.48],   sigS:[0.07,0.055,0.03],  depth:[4,4,1.2,9], scale:0.025, bed:[0.8,0.6,0.5,0.4], land:1.2 },
+    cold_lake:  { name:'빙하 호수', sigA:[0.42,0.07,0.05],   sigS:[0.02,0.045,0.05],  depth:[10,16,1.5,30],  scale:0.015, bed:[0.0,0.85,0.9,0.95],land:1.4 },
+    sea_temp:   { name:'온대 바다', sigA:[0.42,0.058,0.035], sigS:[0.012,0.026,0.04], depth:[13,22,1.6,40],scale:0.012, bed:[0.4,1,0.95,0.85], land:0.7 },
+    sea_trop:   { name:'열대 바다', sigA:[0.40,0.042,0.016], sigS:[0.006,0.02,0.045], depth:[11,26,1.3,45],scale:0.014, bed:[1.0,1.2,1.15,1.0], land:0.35 },
+    sea_cold:   { name:'한대 바다', sigA:[0.43,0.075,0.055], sigS:[0.02,0.04,0.045],  depth:[16,26,2.0,50],scale:0.01,  bed:[0.0,0.8,0.85,0.9], land:1.1 },
+  };
+
+  // preset spots on the world map (lat, lon)
+  const SPOTS = [
+    { id:'soyang',   name:'소양호',            country:'대한민국', lat:37.95, lon:127.85, biome:'kr_fresh',  water:'lake_clear', start:2.6 },
+    { id:'jeju',     name:'제주 서귀포 앞바다', country:'대한민국', lat:33.20, lon:126.55, biome:'temp_sea',  water:'sea_temp',   start:4 },
+    { id:'ulleung',  name:'울릉도',            country:'대한민국', lat:37.50, lon:130.90, biome:'temp_sea',  water:'sea_temp',   start:6 },
+    { id:'biwa',     name:'비와호',            country:'일본',     lat:35.25, lon:136.10, biome:'kr_fresh',  water:'lake_green', start:3 },
+    { id:'corsica',  name:'코르시카',          country:'프랑스',   lat:42.00, lon:9.00,   biome:'temp_sea',  water:'sea_temp',   start:2.4 },
+    { id:'lofoten',  name:'로포텐 제도',       country:'노르웨이', lat:68.20, lon:14.50,  biome:'cold_sea',  water:'sea_cold',   start:6 },
+    { id:'kenai',    name:'케나이 호',         country:'미국 알래스카', lat:60.45, lon:-150.2, biome:'cold_fresh', water:'cold_lake', start:3 },
+    { id:'ontario',  name:'온타리오 호',       country:'캐나다',   lat:43.70, lon:-77.90, biome:'na_fresh',  water:'lake_clear', start:3 },
+    { id:'okeechobee', name:'오키초비 호',     country:'미국 플로리다', lat:26.95, lon:-80.80, biome:'na_fresh', water:'lake_green', start:2.2 },
+    { id:'kona',     name:'코나 앞바다',       country:'미국 하와이', lat:19.60, lon:-156.10, biome:'trop_sea', water:'sea_trop', start:5 },
+    { id:'maldives', name:'몰디브 환초',       country:'몰디브',   lat:4.20,  lon:73.50,  biome:'trop_sea',  water:'sea_trop',   start:2 },
+    { id:'gbr',      name:'그레이트배리어리프', country:'호주',    lat:-18.30, lon:147.70, biome:'trop_sea', water:'sea_trop',  start:2.5 },
+    { id:'amazon',   name:'아마존 강',         country:'브라질',   lat:-3.10, lon:-60.00, biome:'trop_fresh', water:'river_brown', start:3 },
+    { id:'victoria', name:'빅토리아 호',       country:'우간다',   lat:-0.50, lon:33.00,  biome:'trop_fresh', water:'lake_green', start:3 },
+    { id:'patagonia', name:'나우엘우아피 호',  country:'아르헨티나', lat:-41.10, lon:-71.40, biome:'cold_fresh', water:'cold_lake', start:3 },
   ];
 
-  // 대낚시 (float fishing with a long pole, no reel)
+  // 대낚시 (float fishing with a long pole, no reel); sea names in nameSea
   const BAITS = [
-    { id:'paste',  name:'떡밥',   desc:'붕어·잉어가 좋아하는 곡물 미끼', color:[0.55,0.45,0.25], size:[0.012,0.012,0.012], kind:0, metal:0.0 },
-    { id:'worm',   name:'지렁이', desc:'거의 모든 어종이 반응',         color:[0.45,0.10,0.10], size:[0.022,0.007,0.007], kind:0, metal:0.1 },
-    { id:'shrimp', name:'새우',   desc:'육식성 어종(쏘가리·메기)',       color:[0.55,0.48,0.40], size:[0.018,0.008,0.008], kind:0, metal:0.2 },
+    { id:'paste',  name:'떡밥',   nameSea:'크릴',      desc:'붕어·잉어·감성돔이 좋아하는 밑밥 미끼', color:[0.55,0.45,0.25], size:[0.012,0.012,0.012], kind:0, metal:0.0 },
+    { id:'worm',   name:'지렁이', nameSea:'청갯지렁이', desc:'거의 모든 어종이 반응',               color:[0.45,0.10,0.10], size:[0.022,0.007,0.007], kind:0, metal:0.1 },
+    { id:'shrimp', name:'새우',   nameSea:'오징어살',  desc:'육식성 어종이 좋아함',                color:[0.55,0.48,0.40], size:[0.018,0.008,0.008], kind:0, metal:0.2 },
   ];
   // 루어 (spinning rod with reel)
   const LURES = [
@@ -54,5 +205,5 @@ window.GameData = (function(){
       reel:0.6, diveDepth:-1, idle:'slowsink' },
   ];
 
-  return { SPECIES, BAITS, LURES };
+  return { SPECIES, BY_ID, BIOMES, WATERS, SPOTS, BAITS, LURES };
 })();

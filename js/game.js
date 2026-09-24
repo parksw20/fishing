@@ -1,7 +1,7 @@
 "use strict";
 // 보트 낚시 — game logic: casting, float (대낚시) and lure fishing, fish AI, fight, HUD.
 (function(){
-const { SPECIES, BAITS, LURES } = window.GameData;
+const { SPECIES, BY_ID, BIOMES, WATERS, SPOTS, BAITS, LURES } = window.GameData;
 const Rn = window.Renderer;
 const $ = id => document.getElementById(id);
 const rand = (a,b) => a + Math.random()*(b-a);
@@ -19,10 +19,18 @@ const vlerp = (a,b,t) => [lerp(a[0],b[0],t), lerp(a[1],b[1],t), lerp(a[2],b[2],t
 const dist2 = (a,b) => Math.hypot(a[0]-b[0], a[2]-b[2]);
 const dist3 = (a,b) => Math.hypot(a[0]-b[0], a[1]-b[1], a[2]-b[2]);
 
-// lake bed depth (m, positive) — same large-scale formula as the water shader
+// water depth (m, positive) — same large-scale formula as the water shader, driven by the current region
+const VIS_DEPTH = 8;        // fish and rigs stay within the sunlit zone you can see into
+let REGION = null;
 function floorDepth(x, z){
-  return 2.3 + 0.45*Math.sin(x*0.11+1.3)*Math.sin(z*0.09+0.4) + 0.25*Math.sin(x*0.23 - z*0.17 + 2.0) + Math.min(Math.hypot(x,z)*0.012, 0.6);
+  const [base, amp, mn, mx] = REGION.depthP, [sc, sx, sz, st] = REGION.depthQ;
+  const qx = x*sc, qz = z*sc;
+  const n = 0.5*Math.sin(qx + sx)*Math.sin(qz*0.83 + sz) + 0.3*Math.sin((qx*0.7 - qz*0.9)*2.1 + sx*2) + 0.2*Math.sin((qx*1.3 + qz*0.4)*4.3 + sz*3);
+  const d = clamp(base + amp*n, mn, mx);
+  const t = clamp((Math.hypot(x, z) - 12)/58, 0, 1);
+  return lerp(st, d, t*t*(3 - 2*t));
 }
+function column(x, z){ return Math.min(floorDepth(x, z), VIS_DEPTH); }
 
 /* ---------------- setup ---------------- */
 const BOAT = { pos:[0,0,0], heading:0, pitch:0, roll:0 };
@@ -35,7 +43,8 @@ const MODES = {
 
 const G = {
   time: 0, mode: 'pole', item: { pole:0, lure:0 },
-  state: 'idle',             // idle | charge | fly | wait | hooked | result
+  state: 'idle',             // idle | charge | fly | wait | hooked | result | boat
+  boatV: 0, boatSteer: 0, camDist: 9, mapOpen: false,
   aimYaw: 0, aimPitch: -0.2, orbit: 0,
   power: 0, chargeT: 0,
   fly: null, rig: null, lure: null, engaged: null, strike: null,
@@ -90,10 +99,21 @@ const sfx = {
 /* ---------------- helpers ---------------- */
 function modeCfg(){ return MODES[G.mode]; }
 function curItem(){ return modeCfg().items[G.item[G.mode]]; }
-function eyeWorld(){ return [BOAT.pos[0] + SEAT[0] + BOAT.roll*0.9, SEAT[1] + BOAT.pos[1], BOAT.pos[2] + SEAT[2] + BOAT.pitch*0.4]; }
+function boatF(){ return [Math.sin(BOAT.heading), 0, -Math.cos(BOAT.heading)]; }
+function boatR(){ return [Math.cos(BOAT.heading), 0, Math.sin(BOAT.heading)]; }
+function toBoatLocal(x, z){ const dx = x - BOAT.pos[0], dz = z - BOAT.pos[2], f = boatF(), r = boatR(); return [dx*r[0] + dz*r[2], dx*f[0] + dz*f[2]]; }
+function boatToWorld(lat, y, back){ const f = boatF(), r = boatR(); return [BOAT.pos[0] + r[0]*lat - f[0]*back, y, BOAT.pos[2] + r[2]*lat - f[2]*back]; }
+function eyeWorld(){ return boatToWorld(SEAT[0] + BOAT.roll*0.9, SEAT[1] + BOAT.pos[1], SEAT[2] + BOAT.pitch*0.4); }
+function pushOutOfHull(p, m){
+  const [a, b] = toBoatLocal(p[0], p[2]); const r = Math.hypot(a/(HULL.w+m), b/(HULL.l+m));
+  if (r < 1 && r > 1e-4){ const f = boatF(), rr = boatR(), k = 1/r; p[0] = BOAT.pos[0] + rr[0]*a*k + f[0]*b*k; p[2] = BOAT.pos[2] + rr[2]*a*k + f[2]*b*k; }
+}
+function isSalt(){ return BIOMES[REGION.biome].water === 'salt'; }
+function itemName(it){ return isSalt() && it.nameSea ? it.nameSea : it.name; }
+function lineKg(){ return G.mode === 'pole' ? (isSalt() ? 6 : 4) : (isSalt() ? 14 : 7); }
 function yawDir(y){ return [Math.sin(y), 0, -Math.cos(y)]; }
 function tipXZ(){ return [G.tipS[0], 0, G.tipS[2]]; }
-function insideHull(x, z, margin){ const lx = (x-BOAT.pos[0])/(HULL.w+margin), lz = (z-BOAT.pos[2])/(HULL.l+margin); return lx*lx + lz*lz < 1; }
+function insideHull(x, z, margin){ const [a, b] = toBoatLocal(x, z); const lx = a/(HULL.w+margin), lz = b/(HULL.l+margin); return lx*lx + lz*lz < 1; }
 let msgTimer = null;
 function say(text, secs, cls){
   const el = $('msg'); el.textContent = text; el.className = 'show ' + (cls||'');
@@ -105,13 +125,14 @@ function kg(w){ return w < 1 ? Math.round(w*1000) + 'g' : w.toFixed(2) + 'kg'; }
 const FISH_N = 10;
 const fishes = [];
 function pickSpecies(){
-  let tot = 0; for (const s of SPECIES) tot += s.weight;
-  let r = Math.random()*tot; for (const s of SPECIES){ r -= s.weight; if (r <= 0) return s; }
-  return SPECIES[0];
+  const pool = BIOMES[REGION.biome].fish;
+  let tot = 0; for (const [, w] of pool) tot += w;
+  let r = Math.random()*tot; for (const [id, w] of pool){ r -= w; if (r <= 0) return BY_ID[id]; }
+  return BY_ID[pool[0][0]];
 }
 function fishDepthFor(sp, x, z){
-  const fd = floorDepth(x, z);
-  return -clamp(fd*sp.depth*rand(0.8, 1.1), 0.35, fd - 0.18);
+  const fd = floorDepth(x, z), col = column(x, z);
+  return -clamp(col*sp.depth*rand(0.8, 1.1), 0.35, Math.min(fd - 0.18, VIS_DEPTH));
 }
 function newFish(focus, rmin, rmax){
   const sp = pickSpecies();
@@ -129,6 +150,7 @@ function focusPoint(){
   if (G.rig) return G.rig.pos;
   if (G.lure) return G.lure.pos;
   if (G.fly) return G.fly.to;
+  if (G.state === 'boat') return add(BOAT.pos, mul(boatF(), 10 + G.boatV*2));
   const e = eyeWorld(); return add(e, mul(yawDir(G.aimYaw), 10));
 }
 function turnToward(f, ang, maxStep){ f.heading = wrapA(f.heading + clamp(wrapA(ang - f.heading), -maxStep, maxStep)); }
@@ -143,7 +165,7 @@ function swim(f, tx, ty, tz, spd, dt, turn){
 }
 function moveY(f, ty, dt){
   const fd = floorDepth(f.pos[0], f.pos[2]);
-  ty = clamp(ty, -(fd - f.len*0.22 - 0.05), -0.1 - f.len*0.2);
+  ty = clamp(ty, -Math.min(fd - f.len*0.22 - 0.05, VIS_DEPTH + 1), -0.1 - f.len*0.2);
   const vy = clamp((ty - f.pos[1])*0.9, -0.35, 0.35);
   f.pos[1] += vy*dt;
   f.pos[1] = clamp(f.pos[1], -(fd - f.len*0.2 - 0.03), -0.08 - f.len*0.18);
@@ -151,9 +173,7 @@ function moveY(f, ty, dt){
 }
 function avoidBoat(f){
   if (f.state === 'hooked') return;
-  const lx = (f.pos[0]-BOAT.pos[0])/(HULL.w+0.5), lz = (f.pos[2]-BOAT.pos[2])/(HULL.l+0.5);
-  const r = Math.hypot(lx, lz);
-  if (r < 1){ const k = 1/r; f.pos[0] = BOAT.pos[0] + lx*k*(HULL.w+0.5); f.pos[2] = BOAT.pos[2] + lz*k*(HULL.l+0.5); }
+  pushOutOfHull(f.pos, 0.5);
 }
 function flee(f, from, cool){
   f.state = 'flee'; f.timer = rand(1.8, 3.0); f.cooldown = cool || rand(10, 20);
@@ -168,7 +188,7 @@ function wanderTarget(f){
   f.target = [x, 0, z]; f.ty = fishDepthFor(f.sp, x, z); f.timer = rand(6, 14); f.cruise = f.sp.speed*rand(0.35, 0.75);
 }
 function depthMatch(sp, depth, x, z){
-  const frac = depth/floorDepth(x, z);
+  const frac = depth/column(x, z);
   return clamp(1 - Math.abs(frac - sp.depth)*1.5, 0.15, 1);
 }
 
@@ -294,6 +314,7 @@ function manageFish(dt){
   }
   while (fishes.filter(f => f.state !== 'hooked').length < FISH_N) fishes.push(newFish(c, 15, 24));
   for (const f of fishes) updateFish(f, dt);
+  if (Math.abs(G.boatV) > 1.2) for (const f of fishes) if (f.state === 'wander' && dist2(f.pos, BOAT.pos) < 4 + Math.abs(G.boatV)) flee(f, BOAT.pos, 4);
 }
 
 /* ---------------- casting ---------------- */
@@ -390,7 +411,7 @@ function updateLure(dt){
   const t = tipXZ();
   const dx = t[0] - L.pos[0], dz = t[2] - L.pos[2], dh = Math.hypot(dx, dz) || 1;
   const fd = floorDepth(L.pos[0], L.pos[2]);
-  const bottom = -(fd - 0.04);
+  const bottom = -Math.min(fd - 0.04, VIS_DEPTH);
   if (reeling){
     const sp = it.reel;
     L.hv[0] = lerp(L.hv[0], dx/dh*sp, Math.min(1, dt*6)); L.hv[1] = lerp(L.hv[1], dz/dh*sp, Math.min(1, dt*6));
@@ -439,7 +460,7 @@ function hookFish(f){
   G.strike = null; G.engaged = null;
   G.hooked = f; f.state = 'hooked'; G.state = 'hooked';
   f.stamina = 1;
-  f.pull = clamp(0.15 + 0.22*Math.pow(f.weight, 0.6)*f.sp.power, 0.15, 1.0);
+  f.pull = clamp((0.15 + 0.22*Math.pow(f.weight, 0.6)*f.sp.power)*7/(lineKg()*(G.mode === 'pole' ? 1.75 : 1)), 0.15, 1.3);
   f.endur = Math.max(0.6, f.sp.endurance*(0.7 + 0.6*(f.len - f.sp.minLen)/(f.sp.maxLen - f.sp.minLen)));
   const a = Math.atan2(f.pos[2]-tip[2], f.pos[0]-tip[0]);
   f.run = { heading: a + rand(-0.6, 0.6), timer: rand(1, 2), burst: true };
@@ -513,7 +534,7 @@ function updateFight(dt){
   } else if (T > 0.55 && F.lineOut < F.maxReach){ F.lineOut = Math.min(F.maxReach, F.lineOut + (T - 0.55)*2.5*dt); T -= (T - 0.55)*0.3; }
   F.lineOut = Math.max(F.lineOut, 1.2);
   if (d > F.lineOut){ const k = F.lineOut/d; f.pos[0] = tip[0] + ax*k; f.pos[2] = tip[2] + az*k; d = F.lineOut; }
-  if (insideHull(f.pos[0], f.pos[2], 0.25)){ const lx = f.pos[0]-BOAT.pos[0], lz = f.pos[2]-BOAT.pos[2], r = Math.hypot(lx/(HULL.w+0.25), lz/(HULL.l+0.25)) || 1; f.pos[0] = BOAT.pos[0] + lx/r; f.pos[2] = BOAT.pos[2] + lz/r; }
+  pushOutOfHull(f.pos, 0.25);
   F.tension = lerp(F.tension, T, Math.min(1, dt*10));
   // stamina
   f.stamina -= dt*(0.012 + 0.055*Math.max(cq, 0) + 0.035*F.tension)/f.endur;
@@ -603,7 +624,9 @@ function updateLog(){
     ul.appendChild(li);
   }
   const dex = $('dex'); dex.innerHTML = '';
-  for (const s of SPECIES){ const b = G.best[s.id]; const el = document.createElement('span'); el.className = b ? 'got' : ''; el.title = b ? `${s.name} 최대 ${(b.len*100).toFixed(1)}cm` : '미발견'; el.textContent = b ? s.name : '?'; dex.appendChild(el); }
+  const got = SPECIES.filter(s => G.best[s.id]).length;
+  $('dexcount').textContent = `도감 ${got}/${SPECIES.length} · 이 지역 어종`;
+  for (const [id] of BIOMES[REGION.biome].fish){ const s = BY_ID[id]; const b = G.best[s.id]; const el = document.createElement('span'); el.className = b ? 'got' : ''; el.title = b ? `${s.name} 최대 ${(b.len*100).toFixed(1)}cm` : '미발견'; el.textContent = b ? s.name : '?'; dex.appendChild(el); }
 }
 function buildToolbar(){
   const modes = $('modes'); modes.innerHTML = '';
@@ -613,23 +636,24 @@ function buildToolbar(){
   }
   const items = $('items'); items.innerHTML = '';
   modeCfg().items.forEach((it, i) => {
-    const b = document.createElement('button'); b.textContent = it.name; b.title = it.desc; b.className = G.item[G.mode] === i ? 'on' : '';
+    const b = document.createElement('button'); b.textContent = itemName(it); b.title = it.desc; b.className = G.item[G.mode] === i ? 'on' : '';
     b.onclick = e => { e.stopPropagation(); setItem(i); }; items.appendChild(b);
   });
   $('itemdesc').textContent = curItem().desc;
 }
 function setMode(k){
-  if (G.state !== 'idle' && G.state !== 'charge'){ say('채비를 회수한 뒤 바꿀 수 있어요 (R)', 1.8); return; }
-  G.mode = k; G.state = 'idle'; buildToolbar(); say(MODES[k].name + ' 채비로 변경', 1.2);
+  if (G.state !== 'idle' && G.state !== 'charge' && G.state !== 'boat'){ say('채비를 회수한 뒤 바꿀 수 있어요 (R)', 1.8); return; }
+  G.mode = k; if (G.state === 'charge') G.state = 'idle'; buildToolbar(); say(MODES[k].name + ' 채비로 변경', 1.2);
 }
 function setItem(i){
-  if (G.state !== 'idle' && G.state !== 'charge'){ say('채비를 회수한 뒤 바꿀 수 있어요 (R)', 1.8); return; }
-  G.item[G.mode] = i; buildToolbar(); say((G.mode === 'pole' ? '미끼: ' : '루어: ') + curItem().name, 1.2);
+  if (G.state !== 'idle' && G.state !== 'charge' && G.state !== 'boat'){ say('채비를 회수한 뒤 바꿀 수 있어요 (R)', 1.8); return; }
+  G.item[G.mode] = i; buildToolbar(); say((G.mode === 'pole' ? '미끼: ' : '루어: ') + itemName(curItem()), 1.2);
 }
 const HELP = {
-  idle: () => G.mode === 'pole'
-    ? '<b>좌클릭 길게</b> 힘 모아 캐스팅 · <b>우클릭 드래그 / A·D</b> 방향 · <b>휠</b> 찌 수심 · <b>1/2</b> 대낚시/루어 · <b>B</b> 미끼'
-    : '<b>좌클릭 길게</b> 힘 모아 캐스팅 · <b>우클릭 드래그 / A·D</b> 방향 · <b>휠</b> 드랙 조임/풀기 · <b>1/2</b> 대낚시/루어 · <b>B</b> 루어',
+  idle: () => (G.mode === 'pole'
+    ? '<b>좌클릭 길게</b> 캐스팅 · <b>우클릭 드래그 / A·D</b> 방향 · <b>휠</b> 찌 수심 · <b>1/2</b> 채비 · <b>B</b> 미끼'
+    : '<b>좌클릭 길게</b> 캐스팅 · <b>우클릭 드래그 / A·D</b> 방향 · <b>휠</b> 드랙 · <b>1/2</b> 채비 · <b>B</b> 루어') + ' · <b>Tab</b> 보트 운전 · <b>M</b> 지도',
+  boat: () => '<b>W/S</b> 전진·후진 · <b>A/D</b> 방향 · <b>드래그</b> 시점 · <b>휠</b> 줌 · 어탐기로 수심·어군 확인 · <b>Tab</b> 낚시 · <b>M</b> 지도',
   charge: () => '버튼을 놓으면 던집니다',
   fly: () => '',
   wait: () => G.mode === 'pole'
@@ -652,13 +676,14 @@ hud.addEventListener('pointerdown', e => {
   if (e.button === 2 || e.button === 1 || e.pointerType === 'touch' && e.isPrimary === false){ mouse.rdown = true; mouse.lx = e.clientX; mouse.ly = e.clientY; return; }
   if (e.button !== 0) return;
   hud.setPointerCapture(e.pointerId);
-  mouse.down = true; mouse.downT = G.time;
+  mouse.down = true; mouse.downT = G.time; mouse.lx = e.clientX; mouse.ly = e.clientY;
   press();
 });
 hud.addEventListener('pointermove', e => {
-  if (mouse.rdown){
+  if (mouse.rdown || (mouse.down && G.state === 'boat')){
     const dx = e.clientX - mouse.lx, dy = e.clientY - mouse.ly; mouse.lx = e.clientX; mouse.ly = e.clientY;
-    if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw -= dx*0.005; G.aimPitch = clamp(G.aimPitch - dy*0.004, -0.9, 0.35); }
+    if (G.state === 'boat'){ G.orbit -= dx*0.006; G.camPitch = clamp((G.camPitch ?? 0.32) + dy*0.004, 0.08, 1.2); }
+    else if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw -= dx*0.005; G.aimPitch = clamp(G.aimPitch - dy*0.004, -0.9, 0.35); }
     else G.orbit -= dx*0.006;
   }
   mouse.x = e.clientX; mouse.y = e.clientY;
@@ -672,9 +697,12 @@ hud.addEventListener('pointerup', up); hud.addEventListener('pointercancel', up)
 window.addEventListener('blur', () => { mouse.down = false; mouse.rdown = false; for (const k in keys) keys[k] = false; });
 hud.addEventListener('wheel', e => { e.preventDefault(); wheel(e.deltaY < 0 ? 1 : -1); }, { passive: false });
 window.addEventListener('keydown', e => {
-  if (e.repeat && e.code !== 'KeyA' && e.code !== 'KeyD') return;
+  if (G.mapOpen){ if (e.code === 'Escape' || e.code === 'KeyM') closeMap(); return; }
+  if (e.repeat && !['KeyA','KeyD','KeyW','KeyS','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.code)) return;
   keys[e.code] = true; audioInit();
   switch (e.code){
+    case 'Tab': e.preventDefault(); setNav(G.state !== 'boat'); break;
+    case 'KeyM': openMap(); break;
     case 'Digit1': setMode('pole'); break;
     case 'Digit2': setMode('lure'); break;
     case 'KeyB': setItem((G.item[G.mode] + 1) % modeCfg().items.length); break;
@@ -689,6 +717,9 @@ window.addEventListener('keydown', e => {
 window.addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'Space' && mouse.down){ mouse.down = false; release(); } });
 $('card').addEventListener('pointerdown', e => { e.stopPropagation(); hideCard(); });
 $('retrieve').addEventListener('click', e => { e.stopPropagation(); retrieve(); });
+$('navfish').addEventListener('click', e => { e.stopPropagation(); audioInit(); setNav(false); });
+$('navboat').addEventListener('click', e => { e.stopPropagation(); audioInit(); setNav(true); });
+$('navmap').addEventListener('click', e => { e.stopPropagation(); openMap(); });
 
 function press(){
   switch (G.state){
@@ -701,9 +732,10 @@ function release(){
   if (G.state === 'charge') cast();
 }
 function wheel(s){
-  if (G.mode === 'lure'){ G.drag = clamp(Math.round((G.drag + s*0.05)*100)/100, 0.05, 1.2); say(`드랙 ${s > 0 ? '조임' : '풀기'} · ${(G.drag*modeCfg().lineKg).toFixed(1)}kg${G.drag >= 1 ? ' (잠김!)' : ''}`, 1); sfx.click(0.05); }
+  if (G.state === 'boat'){ G.camDist = clamp(G.camDist*(s > 0 ? 0.88 : 1.14), 4.5, 30); return; }
+  if (G.mode === 'lure'){ G.drag = clamp(Math.round((G.drag + s*0.05)*100)/100, 0.05, 1.2); say(`드랙 ${s > 0 ? '조임' : '풀기'} · ${(G.drag*lineKg()).toFixed(1)}kg${G.drag >= 1 ? ' (잠김!)' : ''}`, 1); sfx.click(0.05); }
   else {
-    G.depthSet = clamp(Math.round((G.depthSet + s*0.1)*10)/10, 0.3, 4.0);
+    G.depthSet = clamp(Math.round((G.depthSet + s*0.1)*10)/10, 0.3, VIS_DEPTH);
     const r = G.rig;
     say(`찌 수심 ${G.depthSet.toFixed(1)}m${r && G.depthSet >= r.floor - 0.03 ? ' (바닥 닿음)' : ''}`, 1);
   }
@@ -724,6 +756,10 @@ function updateCamera(dt){
   let T, k;
   switch (G.state){
     case 'idle': case 'charge': case 'result': T = boatView(); k = G.state === 'result' ? 3 : 10; break;
+    case 'boat': {
+      const a = BOAT.heading + G.orbit, cp = G.camPitch ?? 0.32, D = G.camDist;
+      const back = [-Math.sin(a)*Math.cos(cp)*D, Math.sin(cp)*D + 1.2, Math.cos(a)*Math.cos(cp)*D];
+      T = { pos: add(BOAT.pos, back), look: add(add(BOAT.pos, mul(boatF(), 4)), [0, 0.3, 0]) }; T.pos[1] = back[1]; k = 5; break; }
     case 'fly': {
       const s = smooth(clamp(G.fly.t/G.fly.T, 0, 1)), a = boatView(), b = baitView(G.fly.to, 3.4, 2.3);
       T = { pos: vlerp(a.pos, b.pos, s), look: vlerp(a.look, b.look, s) }; k = 8; break; }
@@ -766,8 +802,9 @@ function scene(dt){
   const S = { t: G.time, dt, cam: { pos: cam.pos, look: cam.look }, boat: BOAT, fish: [], lure: null, bobber: null, lineUnder: null, lineTo: null, lineSag: 0, flyObj: null };
   const byDist = fishes.slice().sort((a, b) => dist3(a.pos, cam.pos) - dist3(b.pos, cam.pos));
   S.fish = byDist.slice(0, 12).map(f => ({ pos: f.pos, len: f.len, dir: fishDir(f), tail: f.tail, back: f.sp.back, belly: f.sp.belly, pattern: f.sp.pattern, hr: f.sp.hr }));
-  const rod = rodSpec(); S.rod = rod;
+  const rod = rodSpec(); S.rod = G.state === 'boat' ? null : rod;
   S.hideRod = dist3(cam.pos, eyeWorld()) > 2.0;
+  if (G.state === 'boat') return S;
   const it = curItem();
   const tip = G.tip;
   if (G.state === 'idle' || G.state === 'charge' || G.state === 'result'){
@@ -815,6 +852,7 @@ function label(text, x, y, color, size){
 function ringAt(p, r, color, w){ const s = Rn.project(p); if (!s) return null; ctx.strokeStyle = color; ctx.lineWidth = w||2; ctx.beginPath(); ctx.arc(s[0], s[1], r, 0, TAU); ctx.stroke(); return s; }
 function drawHUD(){
   ctx.clearRect(0, 0, hudW, hudH);
+  if (G.state === 'boat' || G.state === 'idle') drawSonar();
   const cx = hudW/2, cy = hudH/2;
   if (G.state === 'idle' || G.state === 'charge'){
     ctx.strokeStyle = 'rgba(255,255,255,.55)'; ctx.lineWidth = 1.5;
@@ -890,27 +928,324 @@ function updateGauges(){
   $('dragmark').style.bottom = (clamp(G.drag, 0, 1.1)/1.1*100).toFixed(1) + '%';
   $('dragmark').style.display = G.mode === 'lure' ? 'block' : 'none';
   const lines = [];
-  lines.push(`<div><span>장력</span><b>${(T*m.lineKg).toFixed(1)}kg</b></div>`);
-  if (G.mode === 'lure') lines.push(`<div><span>드랙</span><b>${(G.drag*m.lineKg).toFixed(1)}kg${G.drag >= 1 ? ' 🔒' : ''}</b></div>`);
+  const lk = lineKg();
+  $('tbar').hidden = G.state === 'boat';
+  if (G.state === 'boat'){
+    const hdg = ((BOAT.heading*180/Math.PI) % 360 + 360) % 360;
+    lines.push(`<div><span>속도</span><b>${(Math.abs(G.boatV)*1.944).toFixed(1)}노트</b></div>`);
+    lines.push(`<div><span>방위</span><b>${Math.round(hdg)}° ${['북','북동','동','남동','남','남서','서','북서'][Math.round(hdg/45)%8]}</b></div>`);
+    lines.push(`<div><span>수심</span><b>${floorDepth(BOAT.pos[0], BOAT.pos[2]).toFixed(1)}m</b></div>`);
+    lines.push(`<div><span>기점 거리</span><b>${Math.round(Math.hypot(BOAT.pos[0], BOAT.pos[2]))}m</b></div>`);
+  } else {
+  lines.push(`<div><span>장력</span><b>${(T*lk).toFixed(1)}kg</b></div>`);
+  if (G.mode === 'lure') lines.push(`<div><span>드랙</span><b>${(G.drag*lk).toFixed(1)}kg${G.drag >= 1 ? ' 🔒' : ''}</b></div>`);
   else lines.push(`<div><span>찌 수심</span><b>${G.depthSet.toFixed(1)}m</b></div>`);
-  lines.push(`<div><span>원줄</span><b>${m.lineKg.toFixed(0)}kg</b></div>`);
+  lines.push(`<div><span>원줄</span><b>${lk.toFixed(0)}kg</b></div>`);
+  }
   if (F) lines.push(`<div><span>거리</span><b>${F.lineOut.toFixed(1)}m</b></div>`);
   else if (G.rig) lines.push(`<div><span>바닥</span><b>${G.rig.floor.toFixed(1)}m</b></div>`);
   else if (G.lure) lines.push(`<div><span>거리</span><b>${dist2(G.lure.pos, tipXZ()).toFixed(1)}m</b></div>`);
   const h = lines.join('');
   if (h !== gaugeCache){ $('ginfo').innerHTML = h; gaugeCache = h; }
   $('retrieve').hidden = G.state !== 'wait';
-  $('toolbar').classList.toggle('locked', G.state !== 'idle' && G.state !== 'charge');
+  $('toolbar').classList.toggle('locked', G.state !== 'idle' && G.state !== 'charge' && G.state !== 'boat');
+  $('navfish').className = G.state === 'boat' ? '' : 'on'; $('navboat').className = G.state === 'boat' ? 'on' : '';
 }
+
+/* ---------------- boat driving ---------------- */
+function setNav(boat){
+  if (G.mapOpen) return;
+  if (boat){
+    if (G.state !== 'idle'){ say(G.state === 'boat' ? '' : '채비를 회수한 뒤 보트를 운전할 수 있어요 (R)', 1.8); return; }
+    G.state = 'boat'; G.orbit = 0; say('⛵ 보트 운전 — W/S 가속, A/D 방향', 1.8);
+  } else {
+    if (G.state !== 'boat') return;
+    G.state = 'idle'; G.aimYaw = BOAT.heading; G.aimPitch = -0.2; G.orbit = 0;
+    say(G.boatV > 1 ? '엔진 정지 — 배가 멈추면 던지세요' : '🎣 낚시 모드', 1.6);
+  }
+}
+function moveBoat(dt){
+  const f = boatF(), dir = Math.sign(G.boatV) || 1;
+  const nx = BOAT.pos[0] + f[0]*G.boatV*dt, nz = BOAT.pos[2] + f[2]*G.boatV*dt;
+  const probe = [nx + f[0]*2.3*dir, nz + f[2]*2.3*dir];
+  if (floorDepth(probe[0], probe[1]) < 0.8){
+    G.boatV = -G.boatV*0.25; sfx.splash(0.2);
+    if (G.time - (G.groundT||-9) > 2){ say('여울이에요! 수심이 너무 얕아요', 1.6, 'bad'); G.groundT = G.time; }
+    return;
+  }
+  if (Math.hypot(nx, nz) > 1500){
+    G.boatV *= 0.5;
+    if (G.time - (G.edgeT||-9) > 4){ say('이 지역의 끝이에요 — 지도(M)로 다른 곳에 가 보세요', 2.5); G.edgeT = G.time; }
+    return;
+  }
+  BOAT.pos[0] = nx; BOAT.pos[2] = nz;
+}
+function updateBoat(dt){
+  const thr = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
+  const st = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
+  if (thr > 0) G.boatV = Math.min(8, G.boatV + (G.boatV < 0 ? 4 : 1.8)*dt);
+  else if (thr < 0) G.boatV = Math.max(-2.2, G.boatV - (G.boatV > 0 ? 4 : 1.2)*dt);
+  else G.boatV *= Math.exp(-dt*0.45);
+  G.boatSteer = lerp(G.boatSteer, st, Math.min(1, dt*4));
+  const auth = clamp(Math.abs(G.boatV)/2.5, 0.15, 1)*(G.boatV < -0.05 ? -1 : 1);
+  BOAT.heading = wrapA(BOAT.heading + G.boatSteer*0.75*auth*dt);
+  moveBoat(dt);
+  // wake: little splashes off the stern quarters
+  G.wakeT = (G.wakeT||0) - dt*Math.abs(G.boatV);
+  if (G.wakeT <= 0 && Math.abs(G.boatV) > 0.6){
+    G.wakeT = 0.9;
+    for (const sd of [-1, 1]){ const p = boatToWorld(sd*0.75, 0, 1.9); Rn.splash(p[0], p[2], 0.14, 0.012 + 0.004*Math.abs(G.boatV)); }
+    const b = boatToWorld(0, 0, -2.0); if (G.boatV > 3) Rn.splash(b[0], b[2], 0.1, 0.015);
+  }
+  G.aimYaw = BOAT.heading;
+}
+function updateEngine(){
+  if (!AU.ctx) return;
+  if (!AU.eng){
+    const c = AU.ctx, o = c.createOscillator(), o2 = c.createOscillator(), f = c.createBiquadFilter(), g = c.createGain();
+    o.type = 'sawtooth'; o2.type = 'square'; f.type = 'lowpass'; f.frequency.value = 380; g.gain.value = 0;
+    o.connect(f); o2.connect(f); f.connect(g); g.connect(c.destination); o.start(); o2.start();
+    AU.eng = { o, o2, g };
+  }
+  const on = G.state === 'boat', v = Math.abs(G.boatV), t = AU.ctx.currentTime;
+  AU.eng.o.frequency.setTargetAtTime(38 + v*9, t, 0.15); AU.eng.o2.frequency.setTargetAtTime(19 + v*4.5, t, 0.15);
+  AU.eng.g.gain.setTargetAtTime(on ? 0.018 + v*0.006 : 0, t, 0.3);
+}
+
+/* ---------------- sonar (fish finder) ---------------- */
+const SONAR = { cols: [], t: 0, W: 176 };
+function updateSonar(dt){
+  SONAR.t -= dt*(0.4 + Math.abs(G.boatV)*0.6);
+  if (SONAR.t > 0) return;
+  SONAR.t = 0.12;
+  const d = floorDepth(BOAT.pos[0], BOAT.pos[2]);
+  const echoes = [];
+  for (const f of fishes) if (dist2(f.pos, BOAT.pos) < 6 + f.len*4) echoes.push([-f.pos[1], f.len]);
+  SONAR.cols.push({ d, echoes });
+  if (SONAR.cols.length > SONAR.W) SONAR.cols.shift();
+}
+function drawSonar(){
+  const W = SONAR.W, H = 96, x0 = 16, y0 = hudH - H - 78;
+  if (hudW < 520) return;
+  let maxD = 5; for (const c of SONAR.cols) maxD = Math.max(maxD, c.d);
+  const range = [5, 10, 20, 30, 40, 60].find(r => r >= maxD*1.08) || 60;
+  ctx.save();
+  ctx.fillStyle = 'rgba(4,14,22,.82)'; ctx.fillRect(x0 - 6, y0 - 22, W + 12, H + 30);
+  const top = y0, sy = H/range;
+  const g = ctx.createLinearGradient(0, top, 0, top + H); g.addColorStop(0, '#0b3c6e'); g.addColorStop(1, '#041a33');
+  ctx.fillStyle = g; ctx.fillRect(x0, top, W, H);
+  const n = SONAR.cols.length;
+  for (let i = 0; i < n; i++){
+    const c = SONAR.cols[i], x = x0 + W - n + i, by = top + c.d*sy;
+    ctx.fillStyle = '#ff5a2a'; ctx.fillRect(x, by, 1, 2);
+    ctx.fillStyle = '#b8401c'; ctx.fillRect(x, by + 2, 1, 3);
+    ctx.fillStyle = '#6b2a14'; ctx.fillRect(x, by + 5, 1, Math.max(0, top + H - by - 5));
+    for (const [ed, el] of c.echoes){ ctx.fillStyle = el > 0.5 ? '#ff3b3b' : '#ffd84a'; ctx.fillRect(x, top + ed*sy - 1, 1, el > 0.5 ? 3 : 2); }
+  }
+  ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '600 10px system-ui, sans-serif'; ctx.textAlign = 'right';
+  for (const r of [range/2, range]) ctx.fillText(r + 'm', x0 + W - 2, top + r*sy - 2);
+  const d = n ? SONAR.cols[n - 1].d : 0;
+  ctx.textAlign = 'left'; ctx.fillStyle = '#9fe8ff'; ctx.font = '700 12px system-ui, sans-serif';
+  ctx.fillText('어탐기', x0, y0 - 8);
+  ctx.textAlign = 'right'; ctx.fillStyle = '#fff'; ctx.font = '800 14px system-ui, sans-serif';
+  ctx.fillText(d.toFixed(1) + 'm', x0 + W, y0 - 7);
+  ctx.restore();
+}
+
+/* ---------------- regions & world map ---------------- */
+function hashf(a){ const x = Math.sin(a*127.1 + 311.7)*43758.5453; return x - Math.floor(x); }
+function applyRegion(spot, first){
+  const W = WATERS[spot.water];
+  const seedA = hashf(spot.lat*3.1 + spot.lon*0.7)*6.28, seedB = hashf(spot.lon*1.7 - spot.lat)*6.28;
+  REGION = { spot, biome: spot.biome, water: spot.water,
+    depthP: W.depth.slice(), depthQ: [W.scale, seedA, seedB, spot.start || Math.min(3, W.depth[0])] };
+  const sunEl = clamp(72 - Math.abs(spot.lat)*0.72, 18, 68), sunAz = (hashf(spot.lon) - 0.5)*40;
+  Rn.setEnv({ sigA: W.sigA, sigS: W.sigS, depthP: REGION.depthP, depthQ: REGION.depthQ, bed: W.bed, land: W.land, sunEl, sunAz });
+  BOAT.pos = [0, 0, 0]; BOAT.heading = 0; G.boatV = 0; G.aimYaw = 0; G.orbit = 0;
+  G.rig = null; G.lure = null; G.hooked = null; G.fight = null; G.engaged = null; G.strike = null;
+  if (G.state !== 'boat') G.state = 'idle';
+  G.depthSet = Math.min(G.depthSet, spot.start || 2);
+  SONAR.cols.length = 0;
+  fishes.length = 0;
+  for (let i = 0; i < FISH_N; i++) fishes.push(newFish([0, 0, -6], 3, 20));
+  const e = eyeWorld(); cam.pos = e.slice(); cam.look = add(e, [0, -2, -10]);
+  $('place').textContent = spot.name;
+  buildToolbar(); updateLog();
+  if (!first) say(`📍 ${spot.name} · ${BIOMES[spot.biome].name}`, 3);
+}
+// land rings unwrapped across the 180° meridian; rings that circle a pole are closed through it
+const LAND = (window.WORLD_LAND || []).map(r => {
+  const p = [r[0], r[1]];
+  for (let i = 2; i < r.length; i += 2){ let x = r[i]; const px = p[p.length-2]; while (x - px > 180) x -= 360; while (x - px < -180) x += 360; p.push(x, r[i+1]); }
+  const span = p[p.length-2] - p[0];
+  if (Math.abs(span) > 180){ let sy = 0; for (let i = 1; i < p.length; i += 2) sy += p[i]; const pole = sy > 0 ? 90 : -90; p.push(p[p.length-2], pole, p[0], pole); }
+  let a = 1e9, b = 90, c = -1e9, d = -90;
+  for (let i = 0; i < p.length; i += 2){ a = Math.min(a, p[i]); c = Math.max(c, p[i]); b = Math.min(b, p[i+1]); d = Math.max(d, p[i+1]); }
+  return { p, bb: [a, b, c, d] };
+});
+function isLand(lat, lon){
+  let inside = false;
+  for (const R of LAND){
+    const bb = R.bb; if (lat < bb[1] || lat > bb[3]) continue;
+    for (const L0 of [lon, lon - 360, lon + 360]){
+      if (L0 < bb[0] || L0 > bb[2]) continue;
+      const r = R.p; let c = false;
+      for (let i = 0, j = r.length - 2; i < r.length; j = i, i += 2){
+        const xi = r[i], yi = r[i+1], xj = r[j], yj = r[j+1];
+        if ((yi > lat) !== (yj > lat) && L0 < (xj - xi)*(lat - yi)/(yj - yi) + xi) c = !c;
+      }
+      if (c){ inside = !inside; break; }
+    }
+  }
+  return inside;
+}
+function fmtLL(lat, lon){ return `${Math.abs(lat).toFixed(1)}°${lat >= 0 ? 'N' : 'S'} ${Math.abs(lon).toFixed(1)}°${lon >= 0 ? 'E' : 'W'}`; }
+function classify(lat, lon){
+  let best = null, bd = 1e9;
+  for (const s of SPOTS){ const d = Math.hypot(s.lat - lat, (s.lon - lon)*Math.cos(lat*Math.PI/180)); if (d < bd){ bd = d; best = s; } }
+  if (bd < 1.2) return best;
+  const land = isLand(lat, lon), a = Math.abs(lat);
+  let biome, water;
+  if (!land){
+    if (a < 23.5){ biome = 'trop_sea'; water = 'sea_trop'; }
+    else if (a < 52){ biome = 'temp_sea'; water = 'sea_temp'; }
+    else { biome = 'cold_sea'; water = 'sea_cold'; }
+  } else {
+    if (a < 23.5){ biome = 'trop_fresh'; water = hashf(lat + lon) < 0.5 ? 'river_brown' : 'lake_green'; }
+    else if (a >= 52){ biome = 'cold_fresh'; water = 'cold_lake'; }
+    else { biome = lon > 60 ? 'kr_fresh' : 'na_fresh'; water = hashf(lat*2 + lon) < 0.55 ? 'lake_clear' : 'lake_green'; }
+  }
+  return { id: 'custom', name: `${fmtLL(lat, lon)} ${land ? '호수' : '해역'}`, country: land ? '내륙 호수' : '바다', lat, lon, biome, water, start: land ? 2.6 : 4.5, custom: true };
+}
+
+const MAP = { cx: 128, cy: 30, z: 0, drag: null, hover: null, sel: null };
+const mapCv = $('mapcv'), mctx = mapCv.getContext('2d');
+function openMap(){
+  if (G.state !== 'idle' && G.state !== 'boat'){ say('채비를 회수한 뒤 지도를 열 수 있어요 (R)', 1.8); return; }
+  G.mapOpen = true; $('map').hidden = false; mouse.down = false;
+  for (const k in keys) keys[k] = false;
+  const r = REGION.spot; MAP.cx = r.lon; MAP.cy = r.lat; MAP.sel = null;
+  sizeMap(); MAP.z = Math.max(MAP.minZ*2.2, MAP.z || 0); drawMap(); showSel(null);
+}
+function closeMap(){ G.mapOpen = false; $('map').hidden = true; }
+function sizeMap(){
+  const box = mapCv.parentElement.getBoundingClientRect(), d = Math.min(devicePixelRatio || 1, 2);
+  MAP.w = box.width; MAP.h = box.height; mapCv.width = MAP.w*d; mapCv.height = MAP.h*d; mctx.setTransform(d, 0, 0, d, 0, 0);
+  MAP.minZ = Math.max(MAP.w/360, MAP.h/150);
+  MAP.z = clamp(MAP.z || MAP.minZ, MAP.minZ, 60);
+}
+function m2s(lon, lat){ return [MAP.w/2 + (lon - MAP.cx)*MAP.z, MAP.h/2 - (lat - MAP.cy)*MAP.z]; }
+function s2m(x, y){ return [MAP.cx + (x - MAP.w/2)/MAP.z, MAP.cy - (y - MAP.h/2)/MAP.z]; }
+function clampMap(){
+  const hw = MAP.w/2/MAP.z, hh = MAP.h/2/MAP.z;
+  MAP.cx = clamp(MAP.cx, -180 + hw, 180 - hw); if (hw >= 180) MAP.cx = 0;
+  MAP.cy = clamp(MAP.cy, -62 + hh, 85 - hh); if (hh >= 73) MAP.cy = 11;
+}
+function drawMap(){
+  clampMap();
+  const c = mctx, W = MAP.w, H = MAP.h;
+  const g = c.createLinearGradient(0, 0, 0, H); g.addColorStop(0, '#0f3550'); g.addColorStop(0.5, '#0d4a66'); g.addColorStop(1, '#0f3550');
+  c.fillStyle = g; c.fillRect(0, 0, W, H);
+  // graticule, tropics and polar circles
+  c.lineWidth = 1;
+  for (let lon = -180; lon <= 180; lon += 30){ const [x] = m2s(lon, 0); c.strokeStyle = 'rgba(255,255,255,.06)'; c.beginPath(); c.moveTo(x, 0); c.lineTo(x, H); c.stroke(); }
+  for (const [lat, col] of [[0,'rgba(255,255,255,.14)'],[23.44,'rgba(255,200,90,.22)'],[-23.44,'rgba(255,200,90,.22)'],[66.56,'rgba(160,220,255,.22)'],[-66.56,'rgba(160,220,255,.22)'],[30,'rgba(255,255,255,.05)'],[-30,'rgba(255,255,255,.05)'],[60,'rgba(255,255,255,.05)']]){
+    const [, y] = m2s(0, lat); c.strokeStyle = col; c.setLineDash(lat % 30 ? [4, 5] : []); c.beginPath(); c.moveTo(0, y); c.lineTo(W, y); c.stroke();
+  }
+  c.setLineDash([]);
+  // land
+  c.fillStyle = '#5d6b4a'; c.strokeStyle = 'rgba(20,30,20,.55)'; c.lineWidth = 0.7;
+  const [l0, t0] = s2m(0, 0), [l1, t1] = s2m(W, H);
+  c.beginPath();
+  for (const R of LAND){
+    const bb = R.bb; if (bb[3] < t1 || bb[1] > t0) continue;
+    for (const off of [0, -360, 360]){
+      if (bb[2] + off < l0 || bb[0] + off > l1) continue;
+      const r = R.p;
+      for (let i = 0; i < r.length; i += 2){ const x = W/2 + (r[i] + off - MAP.cx)*MAP.z, y = H/2 - (r[i+1] - MAP.cy)*MAP.z; if (i) c.lineTo(x, y); else c.moveTo(x, y); }
+      c.closePath();
+    }
+  }
+  c.fill('evenodd'); c.stroke();
+  // spots
+  c.font = '600 12px system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif'; c.textAlign = 'left';
+  for (const s of SPOTS){
+    const [x, y] = m2s(s.lon, s.lat); if (x < -20 || x > W + 20 || y < -20 || y > H + 20) continue;
+    const salt = BIOMES[s.biome].water === 'salt';
+    c.fillStyle = salt ? '#4fd1ff' : '#8ff0a8'; c.strokeStyle = '#08202a'; c.lineWidth = 2;
+    c.beginPath(); c.arc(x, y, 5, 0, TAU); c.fill(); c.stroke();
+    if (MAP.z > MAP.minZ*1.6 || s === MAP.sel){ c.lineWidth = 3; c.strokeStyle = 'rgba(0,0,0,.6)'; c.strokeText(s.name, x + 8, y + 4); c.fillStyle = '#fff'; c.fillText(s.name, x + 8, y + 4); }
+  }
+  // current location
+  { const r = REGION.spot, [x, y] = m2s(r.lon, r.lat); c.strokeStyle = '#ffd84a'; c.lineWidth = 2.5; c.beginPath(); c.arc(x, y, 10, 0, TAU); c.stroke();
+    c.fillStyle = '#ffd84a'; c.beginPath(); c.moveTo(x, y - 10); c.lineTo(x - 5, y - 20); c.lineTo(x + 5, y - 20); c.fill(); }
+  // selection / hover
+  if (MAP.sel){ const [x, y] = m2s(MAP.sel.lon, MAP.sel.lat); c.strokeStyle = '#fff'; c.lineWidth = 2; c.beginPath(); c.moveTo(x - 12, y); c.lineTo(x + 12, y); c.moveTo(x, y - 12); c.lineTo(x, y + 12); c.stroke(); c.beginPath(); c.arc(x, y, 7, 0, TAU); c.stroke(); }
+  if (MAP.hover){ $('mapinfo').textContent = fmtLL(MAP.hover[1], MAP.hover[0]) + (isLand(MAP.hover[1], MAP.hover[0]) ? ' · 육지(호수·강)' : ' · 바다'); }
+}
+function showSel(sp){
+  MAP.sel = sp;
+  const P = $('mappanel');
+  if (!sp){ P.innerHTML = '<p class="hint">지도에서 원하는 곳을 클릭하세요. 표시된 명소나 아무 바다·육지(호수)나 고를 수 있어요.<br><b>휠</b> 확대 · <b>드래그</b> 이동</p>'; return; }
+  const W = WATERS[sp.water], B = BIOMES[sp.biome];
+  const fish = B.fish.map(([id]) => BY_ID[id].name).join(', ');
+  const here = sp === REGION.spot || (sp.lat === REGION.spot.lat && sp.lon === REGION.spot.lon);
+  P.innerHTML = `<div class="st"><b>${sp.name}</b><span>${sp.country} · ${fmtLL(sp.lat, sp.lon)}</span></div>
+    <div class="tags"><span>${B.name}</span><span>${W.name}</span><span>수심 ${W.depth[2]}–${W.depth[3]}m</span></div>
+    <div class="fish">${fish}</div>
+    <button id="go" class="on">${here ? '현재 위치' : '⛵ 이곳으로 출발'}</button>`;
+  $('go').onclick = e => { e.stopPropagation(); if (!here) travel(sp); else closeMap(); };
+}
+function travel(sp){
+  closeMap();
+  const f = $('fade'); f.classList.add('on');
+  setTimeout(() => { applyRegion(sp); setTimeout(() => f.classList.remove('on'), 150); }, 650);
+}
+mapCv.addEventListener('pointerdown', e => { mapCv.setPointerCapture(e.pointerId); MAP.drag = { x: e.clientX, y: e.clientY, cx: MAP.cx, cy: MAP.cy, moved: false }; });
+mapCv.addEventListener('pointermove', e => {
+  const b = mapCv.getBoundingClientRect(), x = e.clientX - b.left, y = e.clientY - b.top;
+  MAP.hover = s2m(x, y);
+  if (MAP.drag){ const dx = e.clientX - MAP.drag.x, dy = e.clientY - MAP.drag.y; if (Math.hypot(dx, dy) > 4) MAP.drag.moved = true;
+    if (MAP.drag.moved){ MAP.cx = MAP.drag.cx - dx/MAP.z; MAP.cy = MAP.drag.cy + dy/MAP.z; } }
+  drawMap();
+});
+mapCv.addEventListener('pointerup', e => {
+  const d = MAP.drag; MAP.drag = null; if (!d || d.moved) return;
+  const b = mapCv.getBoundingClientRect(), x = e.clientX - b.left, y = e.clientY - b.top;
+  // snap to a spot marker if clicked near one
+  let hit = null; for (const s of SPOTS){ const [sx, sy] = m2s(s.lon, s.lat); if (Math.hypot(sx - x, sy - y) < 10) hit = s; }
+  const [lon, lat] = s2m(x, y);
+  showSel(hit || classify(clamp(lat, -60, 84), clamp(lon, -180, 180))); drawMap();
+});
+mapCv.addEventListener('wheel', e => {
+  e.preventDefault();
+  const b = mapCv.getBoundingClientRect(), x = e.clientX - b.left, y = e.clientY - b.top;
+  const [lon, lat] = s2m(x, y);
+  MAP.z = clamp(MAP.z*(e.deltaY < 0 ? 1.25 : 0.8), MAP.minZ, 60);
+  MAP.cx = lon - (x - MAP.w/2)/MAP.z; MAP.cy = lat + (y - MAP.h/2)/MAP.z;
+  drawMap();
+}, { passive: false });
+$('mapclose').addEventListener('click', closeMap);
+$('map').addEventListener('pointerdown', e => { if (e.target === $('map')) closeMap(); });
+addEventListener('resize', () => { if (G.mapOpen){ sizeMap(); drawMap(); } });
 
 /* ---------------- main loop ---------------- */
 function update(dt){
   G.time += dt;
-  BOAT.pos[1] = 0.012*Math.sin(G.time*1.1); BOAT.pitch = 0.010*Math.sin(G.time*0.8); BOAT.roll = 0.014*Math.sin(G.time*0.63 + 1);
-  if (keys.KeyA || keys.ArrowLeft) { if (G.state === 'idle' || G.state === 'charge') G.aimYaw -= dt*1.2; else G.orbit += dt*1.2; }
-  if (keys.KeyD || keys.ArrowRight){ if (G.state === 'idle' || G.state === 'charge') G.aimYaw += dt*1.2; else G.orbit -= dt*1.2; }
-  if (keys.KeyW || keys.ArrowUp) G.aimPitch = clamp(G.aimPitch + dt*0.8, -0.9, 0.35);
-  if (keys.KeyS || keys.ArrowDown) G.aimPitch = clamp(G.aimPitch - dt*0.8, -0.9, 0.35);
+  const vN = G.boatV/8;
+  BOAT.pos[1] = 0.012*Math.sin(G.time*1.1) + 0.03*Math.abs(vN);
+  BOAT.pitch = 0.010*Math.sin(G.time*0.8)*(1 + 2*Math.abs(vN)) + 0.05*vN;
+  BOAT.roll = 0.014*Math.sin(G.time*0.63 + 1) - 0.07*G.boatSteer*vN;
+  if (G.state === 'boat') updateBoat(dt);
+  else {
+    G.boatV *= Math.exp(-dt*1.5); G.boatSteer = 0;
+    if (Math.abs(G.boatV) > 0.02) moveBoat(dt);
+    if (keys.KeyA || keys.ArrowLeft) { if (G.state === 'idle' || G.state === 'charge') G.aimYaw -= dt*1.2; else G.orbit += dt*1.2; }
+    if (keys.KeyD || keys.ArrowRight){ if (G.state === 'idle' || G.state === 'charge') G.aimYaw += dt*1.2; else G.orbit -= dt*1.2; }
+    if (keys.KeyW || keys.ArrowUp) G.aimPitch = clamp(G.aimPitch + dt*0.8, -0.9, 0.35);
+    if (keys.KeyS || keys.ArrowDown) G.aimPitch = clamp(G.aimPitch - dt*0.8, -0.9, 0.35);
+  }
+  updateSonar(dt); updateEngine();
   if (G.state === 'charge'){ G.chargeT += dt; const p = (G.chargeT/1.15) % 2; G.power = p < 1 ? p : 2 - p; }
   if (G.state === 'fly'){ G.fly.t += dt; if (G.fly.t >= G.fly.T) land(); }
   if (G.state === 'wait'){ if (G.mode === 'pole') updateRig(dt); else updateLure(dt); }
@@ -921,7 +1256,7 @@ function update(dt){
 }
 let last = performance.now(), started = false;
 const SUBSTEPS = Math.max(1, +(new URLSearchParams(location.search).get('sim')) || 1);   // test aid: extra simulation steps per frame
-for (let i = 0; i < FISH_N; i++) fishes.push(newFish([0, 0, -6], 3, 20));
+applyRegion(SPOTS[0], true);
 function frame(now){
   const dt = Math.min(0.05, (now - last)/1000); last = now;
   if (Rn.ready()){
@@ -935,5 +1270,5 @@ function frame(now){
 }
 buildToolbar(); updateLog();
 requestAnimationFrame(frame);
-window.__game = { G, fishes, cam, mouse, hookFish, newFish };
+window.__game = { G, fishes, cam, mouse, hookFish, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth };
 })();
