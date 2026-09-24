@@ -114,7 +114,7 @@
 | `js/world.js` | 세계 해안선 폴리곤 (Natural Earth 1:50m) |
 | `js/pebbles.js` | 호수 바닥 자갈 텍스처(base64) |
 | `img/fish/` | 어종별 실사진과 출처(`credits.js`) |
-| `models/b_1.glb`, `js/boat_b1.js` | 처음 보트(소형 보트 등급) 고무보트 모델과, file://에서도 불러오도록 base64로 넣은 사본 |
+| `models/b_1.glb`, `js/boat_b1.js` | 보트 모델(모든 보트 등급 공용, 등급별 모델이 생기기 전까지)과, file://에서도 불러오도록 base64로 넣은 사본 |
 
 URL 옵션: `?visit=humpback` (방문자 강제 등장, 테스트용), `?debug` (FPS 표시), `?lite` (저사양: 코스틱 해상도↓, 글레어 끔), `?q=0.6` (렌더 해상도 배율).
 

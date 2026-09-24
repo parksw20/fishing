@@ -36,11 +36,11 @@ function column(x, z){ return Math.min(floorDepth(x, z), VIS_DEPTH); }
 const BOAT = { pos:[0,0,0], heading:0, pitch:0, roll:0 };
 const HULL = { l:2.05, w:0.72 };
 const SEAT = [0, 1.02, 1.30];               // eye position in the boat (sitting on the stern thwart)
-// boat model per boat tier: the starter boat is the b_1.glb RIB, the others the built-in rowboat for now
+// boat model per boat tier: b_1.glb RIB for every tier until the upgrades get their own models (rowboat = fallback if it fails to load)
 const BOAT_MODELS = [{ key: 'b1', hull: [1.45, 0.36, 1.08], seat: [0, 1.55, 1.02] }];
 const ROWBOAT = { key: null, hull: [2.05, 0.37, 0.72], seat: [0, 1.02, 1.30] };
 function applyBoatModel(){
-  let m = BOAT_MODELS[P.tier.boat] || ROWBOAT;
+  let m = BOAT_MODELS[P.tier.boat] || BOAT_MODELS[0];   // tiers without their own model use b_1 for now
   if (!Rn.setBoat(m.key, m.hull)){ m = ROWBOAT; Rn.setBoat(null, m.hull); }
   HULL.l = m.hull[0]; HULL.w = m.hull[2]; SEAT.splice(0, 3, ...m.seat);
 }
