@@ -124,19 +124,10 @@ function yawDir(y){ return [Math.sin(y), 0, -Math.cos(y)]; }
 function viewYaw(){ return G.aimYaw + (G.lookX || 0); }
 function viewPitch(){ return clamp(G.aimPitch + (G.lookY || 0), -1.0, 0.45); }
 // desktop: the view follows the mouse (and keeps turning when the pointer sits near a screen edge)
+// the view no longer follows the mouse pointer (only right-drag / keys / joystick turn it); any leftover offset eases out
 function mouseLook(dt){
-  const on = !TOUCH.on && !G.mapOpen && !mouse.rdown && ['idle', 'charge', 'wait', 'fly', 'boat', 'result'].includes(G.state);
-  let tx = 0, ty = 0;
-  if (on && mouse.moved){
-    const nx = clamp(mouse.x/innerWidth*2 - 1, -1, 1), ny = clamp(mouse.y/innerHeight*2 - 1, -1, 1);
-    const edge = v => Math.sign(v)*Math.max(0, Math.abs(v) - 0.8)/0.2;
-    if (G.state === 'idle' || G.state === 'charge'){
-      G.aimYaw += edge(nx)*dt*1.4; G.aimPitch = clamp(G.aimPitch - edge(ny)*dt*0.7, -0.9, 0.35);
-      tx = nx*0.35; ty = -ny*0.2;
-    } else if (G.state !== 'result'){ G.orbit -= edge(nx)*dt*1.2; tx = -nx*0.45; ty = 0; }
-  }
   const k = Math.min(1, dt*5);
-  G.lookX = lerp(G.lookX || 0, tx, k); G.lookY = lerp(G.lookY || 0, ty, k);
+  G.lookX = lerp(G.lookX || 0, 0, k); G.lookY = lerp(G.lookY || 0, 0, k);
 }
 function tipXZ(){ return [G.tipS[0], 0, G.tipS[2]]; }
 function insideHull(x, z, margin){ const [a, b] = toBoatLocal(x, z); const lx = a/(HULL.w+margin), lz = b/(HULL.l+margin); return lx*lx + lz*lz < 1; }
@@ -724,7 +715,7 @@ function buildToolbar(){
     const b = document.createElement('button'); b.className = G.mode === k ? 'on' : '';
     const it = MODES[k].items[G.item[k]];
     b.innerHTML = `${MODES[k].name}<small></small> ▴`; b.querySelector('small').textContent = itemName(it);
-    b.onclick = e => { e.stopPropagation(); if (G.mode !== k) setMode(k); const pop = $('itempop'); pop.hidden = !(pop.hidden || G.mode !== pop.dataset.mode); pop.dataset.mode = k; buildItems(); };
+    b.onclick = e => { e.stopPropagation(); if (G.mode !== k) setMode(k); const pop = $('itempop'); pop.hidden = !(pop.hidden || G.mode !== pop.dataset.mode); pop.dataset.mode = k; buildItems(); requestAnimationFrame(placeItems); };
     modes.appendChild(b);
   }
   buildItems();
@@ -738,8 +729,13 @@ function buildItems(){
     b.innerHTML = '<b></b><small></small>'; b.firstChild.textContent = (G.item[G.mode] === i ? '✓ ' : '') + itemName(it); b.lastChild.textContent = it.desc;
     b.onclick = e => { e.stopPropagation(); setItem(i); $('itempop').hidden = true; }; items.appendChild(b);
   });
-  const mb = $('modes').children[G.mode === 'pole' ? 0 : 1];
-  if (mb) $('itempop').style.left = mb.offsetLeft + 'px';
+  placeItems();
+}
+// line the dropdown up with the tackle button it belongs to (the bar may be CSS-scaled, so measure on screen)
+function placeItems(){
+  const mb = $('modes').children[G.mode === 'pole' ? 0 : 1], bar = $('bottombar'); if (!mb) return;
+  const br = bar.getBoundingClientRect(), k = br.width/(bar.offsetWidth || 1);
+  $('itempop').style.left = (mb.getBoundingClientRect().left - br.left)/k + 'px';
 }
 function setMode(k){
   if (G.state !== 'idle' && G.state !== 'charge' && G.state !== 'boat'){ say('채비를 회수한 뒤 바꿀 수 있어요 (R)', 1.8); return; }
