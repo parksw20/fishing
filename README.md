@@ -121,13 +121,13 @@
 | `js/ecology.js` | 조사한 어종별 생태·공략 데이터(수심, 시간대, 미끼·루어 순위, 감기 속도, 팁, 출처) |
 | `js/world.js` | 세계 해안선 폴리곤 (Natural Earth 1:50m) |
 | `js/pebbles.js` | 호수 바닥 자갈 텍스처(base64) |
-| `img/fish/` | 어종별 실사진과 출처(`credits.js`) |
+| `img/fish/` | 어종별 이미지(AI 생성)와 목록(`credits.js`) |
 | `models/b_1.glb`, `js/boat_b1.js` | 보트 모델(모든 보트 등급 공용, 등급별 모델이 생기기 전까지)과, file://에서도 불러오도록 base64로 넣은 사본 |
 
 URL 옵션: `?visit=humpback` (방문자 강제 등장, 테스트용), `?debug` (FPS 표시), `?lite` (저사양: 코스틱 해상도↓, 글레어 끔), `?q=0.6` (렌더 해상도 배율).
 
 ## 크레딧
 
-- 물고기 사진: [iNaturalist](https://www.inaturalist.org) 이용자들의 CC 라이선스 사진 53장(CC0·CC BY·CC BY-SA·CC BY-NC). 촬영자·라이선스·원본 링크는 `img/fish/credits.js`, 게임에서는 포획 카드 하단에 표시
+- 물고기 이미지: AI로 생성한 어종별 이미지 53장 (`img/fish/`, 목록은 `img/fish/credits.js`)
 - 세계 지도: [Natural Earth](https://www.naturalearthdata.com/) (public domain) via [world-atlas](https://github.com/topojson/world-atlas) (ISC)
 - 물 렌더링: [Clearwater](https://github.com/Aureliengmz/clearwater) by Aurélien / Lumaris — MIT License (`LICENSE-clearwater`)
