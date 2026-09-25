@@ -1131,7 +1131,7 @@ function updateMenuState(){
 for (const b of document.querySelectorAll('#menu button')) b.addEventListener('click', e => {
   if (b.classList.contains('dis')){ e.stopPropagation(); say('채비를 회수한 뒤 이용할 수 있어요 (R)', 1.8); return; }
   e.stopPropagation(); $('menu').hidden = true;
-  ({ shop: openShop, quest: openQuests, map: openMap, rank: openRank, dex: openDex, time: skipTime, set: openSettings })[b.dataset.m]();
+  ({ shop: openShop, quest: openQuests, map: openMap, rank: openRank, dex: openDex, time: skipTime, set: openSettings, dbg: () => openModal('dbgm') })[b.dataset.m]();
 });
 $('qtrack').addEventListener('click', e => { e.stopPropagation(); openQuests(); });
 document.addEventListener('pointerdown', e => {
@@ -1808,7 +1808,7 @@ function coinBurst(amount, from){
 }
 
 /* ---------------- modals ---------------- */
-const MODALS = ['map', 'shop', 'questm', 'rankm', 'dexm', 'confirm', 'setm', 'netm'];
+const MODALS = ['map', 'shop', 'questm', 'rankm', 'dexm', 'confirm', 'setm', 'netm', 'dbgm'];
 function openModal(id){
   for (const m of MODALS) $(m).hidden = m !== id;
   G.mapOpen = true; mouse.down = false; mouse.rdown = false; $('menu').hidden = true; $('itempop').hidden = true;
@@ -1823,7 +1823,7 @@ function closeModal(){
 }
 function idleOnly(what){ if (G.state === 'result') hideCard(); if (G.state === 'idle' || G.state === 'boat' || G.state === 'result') return true; say(`채비를 회수한 뒤 ${what} (R)`, 1.8); return false; }
 for (const b of document.querySelectorAll('.mclose')) b.addEventListener('click', e => { e.stopPropagation(); closeModal(); });
-for (const id of ['questm', 'rankm', 'dexm', 'setm', 'netm']) $(id).addEventListener('pointerdown', e => { if (e.target === $(id)) closeModal(); });
+for (const id of ['questm', 'rankm', 'dexm', 'setm', 'netm', 'dbgm']) $(id).addEventListener('pointerdown', e => { if (e.target === $(id)) closeModal(); });
 $('confirm').addEventListener('pointerdown', e => { if (e.target === $('confirm')) $('cno').click(); });
 function confirmBox(html, yes, onYes, onNo){
   openModal('confirm'); $('ctext').innerHTML = html; $('cyes').textContent = yes;
@@ -2713,6 +2713,25 @@ function updateDecor(){
   DECOR.solids = solids;
   Rn.setDecor(items);
 }
+
+/* ---------------- debug tools (menu → 디버그) ---------------- */
+const DEBUG_ACT = {
+  coins(){ P.coins += 1000000; say('🪙 +1,000,000', 1.8, 'hot'); },
+  gear(){
+    for (const it of SHOP) P.tier[it.id] = it.tiers.length - 1;
+    for (const it of [...BAITS, ...LURES]) P.owned[it.id] = true;
+    applyBoatModel(); buildToolbar(); say('⚙️ 전체 업그레이드 완료', 1.8, 'hot');
+  },
+  dex(){
+    for (const sp of SPECIES){
+      if (sp.sight){ P.sightings[sp.id] = Math.max(1, P.sightings[sp.id] || 0); continue; }
+      P.caught[sp.id] = Math.max(1, P.caught[sp.id] || 0);
+      if (!G.best[sp.id]){ const L = sp.maxLen*0.9; G.best[sp.id] = { name: sp.name, len: L, weight: sp.wk*Math.pow(L*100, 3), pts: 0, sp }; }
+    }
+    say('📖 전체 도감 완료', 1.8, 'hot');
+  },
+};
+for (const b of document.querySelectorAll('#dbgm [data-d]')) b.addEventListener('click', e => { e.stopPropagation(); DEBUG_ACT[b.dataset.d](); sfx.win(); updateLog(); save(); pushRankSoon(); });
 
 /* ---------------- main loop ---------------- */
 function update(dt){

@@ -430,6 +430,8 @@
   #card .photo:has(+ canvas.mosaic:not([hidden])) { display:none; }
   #card .credit { display:none !important; }   /* no photo credit line on the catch card (credits stay in the fish guide) */
   #shop .shopbox { height:min(760px, 100%); box-sizing:border-box; }   /* same size on every tab */
+  .dbgbtns { display:flex; flex-direction:column; gap:8px; padding:4px 14px 6px; }
+  .dbgbtns button { padding:12px; font-size:14px; border-radius:12px; text-align:left; }
 </style>
 </head>
 <body>
@@ -479,6 +481,7 @@
   <button data-m="dex">📖 도감 <kbd>I</kbd></button>
   <button data-m="time">⏩ 다음 시간대 <kbd>T</kbd></button>
   <button data-m="set">⚙️ 환경설정 <kbd>O</kbd></button>
+  <button data-m="dbg">🛠 디버그</button>
 </div>
 <button id="retrieve" hidden>회수 (R)</button>
 
@@ -527,6 +530,12 @@
     <div class="maphead"><b>🧺 살림망</b><span class="sub" id="netsub"></span><button class="mclose xbtn" aria-label="닫기 (Esc)" title="닫기 (Esc)">✕</button></div>
     <div id="netlist"></div>
     <div class="nbtns"><button id="nsell">모두 판매</button><button id="nrel">방생 <small>+25% · 🍀</small></button></div>
+  </div>
+</div>
+<div id="dbgm" class="modal" hidden>
+  <div class="mbox glass" style="width:min(380px,100%)">
+    <div class="maphead"><b>🛠 디버그</b><span class="sub"></span><button class="mclose xbtn" aria-label="닫기 (Esc)" title="닫기 (Esc)">✕</button></div>
+    <div class="dbgbtns"><button data-d="coins">🪙 코인 +1,000,000</button><button data-d="gear">⚙️ 전체 업그레이드 완료</button><button data-d="dex">📖 전체 도감 완료</button></div>
   </div>
 </div>
 <div id="confirm" class="modal" hidden>
