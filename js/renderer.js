@@ -707,6 +707,7 @@ vec3 underwaterView(vec3 rd, out float tHit){
     vec3 Tl = exp(-SIGV*tl);
     vec3 lc = fogC*(1.0 - Tl)*1.25 + (fogC*1.6 + SUN*Ts*0.01*exp(-SIG_T*max(-q.y, 0.0)))*Tl;
     col = mix(col, lc, al);
+    if (al > 0.2) tHit = tl;   // the line's own depth, so weed and rocks behind it don't paint over it
   }
   return col;
 }
@@ -1709,7 +1710,7 @@ function render(S){
     gl.uniform3fv(u.uLureS, lu.size); gl.uniform4f(u.uLureC, lu.color[0], lu.color[1], lu.color[2], lu.metal);
   } else gl.uniform4f(u.uLure, 0,0,0,0);
   const bo = S.bobber;
-  if (bo && !bo.flying && (bo.tilt||0) < 0.6) gl.uniform4f(u.uBob, bo.pos[0], bo.pos[1]-0.10, bo.pos[2], 1); else gl.uniform4f(u.uBob, 0,0,0,0);
+  if (bo && !bo.flying && (bo.tilt||0) < 0.06) gl.uniform4f(u.uBob, bo.pos[0], bo.pos[1]-0.10, bo.pos[2], 1); else gl.uniform4f(u.uBob, 0,0,0,0);
   if (S.lineUnder){ gl.uniform4f(u.uLnA, ...S.lineUnder[0], 1); gl.uniform4f(u.uLnB, ...S.lineUnder[1], 1); } else gl.uniform4f(u.uLnA, 0,0,0,0);
   const wk = S.wake || [];
   wakeBuf.fill(0); for (let i = 0; i < Math.min(20, wk.length); i++) wakeBuf.set(wk[i], i*4);
