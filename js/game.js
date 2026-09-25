@@ -694,7 +694,7 @@ function drawFishIcon(cv, sp){
 function mulberry32(a){ return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0)/4294967296; }; }
 function updateLog(){
   $('score').textContent = G.score.toLocaleString();
-  $('coins').textContent = P.coins.toLocaleString() + '🪙';
+  $('coins').textContent = '🪙 ' + P.coins.toLocaleString();
   $('count').textContent = P.net.length; $('cap').textContent = netCap();
   const val = P.net.reduce((a, f) => a + f.price, 0);
   $('netval').textContent = P.net.length ? `≈ ${val.toLocaleString()}🪙` : '';
@@ -1318,7 +1318,6 @@ function updateGauges(){
     lines.push(`<div><span>수심</span><b>${floorDepth(BOAT.pos[0], BOAT.pos[2]).toFixed(1)}m</b></div>`);
     lines.push(`<div><span>기점 거리</span><b>${Math.round(Math.hypot(BOAT.pos[0], BOAT.pos[2]))}m</b></div>`);
   } else {
-  lines.push(`<div><span>장력</span><b>${(T*lk).toFixed(1)}kg</b></div>`);
   if (G.mode === 'lure') lines.push(`<div><span>드랙</span><b>${(G.drag*lk).toFixed(1)}kg${G.drag >= 1 ? ' 🔒' : ''}</b></div>`);
   else lines.push(`<div><span>찌 수심</span><b>${G.depthSet.toFixed(1)}m</b></div>`);
   lines.push(`<div><span>원줄</span><b>${lk.toFixed(0)}kg</b></div>`);
@@ -1326,6 +1325,7 @@ function updateGauges(){
   if (F) lines.push(`<div><span>거리</span><b>${F.lineOut.toFixed(1)}m</b></div>`);
   else if (G.rig) lines.push(`<div><span>바닥</span><b>${G.rig.floor.toFixed(1)}m</b></div>`);
   else if (G.lure) lines.push(`<div><span>거리</span><b>${dist2(G.lure.pos, tipXZ()).toFixed(1)}m</b></div>`);
+  if (G.state !== 'boat') lines.push(`<div><span>장력</span><b>${(T*lk).toFixed(1)}kg</b></div>`);   // last, right above the tension bar
   const h = lines.join('');
   if (h !== gaugeCache){ $('ginfo').innerHTML = h; gaugeCache = h; }
   $('retrieve').hidden = G.state !== 'wait';
