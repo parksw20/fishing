@@ -72,7 +72,7 @@ const keys = {};
 const CFG_KEY = 'boatfish.cfg';
 const CFG = Object.assign({ gfx: 'auto', res: null, fps: null, glare: true, showFps: false,
   vol: 0.8, sfx: 1, amb: 1, mute: false,
-  joy: 'm', look: 1, invY: false, lefty: false, pad: true, padSens: 1, dead: 0.18, rumble: true },
+  joy: 'm', look: 1, invY: false, lefty: false, pad: true, padSens: 1, dead: 0.18, rumble: true, vibe: true, shake: 0.5 },
   (() => { try { return JSON.parse(localStorage.getItem(CFG_KEY) || '{}') || {}; } catch(e){ return {}; } })());
 function saveCfg(){ try { localStorage.setItem(CFG_KEY, JSON.stringify(CFG)); } catch(e){} }
 const LOOK = () => CFG.look, INV = () => CFG.invY ? -1 : 1;
@@ -1055,7 +1055,7 @@ function camShake(dt){
     if (F.t < 0.35) want = Math.max(want, 1.2*(1 - F.t/0.35));
   }
   SHAKE.a += (want - SHAKE.a)*Math.min(1, dt*(want > SHAKE.a ? 12 : 4)); SHAKE.t += dt;
-  const a = SHAKE.a*0.045, t = SHAKE.t;
+  const a = SHAKE.a*0.045*(CFG.shake/0.5), t = SHAKE.t;   // setting 50% = the original strength
   if (a < 1e-4) return { pos: [0, 0, 0], look: [0, 0, 0] };
   const n = (w, p) => Math.sin(t*w + p)*0.6 + Math.sin(t*w*1.73 + p*2.1)*0.4;
   return { pos: [n(31, 0)*a, n(27, 1.3)*a*0.8, n(35, 2.7)*a], look: [n(23, 4.1)*a*2.2, n(29, 5.3)*a*1.6, n(19, 0.7)*a*2.2] };
@@ -2237,14 +2237,16 @@ function renderSettings(){
       `<h4>화면 조작 (터치)</h4>` +
       setRow('조그 크기', segCtl('joy', [['s', '작게'], ['m', '보통'], ['l', '크게']])) +
       setRow('왼손 모드', toggleCtl('lefty'), '조그를 오른쪽, 버튼을 왼쪽으로') +
+      setRow('휴대폰 진동', toggleCtl('vibe'), '입질·챔질·파이팅 때 진동 (안드로이드 · 아이폰 Safari는 지원 안 함)') +
       `<h4>시점</h4>` +
+      setRow('카메라 흔들림', rangeCtl('shake', 0, 1, 0.05, FMT.pct), '챔질·파이팅 때 화면 흔들림 · 0%면 끔') +
       setRow('시점 회전 속도', rangeCtl('look', 0.4, 2, 0.05, FMT.x), '마우스 드래그 · 조그 · 패드 오른쪽 스틱') +
       setRow('상하 반전', toggleCtl('invY')) +
       `<h4>게임패드</h4>` +
       setRow('게임패드 사용', toggleCtl('pad'), pads.length ? '연결됨: ' + esc(pads[0].id.slice(0, 40)) : '연결된 패드 없음 — 버튼을 한 번 누르면 인식돼요') +
       setRow('스틱 감도', rangeCtl('padSens', 0.5, 2, 0.05, FMT.x)) +
       setRow('데드존', rangeCtl('dead', 0.05, 0.4, 0.01, FMT.pct), '스틱이 살짝 기울어도 움직이지 않는 범위') +
-      setRow('진동', toggleCtl('rumble'), '입질·챔질·파이팅 때 패드 진동') +
+      setRow('패드 진동', toggleCtl('rumble'), '입질·챔질·파이팅 때 패드 진동') +
       `<div class="snote">A 던지기·챔질·감기 · B 회수 · X 대낚시/루어 · Y 보트 · LB/RB 드랙·찌 수심 · 왼쪽 스틱 방향/파이팅 · 오른쪽 스틱 시점 · Start 메뉴 · Back 지도</div>`;
   }
   // wire controls
@@ -2273,10 +2275,21 @@ applyCfg();
 
 /* ---------------- gamepad (standard mapping) ---------------- */
 const PAD = { prev: [], rumT: 0, repT: 0 };
+// haptics: gamepad rumble and, on phones, the vibration motor (Android browsers; iPhone Safari has no vibration API)
 function padRumble(strong, weak, ms){
-  if (!CFG.pad || !CFG.rumble || !navigator.getGamepads) return;
-  const gp = [...navigator.getGamepads()].find(Boolean); const a = gp && gp.vibrationActuator;
-  if (a && a.playEffect) a.playEffect('dual-rumble', { duration: ms, strongMagnitude: strong, weakMagnitude: weak }).catch(() => {});
+  if (CFG.pad && CFG.rumble && navigator.getGamepads){
+    const gp = [...navigator.getGamepads()].find(Boolean); const a = gp && gp.vibrationActuator;
+    if (a && a.playEffect) a.playEffect('dual-rumble', { duration: ms, strongMagnitude: strong, weakMagnitude: weak }).catch(() => {});
+  }
+  if (TOUCH.on && CFG.vibe && navigator.vibrate){ try { navigator.vibrate(Math.round(ms*(0.25 + 0.75*Math.max(strong, weak)))); } catch(e){} }
+}
+// while a fish pulls: short pulses, stronger and longer with line tension
+function fightHaptics(dt){
+  if (G.state !== 'hooked' || !G.fight) return;
+  PAD.rumT -= dt; if (PAD.rumT > 0) return;
+  const t = G.fight.tension; PAD.rumT = TOUCH.on ? 0.35 : 0.2;
+  if (TOUCH.on && t < 0.35) return;   // phones: only when the line is really loaded
+  padRumble(clamp(t - 0.4, 0, 1)*0.7, 0.15 + t*0.35, TOUCH.on ? 60 + t*90 : 230);
 }
 function pollPad(dt){
   if (!CFG.pad || !navigator.getGamepads) return;
@@ -2310,8 +2323,6 @@ function pollPad(dt){
     const bump = btn(5) ? 1 : btn(4) ? -1 : 0;
     if (bump){ PAD.repT -= dt; if (down(4) || down(5) || PAD.repT <= 0){ wheel(bump); PAD.repT = down(4) || down(5) ? 0.35 : 0.08; } }
   }
-  // rumble while a fish pulls on the line
-  if (G.state === 'hooked' && G.fight){ PAD.rumT -= dt; if (PAD.rumT <= 0){ PAD.rumT = 0.2; const t = G.fight.tension; padRumble(clamp(t - 0.4, 0, 1)*0.7, 0.15 + t*0.35, 230); } }
   PAD.prev = gp.buttons.map(b => b.pressed);
 }
 addEventListener('gamepadconnected', e => { if (CFG.pad) say(`🎮 게임패드 연결됨`, 1.8); if (!$('setm').hidden) renderSettings(); });
@@ -2333,7 +2344,7 @@ function update(dt){
     if (keys.KeyW || keys.ArrowUp){ if (aiming) G.aimPitch = clamp(G.aimPitch + dt*0.8, -0.9, 0.35); else tiltView(-dt*0.9); }
     if (keys.KeyS || keys.ArrowDown){ if (aiming) G.aimPitch = clamp(G.aimPitch - dt*0.8, -0.9, 0.35); else tiltView(dt*0.9); }
   }
-  pollPad(dt); mouseLook(dt); updateWeather(dt); updateClock(dt); updateRain(dt); updateVisitors(dt); checkSightings(dt); updateTarget(dt);
+  pollPad(dt); fightHaptics(dt); mouseLook(dt); updateWeather(dt); updateClock(dt); updateRain(dt); updateVisitors(dt); checkSightings(dt); updateTarget(dt);
   updateWake(); updateParticles(dt);
   applyJoy(dt); SONAR.dt = dt; updateSonar(dt); updateEngine(); updateTouchUI();
   if (G.state === 'charge'){ G.chargeT += dt; const p = (G.chargeT/1.15) % 2; G.power = p < 1 ? p : 2 - p; }
