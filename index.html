@@ -432,6 +432,11 @@
   #shop .shopbox { height:min(760px, 100%); box-sizing:border-box; }   /* same size on every tab */
   .dbgbtns { display:flex; flex-direction:column; gap:8px; padding:4px 14px 6px; }
   .dbgbtns button { padding:12px; font-size:14px; border-radius:12px; text-align:left; }
+  .dx .tag.obs, #dexdet .tag.obs { color:#8ff0a8; background:rgba(143,240,168,.15); }   /* observation-only species: green */
+  .dx .tag { white-space:nowrap; }
+  .dx .nm { display:flex; flex-wrap:wrap; align-items:center; gap:4px 0; }
+  body:not(.touch) #dexm .mbox { width:min(900px, 100%); }
+  body:not(.touch) #dexgrid { grid-template-columns:repeat(4, minmax(0, 1fr)); }
 </style>
 </head>
 <body>
