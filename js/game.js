@@ -707,8 +707,7 @@ function updateLog(){
     li.onclick = e => { e.stopPropagation(); sellFish([i]); };
     ul.appendChild(li);
   }
-  if (!P.net.length){ const li = document.createElement('li'); li.innerHTML = '<span>비어 있어요 — 잡은 물고기가 여기 담겨요</span>'; ul.appendChild(li); }
-  $('sellall').disabled = $('releaseall').disabled = !P.net.length;
+  $('status').querySelector('.net').hidden = !P.net.length;   // an empty keep net takes no space
 }
 function netCap(){ return tierOf('net').cap; }
 // keep net: catches wait here until sold (full price) or released (small good-will bonus)
@@ -2398,5 +2397,5 @@ function frame(now){
 }
 buildToolbar(); updateLog();
 requestAnimationFrame(frame);
-window.__game = { G, fishes, cam, mouse, hookFish, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
+window.__game = { updateLog, G, fishes, cam, mouse, hookFish, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
 })();
