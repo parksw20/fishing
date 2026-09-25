@@ -2634,6 +2634,49 @@ function pollPad(dt){
 }
 addEventListener('gamepadconnected', e => { if (CFG.pad) say(`🎮 게임패드 연결됨`, 1.8); if (!$('setm').hidden) renderSettings(); });
 
+
+/* ---------------- underwater scenery: rocks, coral, weed placed on the bed around the boat ---------------- */
+const DECOR = { cx: 1e9, cz: 1e9, key: '' };
+function cellHash(ix, iz, k){ const x = Math.sin(ix*127.1 + iz*311.7 + k*74.7 + REGION.depthQ[1]*13.3)*43758.5453; return x - Math.floor(x); }
+function updateDecor(){
+  const c = G.state === 'boat' || !(G.rig || G.lure || G.hooked) ? BOAT.pos : focusPoint();
+  const key = REGION.spot.name;
+  if (key === DECOR.key && Math.hypot(c[0] - DECOR.cx, c[2] - DECOR.cz) < 14) return;
+  DECOR.key = key; DECOR.cx = c[0]; DECOR.cz = c[2];
+  const wt = REGION.spot.water, trop = wt === 'sea_trop', sea = wt.startsWith('sea'), river = wt === 'river_brown';
+  const items = [], CELL = 2.2, RAD = 30;
+  const i0 = Math.floor((c[0] - RAD)/CELL), i1 = Math.floor((c[0] + RAD)/CELL), j0 = Math.floor((c[2] - RAD)/CELL), j1 = Math.floor((c[2] + RAD)/CELL);
+  const pick = (arr, r) => arr[Math.floor(r*arr.length) % arr.length];
+  for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++){
+    const h = cellHash(i, j, 1); if (h > 0.55) continue;
+    const x = (i + cellHash(i, j, 2))*CELL, z = (j + cellHash(i, j, 3))*CELL;
+    if (Math.hypot(x - c[0], z - c[2]) > RAD || insideHull(x, z, 0.6)) continue;
+    const fd = floorDepth(x, z), real = toReal(fd); if (fd < 0.5) continue;
+    const r = cellHash(i, j, 4), r2 = cellHash(i, j, 5), yaw = r2*Math.PI*2, y = -fd;
+    const shallow = real < 12;   // plants and coral need light
+    let it = null;
+    if (trop){
+      if (shallow && r < 0.30) it = { k: 'coral', s: 0.6 + r2*0.7, c: pick([[0.85,0.35,0.45],[0.95,0.6,0.25],[0.55,0.35,0.8],[0.9,0.8,0.4],[0.3,0.7,0.7]], r2*5) };
+      else if (shallow && r < 0.45) it = { k: 'brain', s: 0.35 + r2*0.4, c: pick([[0.75,0.65,0.4],[0.55,0.7,0.45],[0.8,0.5,0.55]], r2*3) };
+      else if (shallow && r < 0.58) it = { k: 'fan', s: 0.6 + r2*0.6, c: pick([[0.8,0.3,0.55],[0.9,0.55,0.2],[0.6,0.4,0.85]], r2*3) };
+      else if (r < 0.72) it = { k: 'grass', s: 0.8, c: [0.18,0.38,0.12] };
+      else it = { k: 'rock', s: 0.3 + r2*0.9, c: [0.55,0.52,0.46] };
+    } else if (sea){
+      if (shallow && r < 0.28) it = { k: 'kelp', s: 0.9 + r2*0.6, c: wt === 'sea_cold' ? [0.30,0.24,0.08] : [0.32,0.28,0.10] };
+      else if (shallow && r < 0.42) it = { k: 'grass', s: 0.9, c: [0.15,0.32,0.10] };
+      else it = { k: 'rock', s: 0.3 + r2*1.2, c: [0.42,0.42,0.40].map(v => v*(0.8 + r*0.4)) };
+    } else {
+      if (real < 6 && r < 0.40) it = { k: 'reed', s: 0.9 + r2*0.5, c: [0.22,0.40,0.10] };
+      else if (real < 9 && r < 0.62) it = { k: 'grass', s: 1.0, c: river ? [0.26,0.30,0.10] : [0.16,0.38,0.12] };
+      else if (river && r < 0.72) it = { k: 'log', s: 0.8 + r2*1.2, c: [0.22,0.16,0.10] };
+      else it = { k: 'rock', s: 0.25 + r2*0.8, c: [0.40,0.38,0.34].map(v => v*(0.8 + r*0.4)) };
+    }
+    it.p = [x, y, z]; it.r = yaw; it.h = i*7.13 + j*3.71 + 0.5;
+    items.push(it);
+  }
+  Rn.setDecor(items);
+}
+
 /* ---------------- main loop ---------------- */
 function update(dt){
   G.time += dt;
@@ -2652,7 +2695,7 @@ function update(dt){
     if (keys.KeyS || keys.ArrowDown){ if (aiming) G.aimPitch = clamp(G.aimPitch - dt*0.8, -0.9, 0.35); else tiltView(dt*0.9); }
   }
   pollPad(dt); fightHaptics(dt); updateMenuState(); mouseLook(dt); updateWeather(dt); updateClock(dt); updateRain(dt); updateVisitors(dt); checkSightings(dt); updateTarget(dt);
-  updateWake(); updateParticles(dt);
+  updateWake(); updateParticles(dt); updateDecor();
   applyJoy(dt); SONAR.dt = dt; updateSonar(dt); updateEngine(); updateTouchUI();
   { const c = ['charge', 'fly', 'wait', 'hooked', 'result'].includes(G.state); if (c !== G.castingUI){ G.castingUI = c; document.body.classList.toggle('casting', c); if (c) $('itempop').hidden = true; } }
   // casting power gauge sits where the tackle buttons were

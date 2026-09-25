@@ -1206,6 +1206,101 @@ function setLight(sunEl, sunAz, dayK, warm){
 function lerp1(a, b, t){ return a + (b - a)*t; }
 const VFOV = 60*Math.PI/180;
 
+
+/* ---------------- underwater decor: rocks, coral, weed (rasterised; only seen from below the surface) ---------------- */
+const pDecor = prog(`#version 300 es
+layout(location=0) in vec3 aP; layout(location=1) in vec3 aN; layout(location=2) in vec3 aC; layout(location=3) in float aS;
+uniform vec3 uCam, uR, uU, uF; uniform float uTanF, uAspect, uTime;
+out vec3 vN, vC, vW;
+void main(){
+  vec3 p = aP;
+  // weed sways with the current: more towards the tip (aS = 0 at the root, 1 at the tip)
+  float w = aS*aS, ph = uTime*1.1 + p.x*0.45 + p.z*0.31;
+  p.x += (sin(ph) + 0.35*sin(ph*2.3 + 1.7))*0.16*w; p.z += cos(ph*0.8 + 0.6)*0.11*w;
+  vW = p; vN = aN; vC = aC;
+  vec3 v = p - uCam; float dz = dot(v, uF);
+  gl_Position = vec4(dot(v,uR)/(uAspect*uTanF), dot(v,uU)/uTanF, ${ZA.toFixed(8)}*dz + (${ZB.toFixed(8)}), dz);
+}`, `#version 300 es
+precision highp float;
+in vec3 vN, vC, vW; out vec4 o;
+uniform vec3 uSun, uCam, uSunC, uSkyK, uSigT; uniform vec4 uUW; uniform vec3 uUWsig;
+void main(){
+  vec3 n = normalize(vN), v = normalize(uCam - vW);
+  if (dot(n, v) < 0.0) n = -n;
+  float dep = max(-vW.y, 0.0), sy = max(uSun.y, 0.3);
+  vec3 att = exp(-uSigT*dep/sy*0.4);
+  vec3 sky = vec3(0.62,0.70,0.78)*0.7*uSkyK*exp(-uSigT*dep*0.4)*(0.55 + 0.45*n.y);
+  vec3 col = vC/3.14159*(uSunC*0.97*att*max(dot(n, uSun), 0.0)*0.55 + sky*1.4);
+  // a little kinder than physics so the colours of coral and weed read before the water swallows them
+  if (uUW.w > 0.5){ float dd = length(vW - uCam); col = mix(uUW.rgb, col, exp(-uUWsig*dd*0.4)); }
+  o = vec4(col, 1);
+}`, 'decor');
+const decor = { vao: gl.createVertexArray(), vb: gl.createBuffer(), n: 0 };
+gl.bindVertexArray(decor.vao); gl.bindBuffer(gl.ARRAY_BUFFER, decor.vb);
+for (let i = 0; i < 4; i++){ gl.enableVertexAttribArray(i); gl.vertexAttribPointer(i, i === 3 ? 1 : 3, gl.FLOAT, false, 40, i*12); }
+gl.bindVertexArray(null);
+// items: { k: kind, p: [x, y (floor), z], s: size, r: yaw, c: [r,g,b], h: seed }
+function buildDecor(items){
+  const V = [];
+  const put = (p, n, c, sw) => V.push(p[0], p[1], p[2], n[0], n[1], n[2], c[0], c[1], c[2], sw);
+  const tri = (a, b, c, na, nb, nc, ca, cb, cc, sa, sb, sc) => { put(a, na, ca, sa); put(b, nb, cb, sb); put(c, nc, cc, sc); };
+  const rnd = seed => { let x = Math.sin(seed*127.1)*43758.5453; return () => { x = Math.sin(x*12.9898 + 78.233)*43758.5453; return x - Math.floor(x); }; };
+  const blob = (o, rad, col, seg, R, squash, jag) => {   // lumpy ellipsoid (rocks, brain coral)
+    const P = (i, j) => { const th = i/seg*Math.PI, ph = j/seg*2*Math.PI, d = 1 + jag*(Math.sin(th*3.1 + R*9)*Math.cos(ph*2 + R*5)*0.6 + Math.sin(ph*5 + th*2 + R*3)*0.4);
+      const u = [Math.sin(th)*Math.cos(ph), Math.cos(th), Math.sin(th)*Math.sin(ph)];
+      return { p: [o[0] + u[0]*rad[0]*d, o[1] + Math.max(u[1], -0.35)*rad[1]*d*squash, o[2] + u[2]*rad[2]*d], n: norm3([u[0]/rad[0], u[1]/rad[1], u[2]/rad[2]]) }; };
+    for (let i = 0; i < seg; i++) for (let j = 0; j < seg; j++){ const a = P(i, j), b = P(i + 1, j), d = P(i, j + 1), e = P(i + 1, j + 1);
+      const sh = 0.8 + 0.4*((i*7 + j*3) % 5)/4, c = col.map(v => v*sh);
+      tri(a.p, b.p, e.p, a.n, b.n, e.n, c, c, c, 0, 0, 0); tri(a.p, e.p, d.p, a.n, e.n, d.n, c, c, c, 0, 0, 0); }
+  };
+  const blade = (o, ang, h, w, bend, col, col2, sway) => {   // a flat ribbon of weed/grass, 5 segments, swaying towards the tip
+    const dx = Math.cos(ang), dz = Math.sin(ang), nx = -dz, nz = dx; let prev = null;
+    for (let i = 0; i <= 5; i++){ const t = i/5, ww = w*(1 - t*0.85), b = bend*t*t;
+      const c = [o[0] + dx*b, o[1] + h*t, o[2] + dz*b], l = [c[0] - nx*ww, c[1], c[2] - nz*ww], r = [c[0] + nx*ww, c[1], c[2] + nz*ww];
+      const cc = col.map((v, k) => v + (col2[k] - v)*t), n = [dx, 0.25, dz], s = sway*t;
+      if (prev){ tri(prev.l, prev.r, r, n, n, n, prev.c, prev.c, cc, prev.s, prev.s, s); tri(prev.l, r, l, n, n, n, prev.c, cc, cc, prev.s, s, s); }
+      prev = { l, r, c: cc, s };
+    }
+  };
+  const branch = (a, b, r0, r1, col, sway) => {   // tapered 5-sided tube (coral branches)
+    const d = norm3(sub3(b, a)); let X = cross3(d, [0, 1, 0]); if (len3(X) < 1e-3) X = [1, 0, 0]; X = norm3(X); const Y = cross3(X, d);
+    for (let k = 0; k < 5; k++){ const a0 = k/5*Math.PI*2, a1 = (k + 1)/5*Math.PI*2;
+      const q = (ang, r, o) => [o[0] + (X[0]*Math.cos(ang) + Y[0]*Math.sin(ang))*r, o[1] + (X[1]*Math.cos(ang) + Y[1]*Math.sin(ang))*r, o[2] + (X[2]*Math.cos(ang) + Y[2]*Math.sin(ang))*r];
+      const n0 = norm3(sub3(q(a0, 1, [0,0,0]), [0,0,0])), n1 = norm3(q(a1, 1, [0,0,0]));
+      const p00 = q(a0, r0, a), p01 = q(a1, r0, a), p10 = q(a0, r1, b), p11 = q(a1, r1, b), c2 = col.map(v => Math.min(1, v*1.25));
+      tri(p00, p01, p11, n0, n1, n1, col, col, c2, 0, 0, sway); tri(p00, p11, p10, n0, n1, n0, col, c2, c2, 0, sway, sway);
+    }
+  };
+  for (const it of items){
+    const R = rnd(it.h), o = it.p, s = it.s, c = it.c;
+    if (it.k === 'rock') blob([o[0], o[1] - 0.05*s, o[2]], [s*(0.8 + 0.5*R()), s*(0.45 + 0.4*R()), s*(0.8 + 0.5*R())], c, 7, R()*10, 1, 0.18);
+    else if (it.k === 'brain') blob(o, [s, s*0.7, s], c, 8, R()*10, 1, 0.08);
+    else if (it.k === 'coral'){   // branching coral: a few forks
+      const grow = (a, dir, len, r, depth) => { const b = [a[0] + dir[0]*len, a[1] + dir[1]*len, a[2] + dir[2]*len]; branch(a, b, r, r*0.7, c, 0); if (depth > 0) for (let q = 0; q < 2; q++){ const t = R()*Math.PI*2, sp = 0.5 + R()*0.4; grow(b, norm3([dir[0] + Math.cos(t)*sp, dir[1], dir[2] + Math.sin(t)*sp]), len*0.72, r*0.7, depth - 1); } };
+      for (let q = 0; q < 3; q++){ const t = R()*Math.PI*2; grow([o[0] + Math.cos(t)*s*0.15, o[1], o[2] + Math.sin(t)*s*0.15], norm3([Math.cos(t)*0.35, 1, Math.sin(t)*0.35]), s*0.45, s*0.07, 2); }
+    }
+    else if (it.k === 'fan'){   // sea fan: a wide fan of thin swaying blades
+      for (let q = 0; q < 9; q++){ const t = -0.9 + q*0.225; blade(o, it.r + Math.PI/2, s*(0.9 + 0.3*R()), s*0.09, s*Math.sin(t)*0.8, c, c.map(v => Math.min(1, v*1.4)), 0.5); }
+    }
+    else if (it.k === 'grass' || it.k === 'kelp' || it.k === 'reed'){
+      const nb = it.k === 'kelp' ? 3 + Math.floor(R()*3) : 6 + Math.floor(R()*6);
+      for (let q = 0; q < nb; q++){ const a = R()*Math.PI*2, off = s*0.25*R();
+        const h = it.k === 'kelp' ? s*(2.2 + 1.5*R()) : it.k === 'reed' ? s*(1.2 + 0.8*R()) : s*(0.4 + 0.5*R()), w = it.k === 'kelp' ? s*0.12 : s*0.035;
+        blade([o[0] + Math.cos(a)*off, o[1] - 0.02, o[2] + Math.sin(a)*off], a, h, w, (R() - 0.5)*h*0.5, c, c.map(v => Math.min(1, v*1.5 + 0.03)), it.k === 'reed' ? 0.35 : 1); }
+    }
+    else if (it.k === 'log') branch([o[0] - Math.cos(it.r)*s, o[1] + 0.08*s, o[2] - Math.sin(it.r)*s], [o[0] + Math.cos(it.r)*s, o[1] + 0.12*s, o[2] + Math.sin(it.r)*s], s*0.14, s*0.11, c, 0);
+  }
+  const arr = new Float32Array(V);
+  gl.bindBuffer(gl.ARRAY_BUFFER, decor.vb); gl.bufferData(gl.ARRAY_BUFFER, arr, gl.STATIC_DRAW); decor.n = arr.length/10;
+}
+function drawDecor(B, t){
+  if (!decor.n || !UW.on) return;
+  gl.useProgram(pDecor.p); setCamUniforms(pDecor, B); setUW(pDecor);
+  gl.uniform1f(pDecor.u.uTime, t); gl.uniform3fv(pDecor.u.uSun, SUNV); gl.uniform3fv(pDecor.u.uSunC, ENV.sunC); gl.uniform3fv(pDecor.u.uSkyK, ENV.skyK);
+  gl.uniform3fv(pDecor.u.uSigT, ENV.sigA.map((a, i) => a + ENV.sigS[i]));
+  gl.bindVertexArray(decor.vao); gl.drawArrays(gl.TRIANGLES, 0, decor.n);
+}
+
 const MESH_VS = `#version 300 es
 layout(location=0) in vec3 aP; layout(location=1) in vec3 aN; layout(location=2) in vec3 aC;
 uniform mat4 uM; uniform vec3 uCam, uR, uU, uF; uniform float uTanF, uAspect;
@@ -1607,6 +1702,7 @@ function render(S){
   // ---- boat, rod, float, line ----
   gl.depthFunc(gl.LESS);
   gl.useProgram(pMesh.p); setCamUniforms(pMesh, B); gl.uniform3fv(pMesh.u.uSun, SUNV); gl.uniform3fv(pMesh.u.uSunC, ENV.sunC); gl.uniform3fv(pMesh.u.uSkyK, ENV.skyK);
+  drawDecor(B, t);
   drawBoat(mat4TRS(bt.pos, bt.heading, bt.pitch, bt.roll));
   let tip = null;
   if (S.rod){ tip = buildRod(S.rod); if (!S.hideRod) drawMesh(rodMesh, IDENT); }
@@ -1663,6 +1759,7 @@ return {
   setFps(n){ FPS_CAP = n; },
   setRes(q){ if (q == null){ FIXED_RES = false; } else { FIXED_RES = true; quality = q; } frames = 0; alloc(); },
   setDebug(on){ DEBUG = on; if ($dbg) $dbg.hidden = !on; },
+  setDecor: buildDecor,
   setBoat(key, hull){ ENV.boat = key && glbModels[key] ? key : null; if (hull) ENV.hull = hull; return !!ENV.boat; },
   ready: () => pebReady,
   // radius is kept to at least ~2.5 ripple texels, smaller drops fall between texels and never show
