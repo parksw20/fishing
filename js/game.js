@@ -540,6 +540,7 @@ function hookFish(f){
 }
 function rodPressure(){
   const B = Rn.basis(); if (!B) return { w: [0, 0], m: 0 };
+  if (!isFinite(mouse.x) || !isFinite(mouse.y)){ mouse.x = innerWidth/2; mouse.y = innerHeight/2; }
   const ox = mouse.x - innerWidth/2, oy = mouse.y - innerHeight/2;
   const rad = ringRadius();
   let m = clamp(Math.hypot(ox, oy)/rad, 0, 1); if (m < 0.12) m = 0;
@@ -923,7 +924,9 @@ $('retrieve').addEventListener('click', e => { e.stopPropagation(); retrieve(); 
 const JOY = { x: 0, y: 0, active: false, id: null, wasFight: false };
 const joyEl = $('joy'), knob = $('knob');
 function joyMove(e){
-  const b = joyEl.getBoundingClientRect(), R = b.width/2;
+  // the joystick may still be hidden in the very frame a quick hook set starts the fight: measure the cast button then
+  // (a zero-size joystick divided by zero and sent NaN through the rod, camera and fish — black screen, dead fight)
+  const el = joyEl.offsetWidth ? joyEl : act, b = el.getBoundingClientRect(), R = Math.max(b.width/2, 20);
   let x = (e.clientX - b.left - R)/(R*0.8), y = (e.clientY - b.top - R)/(R*0.8);
   const l = Math.hypot(x, y); if (l > 1){ x /= l; y /= l; }
   JOY.x = x; JOY.y = y; knob.style.transform = `translate(${x*R*0.8}px, ${y*R*0.8}px)`;
@@ -1112,7 +1115,9 @@ function updateCamera(dt){
       T = baitView([f[0], 0, f[2]], (2.6 + L*4)*0.72, (1.8 + L*3)*0.8, G.fightSide); k = ft < 0.8 ? 6 : 3.6; break; }
   }
   const a = 1 - Math.exp(-dt*k);
+  if (![...T.pos, ...T.look].every(isFinite)){ T = boatView(); }            // never feed NaN to the renderer
   cam.pos = vlerp(cam.pos, T.pos, a); cam.look = vlerp(cam.look, T.look, a);
+  if (![...cam.pos, ...cam.look].every(isFinite)){ const e = eyeWorld(); cam.pos = e.slice(); cam.look = add(e, [0, -2, -10]); }
   if (G.state === 'wait' || G.state === 'hooked') cam.pos[1] = Math.max(cam.pos[1], -(floorDepth(cam.pos[0], cam.pos[2]) - 0.3));
   else cam.pos[1] = Math.max(cam.pos[1], Math.min(0.45, cam.pos[1] + dt*4));   // back above the water after retrieving
   const uw = cam.pos[1] < -0.03;
@@ -1602,9 +1607,10 @@ function questEvent(e){
       else if (q.type === 'time') ok = c.sp.id === q.sp && period() === q.period;
     } else if (e.type === 'sight') ok = q.type === 'sight' && e.sp.id === q.sp;
     if (ok){ q.got++; changed = true;
-      if (q.got >= q.n){ weekRoll(); P.coins += q.reward; P.done++; P.week.done++; say(`📜 퀘스트 완료: ${q.text} · +${q.reward}🪙`, 3.5, 'hot'); sfx.win(); q.doneAt = G.time; } }
+      if (q.got >= q.n){ weekRoll(); P.done++; P.week.done++; q.claim = true; q.doneAt = G.time;
+        celebrate('🎉 퀘스트 완료!', `${q.text} · 퀘스트 창에서 보상 ${q.reward.toLocaleString()}🪙 받기`); } }
   }
-  if (changed){ setTimeout(() => { P.quests = P.quests.filter(q => q.got < q.n); fillQuests(); save(); }, 2500); renderQuests(); }
+  if (changed){ renderQuests(); save(); }
 }
 function questTarget(){
   const here = new Set(BIOMES[REGION.biome].fish.map(f => f[0]));
@@ -1616,9 +1622,54 @@ function esc(s){ return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': 
 // top-left tracker: titles only, always visible
 function renderQuests(){
   const list = P.quests.filter(questReachable);
-  $('qlist').innerHTML = list.map(q => `<div class="${q.got >= q.n ? 'done' : ''}"><b>${q.got >= q.n ? '✓ ' : ''}${esc(q.text)}</b><span>${questHere(q) ? (q.n > 1 ? `${q.got}/${q.n}` : '') : '📍' + esc(q.where)}</span></div>`).join('')
+  $('qlist').innerHTML = list.map(q => `<div class="${q.got >= q.n ? 'done' : ''}"><b>${q.got >= q.n ? '✅ ' : ''}${esc(q.text)}</b><span>${q.got >= q.n ? '🎁 보상' : questHere(q) ? (q.n > 1 ? `${q.got}/${q.n}` : '') : '📍' + esc(q.where)}</span></div>`).join('')
     || '<div><span>새 퀘스트를 준비 중…</span></div>';
   if (!$('questm').hidden) renderQuestModal();
+}
+
+/* ---------------- celebration effects ---------------- */
+function fxLayer(){ let l = $('fx'); if (!l){ l = document.createElement('div'); l.id = 'fx'; document.body.appendChild(l); } return l; }
+function confetti(n, x, y){
+  const L = fxLayer(), cols = ['#ffd84a', '#8ff0a8', '#6fd3ff', '#ff7a59', '#ff9ad5', '#ffffff'];
+  for (let i = 0; i < n; i++){
+    const c = document.createElement('i'); c.className = 'cf';
+    c.style.background = cols[i % cols.length]; c.style.left = x + 'px'; c.style.top = y + 'px';
+    if (i % 3 === 0) c.style.borderRadius = '50%';
+    L.appendChild(c);
+    const a = Math.random()*Math.PI*2, v = 120 + Math.random()*260, dx = Math.cos(a)*v, dy = Math.sin(a)*v - 160, rot = (Math.random() - 0.5)*900;
+    c.animate([{ transform: 'translate(-50%,-50%) rotate(0deg)', opacity: 1 },
+               { transform: `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px)) rotate(${rot/2}deg)`, opacity: 1, offset: 0.35 },
+               { transform: `translate(calc(-50% + ${dx*1.25}px), calc(-50% + ${dy + 420}px)) rotate(${rot}deg)`, opacity: 0 }],
+              { duration: 1500 + Math.random()*900, easing: 'cubic-bezier(.2,.7,.4,1)' }).onfinish = () => c.remove();
+  }
+}
+function celebrate(title, sub){
+  const L = fxLayer(), b = document.createElement('div'); b.className = 'cbanner';
+  b.innerHTML = '<b></b><span></span>'; b.firstChild.textContent = title; b.lastChild.textContent = sub || '';
+  L.appendChild(b);
+  b.animate([{ transform: 'translate(-50%,-50%) scale(.4)', opacity: 0 }, { transform: 'translate(-50%,-50%) scale(1.12)', opacity: 1, offset: 0.18 },
+             { transform: 'translate(-50%,-50%) scale(1)', opacity: 1, offset: 0.28 }, { transform: 'translate(-50%,-50%) scale(1)', opacity: 1, offset: 0.85 },
+             { transform: 'translate(-50%,-60%) scale(.96)', opacity: 0 }], { duration: 3200, easing: 'ease-out' }).onfinish = () => b.remove();
+  confetti(70, innerWidth/2, innerHeight*0.36);
+  sfx.win(); setTimeout(() => sfx.plop(), 180); padRumble(0.3, 0.6, 200, 60);
+}
+function coinBurst(amount, from){
+  const L = fxLayer(), r = from ? from.getBoundingClientRect() : { left: innerWidth/2, top: innerHeight/2, width: 0, height: 0 };
+  const x0 = r.left + r.width/2, y0 = r.top + r.height/2, t = $('coins').getBoundingClientRect(), x1 = t.left + 12, y1 = t.top + t.height/2;
+  const lbl = document.createElement('div'); lbl.className = 'cplus'; lbl.textContent = `+${amount.toLocaleString()} 🪙`; lbl.style.left = x0 + 'px'; lbl.style.top = y0 + 'px';
+  L.appendChild(lbl);
+  lbl.animate([{ transform: 'translate(-50%,-50%) scale(.6)', opacity: 0 }, { transform: 'translate(-50%,-120%) scale(1.25)', opacity: 1, offset: 0.25 },
+               { transform: 'translate(-50%,-190%) scale(1)', opacity: 0 }], { duration: 1500, easing: 'ease-out' }).onfinish = () => lbl.remove();
+  for (let i = 0; i < 14; i++){
+    const c = document.createElement('i'); c.className = 'coin'; c.textContent = '🪙'; c.style.left = x0 + 'px'; c.style.top = y0 + 'px'; L.appendChild(c);
+    const mx = (x0 + x1)/2 + (Math.random() - 0.5)*220, my = Math.min(y0, y1) - 60 - Math.random()*120;
+    c.animate([{ transform: 'translate(-50%,-50%) scale(.5)', opacity: 0 },
+               { transform: `translate(calc(-50% + ${mx - x0}px), calc(-50% + ${my - y0}px)) scale(1.2)`, opacity: 1, offset: 0.45 },
+               { transform: `translate(calc(-50% + ${x1 - x0}px), calc(-50% + ${y1 - y0}px)) scale(.6)`, opacity: 0.2 }],
+              { duration: 800 + i*45, delay: i*35, easing: 'cubic-bezier(.3,.6,.4,1)', fill: 'backwards' }).onfinish = () => c.remove();
+  }
+  confetti(26, x0, y0);
+  setTimeout(() => { const cc = $('coins'); cc.animate([{ transform: 'scale(1)' }, { transform: 'scale(1.35)' }, { transform: 'scale(1)' }], { duration: 380 }); sfx.click(0.08); }, 900);
 }
 
 /* ---------------- modals ---------------- */
@@ -1684,11 +1735,18 @@ function renderQuestModal(){
     const prog = q.n > 1 ? `<span class="prog">${q.got}/${q.n}</span>` : '';
     return `<div class="q${q.got >= q.n ? ' done' : ''}"><div class="qt">${esc(q.text)}${prog}</div><div class="rw">${q.reward}🪙</div>
       <div class="qw">📍 ${esc(q.where || REGION.spot.name)}${q.type === 'sight' ? ' · 관찰 퀘스트' : ''}${here ? ' · 현재 위치' : ''}</div>
-      ${here ? '<span></span>' : `<button class="go" data-q="${q.id}">⛵ 이동</button>`}${tip}</div>`;
+      ${q.got >= q.n ? `<button class="go claim" data-c="${q.id}">🎁 보상 받기</button>` : here ? '<span></span>' : `<button class="go" data-q="${q.id}">⛵ 이동</button>`}${tip}</div>`;
   }).join('') || '<div class="q"><div class="qt">받을 수 있는 퀘스트가 없어요</div></div>';
   $('quests').insertAdjacentHTML('beforeend', `<div class="qfoot">보트 등급에 따라 갈 수 있는 지역의 퀘스트만 나와요 <button id="qreroll">새 퀘스트로 바꾸기</button></div>`);
   $('qreroll').onclick = e => { e.stopPropagation(); P.quests = []; fillQuests(); save(); };
   for (const b of $('quests').querySelectorAll('[data-q]')) b.onclick = e => { e.stopPropagation(); askTravel(P.quests.find(q => q.id === b.dataset.q)); };
+  for (const b of $('quests').querySelectorAll('[data-c]')) b.onclick = e => { e.stopPropagation(); claimQuest(b.dataset.c, b); };
+}
+function claimQuest(id, btn){
+  const q = P.quests.find(q => q.id === id); if (!q || q.got < q.n) return;
+  P.coins += q.reward; P.quests = P.quests.filter(o => o !== q);
+  coinBurst(q.reward, btn); sfx.win();
+  fillQuests(); updateLog(); save(); renderQuestModal();
 }
 function kmBetween(a, b){
   const R = Math.PI/180, s = Math.sin((b.lat - a.lat)*R/2)**2 + Math.cos(a.lat*R)*Math.cos(b.lat*R)*Math.sin((b.lon - a.lon)*R/2)**2;
@@ -2274,11 +2332,47 @@ function renderDex(){
     const salt = Object.values(BIOMES).some(B => B.water === 'salt' && (B.fish.some(f => f[0] === sp.id) || (B.visitors || []).some(v => v[0] === sp.id)));
     const info = sp.sight ? (seen ? `관찰 ${seen}회` : '관찰 대상 · 아직 못 봤어요')
       : n ? `최대 ${(b ? b.len*100 : 0).toFixed(1)}cm · ${b ? kg(b.weight) : '-'}<br>잡은 수 ${n}마리${seen ? ` · 목격 ${seen}` : ''}` : `아직 못 잡았어요${seen ? ` · 목격 ${seen}` : ''}`;
-    return `<div class="dx${open ? '' : ' locked'}"><div class="ph">${ph ? `<img loading="lazy" src="${ph.file}" alt="">` : `<span style="font-size:34px">${open ? sp.icon || '🐟' : ''}</span>`}${open ? '' : '<b class="qm">?</b>'}</div>
+    return `<div class="dx${open ? '' : ' locked'}" data-sp="${sp.id}"><div class="ph">${ph ? `<img loading="lazy" src="${ph.file}" alt="">` : `<span style="font-size:34px">${open ? sp.icon || '🐟' : ''}</span>`}${open ? '' : '<b class="qm">?</b>'}</div>
       <div class="nm">${esc(sp.name)}<span class="tag">${salt ? '바다' : '민물'}</span>${sp.sight ? '<span class="tag">관찰</span>' : ''}</div><div class="dd">${info}</div></div>`;
   });
   $('dexgrid').innerHTML = cards.join('');
   $('dsub').textContent = `${got} / ${SPECIES.length} 등록 · 잡으면 사진과 최대 기록이 공개돼요`;
+  $('dexgrid').hidden = false; $('dexdet').hidden = true;
+  for (const c of $('dexgrid').querySelectorAll('[data-sp]')) c.onclick = e => { e.stopPropagation(); showDexEntry(c.dataset.sp); };
+}
+// one species in detail: photo and records once caught, plus where it lives and how to catch it
+function showDexEntry(id){
+  const sp = BY_ID[id], ph = (window.FISH_PHOTOS || {})[id];
+  const n = P.caught[id] || (G.best[id] ? 1 : 0), seen = P.sightings[id] || 0, open = n > 0 || (sp.sight && seen > 0), b = G.best[id];
+  const biomes = Object.entries(BIOMES).filter(([, B]) => B.fish.some(f => f[0] === id) || (B.visitors || []).some(v => v[0] === id));
+  const salt = biomes.some(([, B]) => B.water === 'salt');
+  const spots = SPOTS.filter(s => biomes.some(([k]) => k === s.biome)).map(s => s.name);
+  const items = [...BAITS, ...LURES];
+  const prefs = Object.entries(sp.pref || {}).filter(([, v]) => v > 0.05).sort((a, b) => b[1] - a[1]).slice(0, 5)
+    .map(([k, v]) => { const it = items.find(i => i.id === k); return it ? `<span class="pf">${esc(it.name)} <em>${'★'.repeat(Math.max(1, Math.round(v*5)))}</em></span>` : ''; }).join('');
+  const act = sp.act ? ['dawn', 'day', 'dusk', 'night'].map(k => `<div class="ab"><i style="height:${Math.round((sp.act[k] || 0)*100)}%"></i><span>${PERIOD_NAME[k]}</span></div>`).join('') : '';
+  const zone = { bottom: '바닥층', mid: '중층', top: '수면층' }[sp.zone] || '';
+  const ret = { slow: '느리게 (감다 멈추기)', medium: '보통', fast: '빠르게 계속' }[sp.retrieve] || '';
+  const rec = sp.sight ? (seen ? `관찰 <b>${seen}</b>회` : '아직 못 봤어요')
+    : n ? `최대 <b>${(b.len*100).toFixed(1)}cm</b> · <b>${kg(b.weight)}</b> · 잡은 수 <b>${n}</b>마리${seen ? ` · 목격 ${seen}` : ''}` : '아직 못 잡았어요';
+  $('dexgrid').hidden = true; const d = $('dexdet'); d.hidden = false;
+  d.innerHTML = `<button class="dback">← 도감</button>
+    <div class="dtop"><div class="dph${open ? '' : ' locked'}">${ph ? `<img src="${ph.file}" alt="">` : `<span>${sp.icon || '🐟'}</span>`}${open ? '' : '<b class="qm">?</b>'}</div>
+      <div class="dhead"><h3>${esc(sp.name)}</h3><div class="latin">${esc(sp.latin || '')}</div>
+        <div class="tags"><span class="tag">${salt ? '바다' : '민물'}</span>${sp.sight ? '<span class="tag">관찰</span>' : ''}${zone ? `<span class="tag">${zone}</span>` : ''}</div>
+        <div class="drec">${rec}</div>
+        ${open && ph ? `<div class="dcred">📷 ${esc(ph.author)} · ${esc(ph.license.toUpperCase())} · iNaturalist</div>` : ''}</div></div>
+    <div class="dgrid">
+      ${sp.sight ? '' : `<div><h4>크기</h4><p>${Math.round(sp.minLen*100)}–${Math.round(sp.maxLen*100)}cm</p></div>`}
+      ${sp.dmin != null ? `<div><h4>서식 수심</h4><p>${sp.dmin}–${sp.dmax}m${zone ? ' · ' + zone : ''}</p></div>` : ''}
+      ${act ? `<div><h4>활동 시간</h4><div class="abars">${act}</div></div>` : ''}
+      ${prefs ? `<div class="wide"><h4>좋아하는 미끼·루어</h4><div class="pfs">${prefs}</div></div>` : ''}
+      ${ret && !sp.sight ? `<div><h4>루어 감기 속도</h4><p>${ret}</p></div>` : ''}
+      <div class="wide"><h4>사는 곳</h4><p>${biomes.map(([, B]) => esc(B.name)).join(' · ') || '-'}${spots.length ? `<br><small>명소: ${spots.map(esc).join(', ')}</small>` : ''}</p></div>
+      ${sp.tip ? `<div class="wide"><h4>💡 공략</h4><p>${esc(sp.tip)}</p></div>` : ''}
+    </div>`;
+  d.querySelector('.dback').onclick = e => { e.stopPropagation(); d.hidden = true; $('dexgrid').hidden = false; };
+  $('dexm').querySelector('.mbox').scrollTop = 0;
 }
 
 
@@ -2467,5 +2561,5 @@ function frame(now){
 buildToolbar(); updateLog();
 requestAnimationFrame(frame);
 window.__mapS = (lon, lat) => m2s(nearLon(lon), lat);
-window.__game = { updateLog, G, fishes, cam, mouse, hookFish, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
+window.__game = { questEvent, updateLog, G, fishes, cam, mouse, hookFish, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
 })();
