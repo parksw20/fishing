@@ -689,7 +689,7 @@ function showCard(r, record, first){
   const show = (el, kf, dur) => { el.style.opacity = ''; el.animate(kf || [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: (dur || 320)*K, easing: 'cubic-bezier(.2,.8,.3,1)' }); };
   const at = (ms, fn) => CARD.timers.push(setTimeout(() => { if (CARD.seq === seq) fn(); }, ms*K));
   c.animate([{ transform: 'translate(-50%,-50%) scale(.85)', opacity: 0 }, { transform: 'translate(-50%,-50%) scale(1)', opacity: 1 }], { duration: 260*K, easing: 'cubic-bezier(.2,.9,.3,1.2)' });
-  at(60, () => { show(pic, [{ opacity: 0, transform: 'scale(1.08)', filter: 'brightness(2)' }, { opacity: 1, transform: 'none', filter: 'none' }], 480); show(cred); });
+  at(60, () => { if (ph) mosaicReveal(img, seq, 1100*K); else show(pic, [{ opacity: 0, transform: 'scale(1.08)', filter: 'brightness(2)' }, { opacity: 1, transform: 'none', filter: 'none' }], 480); show(cred); });
   at(520, () => { show(q('.sp'), [{ opacity: 0, transform: 'scale(.7)', letterSpacing: '.3em' }, { opacity: 1, transform: 'none', letterSpacing: 'normal' }], 420); show(q('.latin')); sfx.plop(); });
   const L = r.len*100, Wt = r.weight, T = 1300;
   at(950, () => {
@@ -718,10 +718,33 @@ function showCard(r, record, first){
   CARD.finish = () => {    // tap during the reveal: jump to the end state
     CARD.timers.forEach(clearTimeout); CARD.timers = []; CARD.seq++;
     for (const el of parts) el.style.opacity = '';
+    const mc = c.querySelector('canvas.mosaic'); if (mc) mc.hidden = true;
     q('.len').textContent = L.toFixed(1) + 'cm'; q('.wt').textContent = kg(Wt);
     if (record && !c.classList.contains('record')){ c.classList.add('record'); const rays = document.createElement('div'); rays.className = 'rays'; c.prepend(rays); fanfare(); }
     CARD.running = false;
   };
+}
+// photo reveal: coarse mosaic blocks that get finer until the original shows (block size eases 40px → 1px)
+function mosaicReveal(img, seq, dur){
+  const c = $('card'); let cv = c.querySelector('canvas.mosaic');
+  if (!cv){ cv = document.createElement('canvas'); cv.className = 'mosaic'; cv.hidden = true; img.after(cv); }
+  const cs = getComputedStyle(c), W = Math.max(1, Math.round(c.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight))), H = 180;
+  cv.width = W; cv.height = H; const x = cv.getContext('2d'), tmp = document.createElement('canvas'), tx = tmp.getContext('2d');
+  img.style.opacity = 0; cv.hidden = false;
+  const go = () => {
+    const iw = img.naturalWidth, ih = img.naturalHeight, s = Math.max(W/iw, H/ih), sw = W/s, sh = H/s, sx = (iw - sw)/2, sy = (ih - sh)/2;   // object-fit: cover
+    const t0 = performance.now();
+    const step = now => {
+      if (CARD.seq !== seq){ cv.hidden = true; img.style.opacity = ''; return; }
+      const u = Math.min(1, (now - t0)/dur), e = 1 - Math.pow(1 - u, 2.2), block = Math.max(1, Math.round(40*Math.pow(1/40, e)));
+      const bw = Math.max(1, Math.ceil(W/block)), bh = Math.max(1, Math.ceil(H/block));
+      tmp.width = bw; tmp.height = bh; tx.imageSmoothingEnabled = true; tx.drawImage(img, sx, sy, sw, sh, 0, 0, bw, bh);
+      x.imageSmoothingEnabled = false; x.clearRect(0, 0, W, H); x.globalAlpha = Math.min(1, u*4); x.drawImage(tmp, 0, 0, bw, bh, 0, 0, W, H); x.globalAlpha = 1;
+      if (u < 1) requestAnimationFrame(step); else { img.style.opacity = ''; cv.hidden = true; }
+    };
+    requestAnimationFrame(step);
+  };
+  if (img.complete && img.naturalWidth) go(); else img.onload = () => { img.onload = null; if (CARD.seq === seq) go(); };
 }
 function hideCard(){
   if (CARD.running && CARD.finish){ CARD.finish(); return; }
@@ -1856,6 +1879,8 @@ function openShop(){
   openModal('shop'); renderShop();
 }
 function closeShop(){ closeModal(); }
+const SHOP_TAB = { t: 'all' };
+for (const b of document.querySelectorAll('#shoptabs button')) b.addEventListener('click', e => { e.stopPropagation(); SHOP_TAB.t = b.dataset.t; renderShop(); $('shop').querySelector('.shopbox').scrollTop = 0; });
 function renderShop(){
   $('coins2').textContent = P.coins.toLocaleString();
   const up = SHOP.map(s => {
@@ -1867,7 +1892,10 @@ function renderShop(){
   const itemCards = list => list.filter(it => it.cost).map(it => [it, '']).map(([it, kind]) =>
     `<div class="card"><div class="ct">${it.name}</div><div class="cur"><span>${it.desc}</span></div>` +
     (P.owned[it.id] ? `<div class="nx max">보유 중</div>` : `<button data-buy="${it.id}" ${P.coins < it.cost ? 'disabled' : ''}>${it.cost.toLocaleString()}🪙 구매</button>`) + `</div>`).join('');
-  $('shopgrid').innerHTML = `<h3>장비 업그레이드</h3><div class="grid">${up}</div><h3>대낚시 미끼</h3><div class="grid">${itemCards(BAITS)}</div><h3>루어</h3><div class="grid">${itemCards(LURES)}</div>`;
+  // tabs: all / gear / bait / lures
+  const T = SHOP_TAB.t, sec = (k, title, html) => (T === 'all' || T === k) ? `${T === 'all' ? `<h3>${title}</h3>` : ''}<div class="grid">${html}</div>` : '';
+  $('shopgrid').innerHTML = sec('gear', '장비 업그레이드', up) + sec('bait', '대낚시 미끼', itemCards(BAITS)) + sec('lure', '루어', itemCards(LURES));
+  for (const b of document.querySelectorAll('#shoptabs button')) b.classList.toggle('on', b.dataset.t === T);
   for (const b of $('shopgrid').querySelectorAll('[data-up]')) b.onclick = () => {
     const s = shopItem(b.dataset.up), next = s.tiers[P.tier[s.id] + 1]; if (!next || P.coins < next.cost) return;
     P.coins -= next.cost; P.tier[s.id]++; if (s.id === 'boat') applyBoatModel(); sfx.win(); say(`${s.name} → ${next.name}`, 1.8); save(); renderShop(); updateLog();
@@ -2385,7 +2413,7 @@ function openRank(){
   renderRank();
 }
 async function renderRank(){
-  for (const b of document.querySelectorAll('.rtabs [data-t]')) b.classList.toggle('on', b.dataset.t === RANK.tab);
+  for (const b of document.querySelectorAll('#rankm .rtabs [data-t]')) b.classList.toggle('on', b.dataset.t === RANK.tab);
   $('rsp').hidden = RANK.tab === 'day';
   const n = Object.keys(RANK.docs).length;
   $('rsub').textContent = RANK.live ? `참가자 ${Math.max(1, n)}명 · 실시간` : '내 기록만 표시 중 (공유 랭킹은 claude.ai에서 열었을 때)';
@@ -2404,7 +2432,7 @@ async function renderRank(){
     tb.appendChild(tr);
   });
 }
-for (const b of document.querySelectorAll('.rtabs [data-t]')) b.addEventListener('click', e => { e.stopPropagation(); RANK.tab = b.dataset.t; renderRank(); });
+for (const b of document.querySelectorAll('#rankm .rtabs [data-t]')) b.addEventListener('click', e => { e.stopPropagation(); RANK.tab = b.dataset.t; renderRank(); });
 $('rsp').addEventListener('change', () => { RANK.sp = $('rsp').value; renderRank(); });
 
 /* ---------------- fish guide (도감): names shown, photos hidden until caught ---------------- */

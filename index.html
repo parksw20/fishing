@@ -424,6 +424,10 @@
   /* window headers (title … ✕) stay pinned while the list scrolls */
   .mbox > .maphead, .shopbox > .maphead { position:sticky; top:0; z-index:3; background:#08161d; border-radius:14px 14px 0 0; box-shadow:0 6px 12px -8px rgba(0,0,0,.6); }
   .mbox > .rtabs { position:sticky; top:56px; z-index:2; background:#08161d; padding-top:2px; }   /* tab rows stay under the pinned header */
+  .shopbox > .rtabs { position:sticky; top:56px; z-index:2; background:#08161d; padding-top:2px; }
+  #shopgrid .grid { margin-top:4px; }
+  #card canvas.mosaic { width:100% !important; height:180px !important; margin:10px 0 2px; border-radius:10px; display:block; }
+  #card .photo:has(+ canvas.mosaic:not([hidden])) { display:none; }
 </style>
 </head>
 <body>
@@ -529,6 +533,7 @@
 <div id="shop" hidden>
   <div class="shopbox glass">
     <div class="maphead"><b>🛒 낚시 용품점</b><span class="coins">보유 <b id="coins2">0</b>🪙</span><button id="shopclose" class="xbtn" aria-label="닫기 (Esc)" title="닫기 (Esc)">✕</button></div>
+    <div id="shoptabs" class="rtabs"><button data-t="all" class="on">전체</button><button data-t="gear">⚙️ 장비</button><button data-t="bait">🪱 미끼</button><button data-t="lure">🎣 루어</button></div>
     <div id="shopgrid"></div>
   </div>
 </div>
