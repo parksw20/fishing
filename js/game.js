@@ -2342,22 +2342,39 @@ function voyage(sp){
   };
   requestAnimationFrame(tick);
 }
-mapCv.addEventListener('pointerdown', e => { if (MAP.anim) return; mapCv.setPointerCapture(e.pointerId); MAP.drag = { x: e.clientX, y: e.clientY, cx: MAP.cx, cy: MAP.cy, moved: false }; });
+// map input: one finger/mouse drags, two fingers pinch to zoom around their midpoint; a tap selects
+const MPTR = new Map();
+function pinchState(){ const [a, b] = [...MPTR.values()], r = mapCv.getBoundingClientRect(); return { d: Math.hypot(a.x - b.x, a.y - b.y), mx: (a.x + b.x)/2 - r.left, my: (a.y + b.y)/2 - r.top }; }
+mapCv.addEventListener('pointerdown', e => {
+  if (MAP.anim) return; mapCv.setPointerCapture(e.pointerId); MPTR.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (MPTR.size === 2){ const P = pinchState(); MAP.pinch = { d0: P.d, z0: MAP.z, anchor: s2m(P.mx, P.my) }; if (MAP.drag) MAP.drag.moved = true; }
+  else if (MPTR.size === 1) MAP.drag = { x: e.clientX, y: e.clientY, cx: MAP.cx, cy: MAP.cy, moved: false };
+});
 mapCv.addEventListener('pointermove', e => {
   const b = mapCv.getBoundingClientRect(), x = e.clientX - b.left, y = e.clientY - b.top;
+  if (MPTR.has(e.pointerId)) MPTR.set(e.pointerId, { x: e.clientX, y: e.clientY });
   MAP.hover = s2m(x, y);
-  if (MAP.drag){ const dx = e.clientX - MAP.drag.x, dy = e.clientY - MAP.drag.y; if (Math.hypot(dx, dy) > 4) MAP.drag.moved = true;
+  if (MAP.pinch && MPTR.size >= 2){
+    const P = pinchState(), [lon, lat] = MAP.pinch.anchor;
+    MAP.z = clamp(MAP.pinch.z0*P.d/Math.max(10, MAP.pinch.d0), MAP.minZ, 60);
+    MAP.cx = lon - (P.mx - MAP.w/2)/MAP.z; MAP.cy = lat + (P.my - MAP.h/2)/MAP.z;   // keep the pinched spot under the fingers
+  } else if (MAP.drag){ const dx = e.clientX - MAP.drag.x, dy = e.clientY - MAP.drag.y; if (Math.hypot(dx, dy) > 4) MAP.drag.moved = true;
     if (MAP.drag.moved){ MAP.cx = MAP.drag.cx - dx/MAP.z; MAP.cy = MAP.drag.cy + dy/MAP.z; } }
   drawMap();
 });
-mapCv.addEventListener('pointerup', e => {
+const mapUp = e => {
+  MPTR.delete(e.pointerId);
+  if (MAP.pinch){ if (MPTR.size < 2){ MAP.pinch = null; MAP.drag = null;
+    if (MPTR.size === 1){ const [q] = [...MPTR.values()]; MAP.drag = { x: q.x, y: q.y, cx: MAP.cx, cy: MAP.cy, moved: true }; } } return; }
+  if (e.type === 'pointercancel'){ MAP.drag = null; return; }
   const d = MAP.drag; MAP.drag = null; if (!d || d.moved || MAP.anim) return;
   const b = mapCv.getBoundingClientRect(), x = e.clientX - b.left, y = e.clientY - b.top;
   // snap to a spot marker if clicked near one
   let hit = null; for (const s of SPOTS){ const [sx, sy] = m2s(nearLon(s.lon), s.lat); if (Math.hypot(sx - x, sy - y) < 10) hit = s; }
   const [lon, lat] = s2m(x, y);
   showSel(hit || classify(clamp(lat, -60, 84), wrapLon(lon))); drawMap();
-});
+};
+mapCv.addEventListener('pointerup', mapUp); mapCv.addEventListener('pointercancel', mapUp);
 mapCv.addEventListener('wheel', e => {
   e.preventDefault(); if (MAP.anim) return;
   const b = mapCv.getBoundingClientRect(), x = e.clientX - b.left, y = e.clientY - b.top;
@@ -2729,6 +2746,6 @@ function frame(now){
 }
 buildToolbar(); updateLog();
 requestAnimationFrame(frame);
-window.__mapS = (lon, lat) => m2s(nearLon(lon), lat);
+window.__mapS = (lon, lat) => m2s(nearLon(lon), lat); window.__mapZ = () => MAP.z;
 window.__game = { toReal, toVis, showCard, questEvent, updateLog, G, fishes, cam, mouse, hookFish, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
 })();
