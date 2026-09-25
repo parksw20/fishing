@@ -2275,22 +2275,28 @@ SET.bootGfx = JSON.stringify([CFG.gfx, CFG.glare]); SET.lastRes = JSON.stringify
 applyCfg();
 
 /* ---------------- gamepad (standard mapping) ---------------- */
-const PAD = { prev: [], rumT: 0, repT: 0 };
+const PAD = { prev: [], rumT: 0, repT: 0, fighting: false };
 // haptics: gamepad rumble and, on phones, the vibration motor (Android browsers; iPhone Safari has no vibration API)
-function padRumble(strong, weak, ms){
+function padRumble(strong, weak, ms, phoneMs){
   if (CFG.pad && CFG.rumble && navigator.getGamepads){
     const gp = [...navigator.getGamepads()].find(Boolean); const a = gp && gp.vibrationActuator;
     if (a && a.playEffect) a.playEffect('dual-rumble', { duration: ms, strongMagnitude: strong, weakMagnitude: weak }).catch(() => {});
   }
-  if (TOUCH.on && CFG.vibe && navigator.vibrate){ try { navigator.vibrate(Math.round(ms*(0.25 + 0.75*Math.max(strong, weak)))); } catch(e){} }
+  if (TOUCH.on && CFG.vibe && navigator.vibrate){ try { navigator.vibrate(phoneMs ?? Math.round(ms*(0.25 + 0.75*Math.max(strong, weak)))); } catch(e){} }
 }
-// while a fish pulls: short pulses, stronger and longer with line tension
+// fighting: an unbroken buzz — gentle by default, strong while the fish surges or the line is heavily loaded.
+// Phones cannot set vibration strength, so gentle = short ticks, strong = nearly continuous.
 function fightHaptics(dt){
-  if (G.state !== 'hooked' || !G.fight) return;
+  if (G.state !== 'hooked' || !G.fight){
+    if (PAD.fighting){ PAD.fighting = false; PAD.rumT = 0; if (TOUCH.on && navigator.vibrate) try { navigator.vibrate(0); } catch(e){} }
+    return;
+  }
+  PAD.fighting = true;
   PAD.rumT -= dt; if (PAD.rumT > 0) return;
-  const t = G.fight.tension; PAD.rumT = TOUCH.on ? 0.35 : 0.2;
-  if (TOUCH.on && t < 0.35) return;   // phones: only when the line is really loaded
-  padRumble(clamp(t - 0.4, 0, 1)*0.7, 0.15 + t*0.35, TOUCH.on ? 60 + t*90 : 230);
+  const f = G.hooked, t = G.fight.tension, hard = (f.run && f.run.burst && f.stamina > 0.15) || t > 0.72;
+  PAD.rumT = 0.22;
+  if (hard) padRumble(0.55 + 0.45*clamp(t, 0, 1), 0.9, 260, 210);
+  else padRumble(0, 0.14 + 0.18*clamp(t, 0, 1), 260, Math.round(22 + 26*clamp(t, 0, 1)));
 }
 function pollPad(dt){
   if (!CFG.pad || !navigator.getGamepads) return;

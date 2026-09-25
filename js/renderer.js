@@ -1523,7 +1523,8 @@ function render(S){
     for (let i=0;i<=24;i++){ const a=i/24; pts.push(tip[0]+(e[0]-tip[0])*a, tip[1]+(e[1]-tip[1])*a - sag*4*a*(1-a), tip[2]+(e[2]-tip[2])*a); }
     gl.useProgram(pLine.p); setCamUniforms(pLine, B); gl.uniform3f(pLine.u.uCol, 1.6,1.6,1.5);
     gl.bindVertexArray(lineVAO); gl.bindBuffer(gl.ARRAY_BUFFER, lineVB); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pts), gl.DYNAMIC_DRAW);
-    gl.drawArrays(gl.LINE_STRIP, 0, 25);
+    // the above-water line always reads: waves would otherwise swallow its last metre where it meets the water
+    gl.disable(gl.DEPTH_TEST); gl.drawArrays(gl.LINE_STRIP, 0, 25); gl.enable(gl.DEPTH_TEST);
   }
   if (S.particles && S.particles.n){
     gl.useProgram(pPart.p); setCamUniforms(pPart, B); gl.uniform1f(pPart.u.uPxH, H*0.5);
