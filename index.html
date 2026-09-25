@@ -314,6 +314,35 @@
   #topline #place { font-weight:800; }
   body.touch #topline { gap:9px; font-size:14px; max-width:calc(100vw - 20px); }
   body.touch #topline #place { overflow:hidden; text-overflow:ellipsis; max-width:34vw; }
+  /* top line: place · time · weather · buff on the left, coins on the right */
+  #topline { left:calc(14px + env(safe-area-inset-left,0px)) !important; right:calc(14px + env(safe-area-inset-right,0px)); transform:none !important; justify-content:space-between; }
+  #topline .tl-l { display:flex; align-items:center; gap:12px; min-width:0; overflow:hidden; }
+  body.touch #topline { left:10px !important; right:10px; max-width:none; }
+  body.touch #topline .tl-l { gap:8px; }
+  body.touch #topline #place { max-width:28vw; }
+  /* touch: tension / boat readout top-right (fish finder above it while driving); keep net behind a button */
+  body.touch #gauges { left:auto !important; right:10px; top:calc(46px + env(safe-area-inset-top,0px)); width:140px; }
+  body.touch #status { display:none !important; }
+  #tnet { display:none; }
+  body.touch #tnet { display:grid; place-items:center; position:fixed; z-index:7; right:calc(78px + env(safe-area-inset-right,0px)); bottom:calc(22px + env(safe-area-inset-bottom,0px)); width:52px; height:52px; padding:0; border-radius:50%; font-size:20px; background:rgba(8,26,30,.5); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
+  body.touch #tnet small { position:absolute; top:-4px; right:-4px; min-width:18px; height:18px; border-radius:9px; background:#ffd84a; color:#1b1b12; font:800 11px/18px var(--font); }
+  body.touch #tnet small:empty { display:none; }
+  body.touch.lefty #tnet { right:auto; left:calc(78px + env(safe-area-inset-left,0px)); }
+  body.touch #retrieve { bottom:calc(88px + env(safe-area-inset-bottom,0px)); }
+  .nbox { width:min(520px, 100%); }
+  #netlist { padding:0 14px; display:flex; flex-direction:column; gap:6px; touch-action:pan-y; }
+  #netlist .nrow { display:grid; grid-template-columns:1fr auto auto; gap:10px; align-items:center; padding:10px 12px; border-radius:10px; background:rgba(255,255,255,.06); font-size:13px; }
+  #netlist .nrow b { font-size:14px; }
+  #netlist .nrow span { opacity:.7; font-variant-numeric:tabular-nums; }
+  #netlist .nrow button { font-size:12px; padding:5px 10px; }
+  #netlist .empty { opacity:.6; padding:20px 4px; text-align:center; }
+  .nbtns { display:flex; gap:8px; padding:12px 14px 0; }
+  .nbtns button { flex:1; padding:10px; font-size:14px; }
+  .nbtns button small { opacity:.7; font-weight:500; }
+  /* while fighting the centre joystick sits on top of the (still held) cast button */
+  body.touch.tc-joy #act { display:block !important; opacity:0; }
+  body.touch.tc-joy #act:not(.down) { pointer-events:none; }
+  body.touch #joy { z-index:8; }
 </style>
 </head>
 <body>
@@ -325,7 +354,7 @@
 
 <!-- top right: time · weather · coins, place, keep net -->
 <!-- very top: time · weather · buff · coins on one line -->
-<div id="topline"><span id="place"></span><span id="clock">06:00</span><span id="wicon">☀️</span><span id="luck" hidden></span><b id="coins">0🪙</b><b id="score" hidden>0</b></div>
+<div id="topline"><div class="tl-l"><span id="place"></span><span id="clock">06:00 새벽</span><span id="wicon">☀️ 맑음</span><span id="luck" hidden></span></div><b id="coins">0🪙</b><b id="score" hidden>0</b></div>
 
 <!-- under it, right: keep net (only while it holds fish) -->
 <div id="status" class="glass">
@@ -368,7 +397,7 @@
 <!-- touch controls: joystick (조그) + context action cluster -->
 <div id="joy"><div id="knob"></div></div>
 <div id="tctl">
-  <div class="tcol"><button id="tnav" aria-label="보트/낚시 전환">⛵</button><button id="tmap" aria-label="메뉴">☰</button></div>
+  <div class="tcol"><button id="tnav" aria-label="보트/낚시 전환">⛵</button><button id="tnet" aria-label="살림망">🧺<small id="tnetn"></small></button><button id="tmap" aria-label="메뉴">☰</button></div>
   <div class="tcol"><span id="tadj">수심</span><button id="tplus" aria-label="올리기">+</button><button id="tminus" aria-label="내리기">−</button></div>
   <button id="act">던지기</button>
 </div>
@@ -402,6 +431,13 @@
     <div class="maphead"><b>⚙️ 환경설정</b><span class="sub">자동 저장돼요</span><button class="mclose">닫기 (Esc)</button></div>
     <div class="rtabs stabs"><button data-st="gfx" class="on">🖥 그래픽</button><button data-st="snd">🔊 사운드</button><button data-st="pad">🎮 패드</button></div>
     <div id="setbody"></div>
+  </div>
+</div>
+<div id="netm" class="modal" hidden>
+  <div class="mbox glass nbox">
+    <div class="maphead"><b>🧺 살림망</b><span class="sub" id="netsub"></span><button class="mclose">닫기 (Esc)</button></div>
+    <div id="netlist"></div>
+    <div class="nbtns"><button id="nsell">모두 판매</button><button id="nrel">모두 방생 <small>+25% · 🍀</small></button></div>
   </div>
 </div>
 <div id="confirm" class="modal" hidden>

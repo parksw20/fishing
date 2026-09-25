@@ -708,8 +708,29 @@ function updateLog(){
     ul.appendChild(li);
   }
   $('status').hidden = !P.net.length;   // an empty keep net takes no space
+  $('tnetn').textContent = P.net.length || '';
+  if (!$('netm').hidden) renderNet();
 }
 function netCap(){ return tierOf('net').cap; }
+// keep-net window (phones: the 🧺 button next to boat/fishing)
+function openNet(){ openModal('netm'); renderNet(); }
+function renderNet(){
+  const val = P.net.reduce((a, f) => a + f.price, 0);
+  $('netsub').textContent = `${P.net.length}/${netCap()}마리${P.net.length ? ` · 판매가 합계 ${val.toLocaleString()}🪙` : ''}`;
+  const el = $('netlist'); el.innerHTML = '';
+  if (!P.net.length){ el.innerHTML = '<div class="empty">비어 있어요 — 잡은 물고기가 여기 담겨요</div>'; }
+  for (const [i, c] of P.net.entries()){
+    const row = document.createElement('div'); row.className = 'nrow';
+    row.innerHTML = `<div><b></b><br><span>${(c.len*100).toFixed(1)}cm · ${kg(c.weight)}</span></div><span>${c.price}🪙</span><button>판매</button>`;
+    row.querySelector('b').textContent = BY_ID[c.id].name;
+    row.querySelector('button').onclick = e => { e.stopPropagation(); sellFish([i]); };
+    el.appendChild(row);
+  }
+  $('nsell').disabled = $('nrel').disabled = !P.net.length;
+}
+$('nsell').addEventListener('click', e => { e.stopPropagation(); sellFish(P.net.map((f, i) => i)); });
+$('nrel').addEventListener('click', e => { e.stopPropagation(); releaseAll(); });
+$('tnet').addEventListener('click', e => { e.stopPropagation(); audioInit(); if (!$('netm').hidden) closeModal(); else openNet(); });
 // keep net: catches wait here until sold (full price) or released (small good-will bonus)
 function sellFish(idx){
   const list = idx.map(i => P.net[i]).filter(Boolean); if (!list.length) return;
@@ -916,7 +937,15 @@ act.addEventListener('pointerdown', e => {
   if (G.state === 'boat'){ setNav(false); return; }
   if (!mouse.down){ mouse.down = true; mouse.downT = G.time; press(); }
 });
-const actUp = e => { act.classList.remove('down'); if (mouse.down){ mouse.down = false; release(); } };
+// hook set → fight without lifting the finger: while fighting, the held cast button steers like the joystick
+act.addEventListener('pointermove', e => {
+  if (G.state !== 'hooked' || !act.classList.contains('down')) return;
+  if (JOY.id !== 'act'){ if (JOY.active) return; JOY.active = true; JOY.id = 'act'; JOY.pad = false; joyEl.classList.add('on'); }
+  joyMove(e);
+});
+const actUp = e => { act.classList.remove('down');
+  if (JOY.id === 'act'){ JOY.active = false; JOY.id = null; JOY.x = JOY.y = 0; knob.style.transform = ''; joyEl.classList.remove('on'); if (G.state === 'hooked'){ mouse.x = innerWidth/2; mouse.y = innerHeight/2; } }
+  if (mouse.down){ mouse.down = false; release(); } };
 act.addEventListener('pointerup', actUp); act.addEventListener('pointercancel', actUp);
 act.addEventListener('contextmenu', e => e.preventDefault());
 // +/− repeat while held: one step at once, then faster steps after a short pause
@@ -973,13 +1002,12 @@ $('shop').addEventListener('pointerdown', e => { if (e.target === $('shop')) clo
 
 let targetT = 0;
 function updateTarget(dt){
-  $('clock').textContent = fmtClock();
-  const wi = G.weather === 'clear' && period() === 'night' ? '🌙' : WEATHERS[G.weather].icon;
+  $('clock').textContent = `${fmtClock()} ${PERIOD_NAME[period()]}`;
+  const wi = `${G.weather === 'clear' && period() === 'night' ? '🌙' : WEATHERS[G.weather].icon} ${WEATHERS[G.weather].name}`;
   if ($('wicon').textContent !== wi) $('wicon').textContent = wi;
-  $('wicon').title = `${PERIOD_NAME[period()]} · ${WEATHERS[G.weather].name}`;
   const lk = luckLeft(); $('luck').hidden = !(lk > 0); if (lk > 0) $('luck').textContent = `🍀 ${Math.ceil(lk/60)}분`;
   targetT -= dt; if (targetT > 0) return; targetT = 0.4;
-  $('gauges').style.top = TOUCH.on ? ($('qtrack').getBoundingClientRect().bottom + 8) + 'px' : '';
+  $('gauges').style.top = TOUCH.on && G.state === 'boat' ? (SONAR.bottom || 150) + 12 + 'px' : '';   // phones: under the fish finder while driving
   const el = $('target'), sp = questTarget();
   if (!sp || !(G.state === 'idle' || G.state === 'wait' || G.state === 'charge')){ el.hidden = true; return; }
   const { v, parts } = matchRating(sp);
@@ -1585,7 +1613,7 @@ function renderQuests(){
 }
 
 /* ---------------- modals ---------------- */
-const MODALS = ['map', 'shop', 'questm', 'rankm', 'dexm', 'confirm', 'setm'];
+const MODALS = ['map', 'shop', 'questm', 'rankm', 'dexm', 'confirm', 'setm', 'netm'];
 function openModal(id){
   for (const m of MODALS) $(m).hidden = m !== id;
   G.mapOpen = true; mouse.down = false; mouse.rdown = false; $('menu').hidden = true; $('itempop').hidden = true;
@@ -1600,7 +1628,7 @@ function closeModal(){
 }
 function idleOnly(what){ if (G.state === 'result') hideCard(); if (G.state === 'idle' || G.state === 'boat' || G.state === 'result') return true; say(`채비를 회수한 뒤 ${what} (R)`, 1.8); return false; }
 for (const b of document.querySelectorAll('.mclose')) b.addEventListener('click', e => { e.stopPropagation(); closeModal(); });
-for (const id of ['questm', 'rankm', 'dexm', 'setm']) $(id).addEventListener('pointerdown', e => { if (e.target === $(id)) closeModal(); });
+for (const id of ['questm', 'rankm', 'dexm', 'setm', 'netm']) $(id).addEventListener('pointerdown', e => { if (e.target === $(id)) closeModal(); });
 $('confirm').addEventListener('pointerdown', e => { if (e.target === $('confirm')) $('cno').click(); });
 function confirmBox(html, yes, onYes, onNo){
   openModal('confirm'); $('ctext').innerHTML = html; $('cyes').textContent = yes;
@@ -1819,10 +1847,12 @@ function updateSonar(dt){
   if (SONAR.cols.length > SONAR.W) SONAR.cols.shift();
 }
 function drawSonar(){
-  const W = TOUCH.on ? 132 : SONAR.W, H = TOUCH.on ? (hudH < 500 ? 56 : 70) : 96, x0 = 16;
+  const W = TOUCH.on ? 132 : SONAR.W, H = TOUCH.on ? (hudH < 500 ? 56 : 70) : 96, x0 = TOUCH.on ? hudW - W - 16 : 16;
   // desktop: sits right above the gauge panel (bottom-left); touch: under the quest tracker
   if (TOUCH.on && G.state !== 'boat') return;   // on phones the fish finder only shows while driving the boat
-  const y0 = TOUCH.on ? $('gauges').getBoundingClientRect().bottom + 30 : $('gauges').getBoundingClientRect().top - H - 18;
+  // phones: top-right under the top line, the boat readout goes under it
+  const y0 = TOUCH.on ? $('topline').getBoundingClientRect().bottom + 30 : $('gauges').getBoundingClientRect().top - H - 18;
+  SONAR.bottom = y0 + H + 8;
   if (hudW < 520 && !TOUCH.on) return;
   let maxD = 5; for (const c of SONAR.cols) maxD = Math.max(maxD, c.d);
   // the range eases toward the next step instead of snapping (5 → 10 → 20 …)
