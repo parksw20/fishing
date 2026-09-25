@@ -1224,6 +1224,9 @@ function updateCamera(dt){
       const L = G.hooked.len, ft = G.fight ? G.fight.t : 9;
       T = baitView([f[0], 0, f[2]], (2.6 + L*4)*0.72, (1.8 + L*3)*0.8, G.fightSide); k = ft < 0.8 ? 6 : 3.6; break; }
   }
+  // after switching boat ↔ fishing the camera glides slowly from its current angle to the new one
+  const tr = clamp((G.time - (G.navT ?? -9))/1.6, 0, 1);
+  if (tr < 1 && (G.state === 'idle' || G.state === 'boat')) k = Math.min(k, lerp(1.6, k, tr*tr));
   const a = 1 - Math.exp(-dt*k);
   if (![...T.pos, ...T.look].every(isFinite)){ T = boatView(); }            // never feed NaN to the renderer
   cam.pos = vlerp(cam.pos, T.pos, a); cam.look = vlerp(cam.look, T.look, a);
@@ -1911,10 +1914,11 @@ function setNav(boat){
   if (G.mapOpen) return;
   if (boat){
     if (G.state !== 'idle'){ say(G.state === 'boat' ? '' : '채비를 회수한 뒤 보트를 운전할 수 있어요 (R)', 1.8); return; }
-    G.state = 'boat'; G.orbit = 0; say(TOUCH.on ? '⛵ 보트 운전 — 가운데 조그로 조종' : '⛵ 보트 운전 — W/S 가속, A/D 방향', 1.8);
+    G.state = 'boat'; G.orbit = 0; G.navT = G.time; say(TOUCH.on ? '⛵ 보트 운전 — 가운데 조그로 조종' : '⛵ 보트 운전 — W/S 가속, A/D 방향', 1.8);
   } else {
     if (G.state !== 'boat') return;
-    G.state = 'idle'; G.aimYaw = BOAT.heading; G.aimPitch = -0.2; G.orbit = 0;
+    // fish off the side of the boat (starboard); the camera glides there from wherever the boat view was
+    G.state = 'idle'; G.aimYaw = BOAT.heading + Math.PI/2; G.aimPitch = -0.2; G.orbit = 0; G.navT = G.time;
     say(G.boatV > 1 ? '엔진 정지 — 배가 멈추면 던지세요' : '🎣 낚시 모드', 1.6);
   }
 }
@@ -2120,7 +2124,7 @@ function applyRegion(spot, first){
   const sunEl = clamp(72 - Math.abs(spot.lat)*0.72, 18, 68), sunAz = (hashf(spot.lon) - 0.5)*40;
   Rn.setEnv(computeHorizon(spot));
   Rn.setEnv({ sigA: W.sigA, sigS: W.sigS, depthP: REGION.depthP, depthQ: REGION.depthQ, bed: W.bed, land: W.land, sunEl, sunAz });
-  BOAT.pos = [0, 0, 0]; BOAT.heading = 0; G.boatV = 0; G.aimYaw = 0; G.orbit = 0;
+  BOAT.pos = [0, 0, 0]; BOAT.heading = 0; G.boatV = 0; G.aimYaw = Math.PI/2; G.orbit = 0;   // start looking out over the side
   G.rig = null; G.lure = null; G.hooked = null; G.fight = null; G.engaged = null; G.strike = null;
   if (G.state !== 'boat') G.state = 'idle';
   G.depthSet = Math.min(G.depthSet, toVis(spot.start || 2));
