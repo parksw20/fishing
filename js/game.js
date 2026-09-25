@@ -21,6 +21,16 @@ const dist3 = (a,b) => Math.hypot(a[0]-b[0], a[1]-b[1], a[2]-b[2]);
 
 // water depth (m, positive) — same large-scale formula as the water shader, driven by the current region
 const VIS_DEPTH = 8;        // fish and rigs stay within the sunlit zone you can see into
+// Depth scale: the scene is drawn in "screen metres" so everything stays visible, while every number shown and every
+// ecology check uses real metres. Near the surface it is ~1:1, deeper it is compressed: real = v·(1 + A·v²)
+// (1 m → 1.1 m, 2 → 2.6, 4 → 9, 6 → 23, 8 → 48 m).
+const DEPTH_A = 0.078;
+function toReal(v){ return v*(1 + DEPTH_A*v*v); }
+function toVis(r){   // inverse (Cardano): A·v³ + v − r = 0
+  const p = 1/DEPTH_A, q = -r/DEPTH_A, D = Math.sqrt(q*q/4 + p*p*p/27);
+  return Math.cbrt(-q/2 + D) + Math.cbrt(-q/2 - D);
+}
+const fmtD = v => { const r = toReal(Math.max(0, v)); return r < 10 ? r.toFixed(1) : Math.round(r) + ''; };   // screen depth → "12" / "3.4"
 let REGION = null;
 function floorDepth(x, z){
   const [base, amp, mn, mx] = REGION.depthP, [sc, sx, sz, st] = REGION.depthQ;
@@ -28,7 +38,7 @@ function floorDepth(x, z){
   const n = 0.5*Math.sin(qx + sx)*Math.sin(qz*0.83 + sz) + 0.3*Math.sin((qx*0.7 - qz*0.9)*2.1 + sx*2) + 0.2*Math.sin((qx*1.3 + qz*0.4)*4.3 + sz*3);
   const d = clamp(base + amp*n, mn, mx);
   const t = clamp((Math.hypot(x, z) - 12)/58, 0, 1);
-  return lerp(st, d, t*t*(3 - 2*t));
+  return toVis(lerp(st, d, t*t*(3 - 2*t)));    // the region data are real depths
 }
 function column(x, z){ return Math.min(floorDepth(x, z), VIS_DEPTH); }
 
@@ -159,7 +169,8 @@ function kg(w){ return w < 1 ? Math.round(w*1000) + 'g' : w.toFixed(2) + 'kg'; }
 const FISH_N = 10;
 const fishes = [];
 // how well a spot suits a species: water depth under it vs the depth band anglers find it in
-function habitat(sp, fd){
+function habitat(sp, fdVis){
+  const fd = toReal(fdVis);
   let h = 1;
   if (fd < sp.dmin*0.6) h *= 0.08 + 0.9*fd/(sp.dmin*0.6);          // too shallow for a deep-water fish
   if (sp.zone === 'bottom' && fd > sp.dmax + 6) h *= 0.35;           // bottom feeders stay where the bed is within reach
@@ -172,7 +183,8 @@ function pickSpecies(x, z){
   let r = Math.random()*tot; for (let i = 0; i < pool.length; i++){ r -= ws[i]; if (r <= 0) return BY_ID[pool[i][0]]; }
   return BY_ID[pool[0][0]];
 }
-function depthBand(sp){ const lo = Math.min(sp.dmin, VIS_DEPTH - 1); return [lo, Math.max(lo + 0.6, Math.min(sp.dmax, VIS_DEPTH + 1))]; }
+// the species' real depth range, in screen metres
+function depthBand(sp){ const lo = Math.min(toVis(sp.dmin), VIS_DEPTH - 0.5); return [lo, Math.max(lo + 0.4, Math.min(toVis(sp.dmax), VIS_DEPTH + 0.5))]; }
 function fishDepthFor(sp, x, z){
   const fd = floorDepth(x, z), [lo, hi] = depthBand(sp);
   let d = sp.zone === 'bottom' ? Math.min(fd - 0.3, hi) - rand(0, 0.6) : sp.zone === 'top' ? rand(0.3, Math.min(1.4, hi)) : rand(lo, hi);
@@ -1088,7 +1100,7 @@ function updateTarget(dt){
   const el = $('target'), sp = questTarget();
   if (!sp || !(G.state === 'idle' || G.state === 'wait' || G.state === 'charge')){ el.hidden = true; return; }
   const { v, parts } = matchRating(sp);
-  const names = { bait: G.mode === 'pole' ? '미끼가 안 맞아요' : '루어가 안 맞아요', depth: `수심이 안 맞아요 (${depthBand(sp)[0].toFixed(1)}–${depthBand(sp)[1].toFixed(1)}m${sp.zone === 'bottom' ? ', 바닥층' : sp.zone === 'top' ? ', 수면층' : ''})`,
+  const names = { bait: G.mode === 'pole' ? '미끼가 안 맞아요' : '루어가 안 맞아요', depth: `수심이 안 맞아요 (${sp.dmin}–${sp.dmax}m${sp.zone === 'bottom' ? ', 바닥층' : sp.zone === 'top' ? ', 수면층' : ''})`,
     time: `지금은 활성도가 낮아요 (${Object.entries(sp.act).sort((a, b) => b[1] - a[1]).slice(0, 2).map(([k]) => PERIOD_NAME[k]).join('·')}에 활발)`, gear: '원줄이 너무 굵어 경계해요', weather: `날씨가 안 맞아요 (${WEATHERS[G.weather].name})`, retrieve: `감기 속도: ${ {slow:'느리게(감다 멈추기)', medium:'보통', fast:'빠르게 계속'}[sp.retrieve] }` };
   const worst = Object.entries(parts).sort((a, b) => a[1] - b[1])[0];
   const habitatNote = habitat(sp, floorDepth(...(G.rig ? [G.rig.pos[0], G.rig.pos[2]] : G.lure ? [G.lure.pos[0], G.lure.pos[2]] : [BOAT.pos[0], BOAT.pos[2]]))) < 0.5 ? ' · 여기는 서식 수심이 아니에요' : '';
@@ -1114,9 +1126,12 @@ function wheel(s){
   if (G.state === 'boat'){ G.camDist = clamp(G.camDist*(s > 0 ? 0.88 : 1.14), 4.5, 30); return; }
   if (G.mode === 'lure'){ G.drag = clamp(Math.round((G.drag + s*0.05)*100)/100, 0.05, 1.2); say(`드랙 ${s > 0 ? '조임' : '풀기'} · ${(G.drag*lineKg()).toFixed(1)}kg${G.drag >= 1 ? ' (잠김!)' : ''}`, 1); sfx.click(0.05); }
   else {
-    G.depthSet = clamp(Math.round((G.depthSet + s*0.1)*10)/10, 0.3, VIS_DEPTH);
+    // step in real metres: 0.1 m near the surface, coarser when fishing deep
+    const cur = toReal(G.depthSet), st = cur < 3 ? 0.1 : cur < 10 ? 0.5 : cur < 25 ? 1 : 2;
+    const nr = clamp(Math.round((cur + s*st)/st)*st, 0.3, toReal(VIS_DEPTH));
+    G.depthSet = Math.min(toVis(nr), VIS_DEPTH);
     const r = G.rig;
-    say(`찌 수심 ${G.depthSet.toFixed(1)}m${r && G.depthSet >= r.floor - 0.03 ? ' (바닥 닿음)' : ''}`, 1);
+    say(`찌 수심 ${fmtD(G.depthSet)}m${r && G.depthSet >= r.floor - 0.03 ? ' (바닥 닿음)' : ''}`, 1);
   }
 }
 
@@ -1320,12 +1335,12 @@ function drawHUD(){
       else if (s && f && f.state === 'nibble') label('입질…', s[0], s[1] - 10, '#bfe9ff', 15);
     }
     if (r.baitGone){ const s = Rn.project([r.pos[0], 0.35, r.pos[2]]); if (s) label('미끼 없음', s[0], s[1] - 10, '#ff9a8a', 14); }
-    { const s = Rn.project([r.pos[0], 0.12, r.pos[2]]); if (s) label(`수심 ${r.baitDepth.toFixed(1)}m${r.laid ? ' · 바닥' : ''}`, s[0] + 42, s[1] + 4, 'rgba(255,255,255,.85)', 12); }
+    { const s = Rn.project([r.pos[0], 0.12, r.pos[2]]); if (s) label(`수심 ${fmtD(r.baitDepth)}m${r.laid ? ' · 바닥' : ''}`, s[0] + 42, s[1] + 4, 'rgba(255,255,255,.85)', 12); }
   }
   if (G.state === 'wait' && G.lure){
     const L = G.lure, s = Rn.project(L.pos);
     if (s){ ctx.setLineDash([3, 4]); ctx.strokeStyle = 'rgba(255,230,120,.7)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(s[0], s[1], 14, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
-      label(`${(-L.pos[1]).toFixed(1)}m`, s[0] + 30, s[1] + 4, 'rgba(255,255,255,.85)', 12); }
+      label(`${fmtD(-L.pos[1])}m`, s[0] + 30, s[1] + 4, 'rgba(255,255,255,.85)', 12); }
     if (G.strike){ const q = Rn.project([L.pos[0], 0.2, L.pos[2]]); if (q) label('바이트!', q[0], q[1] - 10, '#ffdf4a', 22); }
   }
   if (G.state === 'hooked') drawFightRing(cx, cy);
@@ -1378,15 +1393,15 @@ function updateGauges(){
     const hdg = ((BOAT.heading*180/Math.PI) % 360 + 360) % 360;
     lines.push(`<div><span>속도</span><b>${(Math.abs(G.boatV)*1.944).toFixed(1)}노트</b></div>`);
     lines.push(`<div><span>방위</span><b>${Math.round(hdg)}° ${['북','북동','동','남동','남','남서','서','북서'][Math.round(hdg/45)%8]}</b></div>`);
-    lines.push(`<div><span>수심</span><b>${floorDepth(BOAT.pos[0], BOAT.pos[2]).toFixed(1)}m</b></div>`);
+    lines.push(`<div><span>수심</span><b>${fmtD(floorDepth(BOAT.pos[0], BOAT.pos[2]))}m</b></div>`);
     lines.push(`<div><span>기점 거리</span><b>${Math.round(Math.hypot(BOAT.pos[0], BOAT.pos[2]))}m</b></div>`);
   } else {
   if (G.mode === 'lure') lines.push(`<div><span>드랙</span><b>${(G.drag*lk).toFixed(1)}kg${G.drag >= 1 ? ' 🔒' : ''}</b></div>`);
-  else lines.push(`<div><span>찌 수심</span><b>${G.depthSet.toFixed(1)}m</b></div>`);
+  else lines.push(`<div><span>찌 수심</span><b>${fmtD(G.depthSet)}m</b></div>`);
   lines.push(`<div><span>원줄</span><b>${lk.toFixed(0)}kg</b></div>`);
   }
   if (F) lines.push(`<div><span>거리</span><b>${F.lineOut.toFixed(1)}m</b></div>`);
-  else if (G.rig) lines.push(`<div><span>바닥</span><b>${G.rig.floor.toFixed(1)}m</b></div>`);
+  else if (G.rig) lines.push(`<div><span>바닥</span><b>${fmtD(G.rig.floor)}m</b></div>`);
   else if (G.lure) lines.push(`<div><span>거리</span><b>${dist2(G.lure.pos, tipXZ()).toFixed(1)}m</b></div>`);
   if (G.state !== 'boat') lines.push(`<div><span>장력</span><b>${(T*lk).toFixed(1)}kg</b></div>`);   // last, right above the tension bar
   const h = lines.join('');
@@ -1563,7 +1578,7 @@ function spawnVisitor(sp){
   const f = newFish(start, 0, 0.1, sp);
   f.pos = [start[0], 0, start[2]];
   const fd = floorDepth(start[0], start[2]);
-  f.pos[1] = -clamp(rand(sp.dmin, Math.min(sp.dmax, VIS_DEPTH - 1)), 0.6 + f.len*0.12, Math.max(1, fd - f.len*0.2));
+  f.pos[1] = -clamp(toVis(rand(sp.dmin, sp.dmax)), 0.6 + f.len*0.12, Math.min(VIS_DEPTH - 1, Math.max(1, fd - f.len*0.2)));
   f.state = 'cruise'; f.visitor = true; f.cruise = sp.speed*rand(0.7, 1);
   f.target = [c[0] + dir[0]*45 + perp[0]*side, 0, c[2] + dir[1]*45 + perp[1]*side]; f.ty = f.pos[1];
   f.heading = Math.atan2(dir[1], dir[0]);
@@ -1965,9 +1980,9 @@ function updateSonar(dt){
   SONAR.t -= dt*(0.4 + Math.abs(G.boatV)*0.6);
   if (SONAR.t > 0) return;
   SONAR.t = 0.12;
-  const d = floorDepth(BOAT.pos[0], BOAT.pos[2]);
+  const d = toReal(floorDepth(BOAT.pos[0], BOAT.pos[2]));   // the finder reads real depths
   const echoes = [];
-  for (const f of fishes) if (dist2(f.pos, BOAT.pos) < 6 + f.len*4) echoes.push([-f.pos[1], f.len, f.sp.name]);
+  for (const f of fishes) if (dist2(f.pos, BOAT.pos) < 6 + f.len*4) echoes.push([toReal(-f.pos[1]), f.len, f.sp.name]);
   SONAR.cols.push({ d, echoes });
   if (SONAR.cols.length > SONAR.W) SONAR.cols.shift();
 }
@@ -1981,7 +1996,7 @@ function drawSonar(){
   if (hudW < 520 && !TOUCH.on) return;
   let maxD = 5; for (const c of SONAR.cols) maxD = Math.max(maxD, c.d);
   // the range eases toward the next step instead of snapping (5 → 10 → 20 …)
-  const want = [5, 10, 20, 30, 40, 60].find(r => r >= maxD*1.08) || 60;
+  const want = [5, 10, 20, 30, 40, 60, 80, 100].find(r => r >= maxD*1.08) || 100;
   SONAR.range = SONAR.range ? SONAR.range + (want - SONAR.range)*Math.min(1, (SONAR.dt || 0.016)*3) : want;
   const range = SONAR.range;
   ctx.save();
@@ -2066,7 +2081,7 @@ function applyRegion(spot, first){
   BOAT.pos = [0, 0, 0]; BOAT.heading = 0; G.boatV = 0; G.aimYaw = 0; G.orbit = 0;
   G.rig = null; G.lure = null; G.hooked = null; G.fight = null; G.engaged = null; G.strike = null;
   if (G.state !== 'boat') G.state = 'idle';
-  G.depthSet = Math.min(G.depthSet, spot.start || 2);
+  G.depthSet = Math.min(G.depthSet, toVis(spot.start || 2));
   SONAR.cols.length = 0; TRAIL.length = 0; PART.list.length = 0; RAIN.drops.length = 0;
   if (!first) setWeather(pickWeather(), true);
   fishes.length = 0;
@@ -2619,5 +2634,5 @@ function frame(now){
 buildToolbar(); updateLog();
 requestAnimationFrame(frame);
 window.__mapS = (lon, lat) => m2s(nearLon(lon), lat);
-window.__game = { showCard, questEvent, updateLog, G, fishes, cam, mouse, hookFish, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
+window.__game = { toReal, toVis, showCard, questEvent, updateLog, G, fishes, cam, mouse, hookFish, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
 })();
