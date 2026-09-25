@@ -292,6 +292,23 @@
   /* hint line: plain shadowed text, no box; can be switched off in settings */
   #help { background:none; backdrop-filter:none; -webkit-backdrop-filter:none; text-shadow:0 1px 3px rgba(0,0,0,.95), 0 0 10px rgba(0,0,0,.6); padding:2px 8px; }
   body.notips #help { display:none; }
+  /* top line (time · weather · buff · coins); quests and keep net under it */
+  #topline { position:fixed; left:50%; top:calc(10px + env(safe-area-inset-top,0px)); transform:translateX(-50%); z-index:5; display:flex; align-items:center; gap:12px; padding:6px 16px; border-radius:999px; font-weight:700; font-size:15px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  #topline #coins { color:#ffd84a; }
+  #topline #luck { color:#8ff0a8; font-size:13px; }
+  body:not(.touch) #topline { font-size:18px; padding:8px 20px; }
+  #qtrack { top:calc(60px + env(safe-area-inset-top,0px)) !important; }
+  #status { top:calc(60px + env(safe-area-inset-top,0px)) !important; }
+  body.touch #qtrack, body.touch #status { top:calc(50px + env(safe-area-inset-top,0px)) !important; }
+  #status .neth { border-top:0; padding-top:0; }
+  /* menu popup above the other controls */
+  #menu { z-index:14 !important; }
+  #menu button.dis { opacity:.38; }
+  /* map: zoom buttons in the map's top-right corner; the info panel keeps a fixed size */
+  #mapzoom { position:absolute; top:10px; right:10px; z-index:2; }
+  #mapzoom button { width:40px; height:40px; padding:0; font-size:20px; background:rgba(6,22,30,.85); }
+  #mappanel #go { padding:12px 16px; font-size:16px; font-weight:800; border-radius:12px; width:100%; }
+  @media (max-width: 760px) { #mappanel { height:34%; max-height:none; flex:none; box-sizing:border-box; } }
 </style>
 </head>
 <body>
@@ -302,9 +319,11 @@
 <div id="qtrack" class="glass"><div class="qth">📜 퀘스트</div><div id="qlist"></div></div>
 
 <!-- top right: time · weather · coins, place, keep net -->
+<!-- very top: time · weather · buff · coins on one line -->
+<div id="topline" class="glass"><span id="clock">06:00</span><span id="wicon">☀️</span><span id="luck" hidden></span><b id="coins">0🪙</b><span id="place" hidden></span><b id="score" hidden>0</b></div>
+
+<!-- under it, right: keep net (only while it holds fish) -->
 <div id="status" class="glass">
-  <div class="srow"><span id="clock">06:00 새벽</span><b id="coins">0🪙</b></div>
-  <div class="srow2"><span id="place"></span><span class="score">점수 <b id="score">0</b></span></div>
   <div class="net">
     <div class="neth"><span>🧺 살림망 <b id="count">0</b>/<span id="cap">12</span></span><span id="netval"></span></div>
     <ul id="catches"></ul>
@@ -407,8 +426,8 @@
 
 <div id="map" hidden>
   <div class="mapbox glass">
-    <div class="maphead"><b>🗺 세계 낚시 지도</b><span id="mapinfo"></span><span id="mapzoom"><button id="mapout" aria-label="축소">−</button><button id="mapin" aria-label="확대">+</button></span><button id="mapclose">닫기 (Esc)</button></div>
-    <div class="mapbody"><div class="mapwrap"><canvas id="mapcv"></canvas></div><div id="mappanel"></div></div>
+    <div class="maphead"><b>🗺 세계 낚시 지도</b><span id="mapinfo" hidden></span><span class="sub"></span><button id="mapclose">닫기 (Esc)</button></div>
+    <div class="mapbody"><div class="mapwrap"><canvas id="mapcv"></canvas><span id="mapzoom"><button id="mapout" aria-label="축소">−</button><button id="mapin" aria-label="확대">+</button></span></div><div id="mappanel"></div></div>
   </div>
 </div>
 <div id="fade">⛵ 이동 중…</div>

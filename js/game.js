@@ -707,7 +707,7 @@ function updateLog(){
     li.onclick = e => { e.stopPropagation(); sellFish([i]); };
     ul.appendChild(li);
   }
-  $('status').querySelector('.net').hidden = !P.net.length;   // an empty keep net takes no space
+  $('status').hidden = !P.net.length;   // an empty keep net takes no space
 }
 function netCap(){ return tierOf('net').cap; }
 // keep net: catches wait here until sold (full price) or released (small good-will bonus)
@@ -952,7 +952,14 @@ function toggleQuests(){ if (!$('questm').hidden) closeModal(); else openQuests(
 // buttons never keep keyboard focus: otherwise Space (cast) or Enter would click the last button again (e.g. reopen the menu)
 document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('button'); if (b) b.blur(); }, true);
 $('menubtn').addEventListener('click', e => { e.stopPropagation(); $('menu').hidden = !$('menu').hidden; });
+const MENU_IDLE_ONLY = ['shop', 'map'];
+function menuBusy(){ return ['charge', 'fly', 'wait', 'hooked'].includes(G.state); }
+function updateMenuState(){
+  const busy = menuBusy(); if (busy === G.menuBusy) return; G.menuBusy = busy;
+  for (const b of document.querySelectorAll('#menu button')) b.classList.toggle('dis', busy && MENU_IDLE_ONLY.includes(b.dataset.m));
+}
 for (const b of document.querySelectorAll('#menu button')) b.addEventListener('click', e => {
+  if (b.classList.contains('dis')){ e.stopPropagation(); say('채비를 회수한 뒤 이용할 수 있어요 (R)', 1.8); return; }
   e.stopPropagation(); $('menu').hidden = true;
   ({ shop: openShop, quest: openQuests, map: openMap, rank: openRank, dex: openDex, time: skipTime, set: openSettings })[b.dataset.m]();
 });
@@ -966,7 +973,11 @@ $('shop').addEventListener('pointerdown', e => { if (e.target === $('shop')) clo
 
 let targetT = 0;
 function updateTarget(dt){
-  $('clock').textContent = `${fmtClock()} ${PERIOD_NAME[period()]} · ${G.weather === 'clear' && period() === 'night' ? '🌙' : WEATHERS[G.weather].icon} ${WEATHERS[G.weather].name}${luckLeft() > 0 ? ` · 🍀${Math.ceil(luckLeft()/60)}분` : ''}`;
+  $('clock').textContent = fmtClock();
+  const wi = G.weather === 'clear' && period() === 'night' ? '🌙' : WEATHERS[G.weather].icon;
+  if ($('wicon').textContent !== wi) $('wicon').textContent = wi;
+  $('wicon').title = `${PERIOD_NAME[period()]} · ${WEATHERS[G.weather].name}`;
+  const lk = luckLeft(); $('luck').hidden = !(lk > 0); if (lk > 0) $('luck').textContent = `🍀 ${Math.ceil(lk/60)}분`;
   targetT -= dt; if (targetT > 0) return; targetT = 0.4;
   $('gauges').style.top = TOUCH.on ? ($('qtrack').getBoundingClientRect().bottom + 8) + 'px' : '';
   const el = $('target'), sp = questTarget();
@@ -2069,6 +2080,11 @@ function showSel(sp){
   const here = sp === REGION.spot || (sp.lat === REGION.spot.lat && sp.lon === REGION.spot.lon);
   const z = spotZone(sp), locked = !here && z > boatZone();
   const zoneTxt = z === 0 ? '내륙 수역' : `${ZONES[z]} · 해안에서 약 ${sp.distKm >= 400 ? '400km+' : sp.distKm + 'km'}`;
+  if (locked){   // somewhere the boat cannot reach: just the name and why
+    P.innerHTML = `<div class="st"><b>${sp.name}</b><span>${sp.country}</span></div>
+      <div class="need">🔒 ${ZONES[z]} 지역이에요 — <b>${zoneBoat(z).name}</b> 이상이 필요해요<br><span>지금 보트: ${tierOf('boat').name} (${ZONES[boatZone()]}까지) · 상점 → 보트에서 업그레이드</span></div>`;
+    return;
+  }
   P.innerHTML = `<div class="st"><b>${sp.name}</b><span>${sp.country} · ${fmtLL(sp.lat, sp.lon)}</span></div>
     <div class="tags"><span>${B.name}</span><span>${W.name}</span><span>수심 ${W.depth[2]}–${W.depth[3]}m</span><span class="zone${locked ? ' lock' : ''}">${zoneTxt}</span></div>
     <div class="fish">${fish}</div>
@@ -2130,6 +2146,9 @@ $('mapclose').addEventListener('click', closeMap);
 for (const [id, k] of [['mapin', 1.5], ['mapout', 1/1.5]]) $(id).addEventListener('click', () => { MAP.z = clamp(MAP.z*k, MAP.minZ, 60); drawMap(); });
 $('map').addEventListener('pointerdown', e => { if (e.target === $('map')) closeModal(); });
 addEventListener('resize', () => { if (!$('map').hidden){ sizeMap(); drawMap(); } });
+// the map area can change size without a window resize (info panel content, rotation): keep the canvas matched,
+// otherwise taps land off from where the map is drawn
+if (window.ResizeObserver) new ResizeObserver(() => { if (!$('map').hidden){ sizeMap(); drawMap(); } }).observe(mapCv.parentElement);
 
 /* ---------------- ranking (shared across players via the artifact db; local-only elsewhere) ---------------- */
 const RANK = { db: null, user: null, me: null, docs: {}, tab: 'len', sp: null, live: false, t: 0, lastPush: '' };
@@ -2372,7 +2391,7 @@ function update(dt){
     if (keys.KeyW || keys.ArrowUp){ if (aiming) G.aimPitch = clamp(G.aimPitch + dt*0.8, -0.9, 0.35); else tiltView(-dt*0.9); }
     if (keys.KeyS || keys.ArrowDown){ if (aiming) G.aimPitch = clamp(G.aimPitch - dt*0.8, -0.9, 0.35); else tiltView(dt*0.9); }
   }
-  pollPad(dt); fightHaptics(dt); mouseLook(dt); updateWeather(dt); updateClock(dt); updateRain(dt); updateVisitors(dt); checkSightings(dt); updateTarget(dt);
+  pollPad(dt); fightHaptics(dt); updateMenuState(); mouseLook(dt); updateWeather(dt); updateClock(dt); updateRain(dt); updateVisitors(dt); checkSightings(dt); updateTarget(dt);
   updateWake(); updateParticles(dt);
   applyJoy(dt); SONAR.dt = dt; updateSonar(dt); updateEngine(); updateTouchUI();
   { const c = ['fly', 'wait', 'hooked', 'result'].includes(G.state); if (c !== G.castingUI){ G.castingUI = c; document.body.classList.toggle('casting', c); if (c) $('itempop').hidden = true; } }
@@ -2405,5 +2424,6 @@ function frame(now){
 }
 buildToolbar(); updateLog();
 requestAnimationFrame(frame);
+window.__mapS = (lon, lat) => m2s(nearLon(lon), lat);
 window.__game = { updateLog, G, fishes, cam, mouse, hookFish, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
 })();
