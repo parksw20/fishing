@@ -1552,7 +1552,8 @@ return {
   fpsCap: FPS_CAP,
   setBoat(key, hull){ ENV.boat = key && glbModels[key] ? key : null; if (hull) ENV.hull = hull; return !!ENV.boat; },
   ready: () => pebReady,
-  splash(x, z, r, s){ drops_pending.push({x, z, r, s, ttl: 90}); },
+  // radius is kept to at least ~2.5 ripple texels, smaller drops fall between texels and never show
+  splash(x, z, r, s){ drops_pending.push({x, z, r: Math.max(r, 2.5*RSIZE/RN), s, ttl: 90}); },
   project(p){
     const B = lastBasis; if (!B) return null;
     const v = sub3(p, B.pos); const dz = v[0]*B.f[0]+v[1]*B.f[1]+v[2]*B.f[2]; if (dz < 0.05) return null;

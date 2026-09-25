@@ -1043,13 +1043,24 @@ function camShake(dt){
 // small rings where the rig touches the water: around a floating float, where the line cuts the surface,
 // and stronger/faster at the line entry while a fish fights
 function waterRings(S, dt){
-  G.ringT = (G.ringT || 0) - dt;
-  let p = null, every = 0, r = 0, k = 0;
-  if (G.state === 'hooked' && S.lineUnder){ const t = G.fight ? G.fight.tension : 0.5; p = S.lineUnder[0]; every = 0.16; r = 0.05 + 0.03*t; k = 0.006 + 0.010*t; }
-  else if (G.state === 'wait' && S.bobber && !S.bobber.flying){ p = S.bobber.pos; every = 1.3; r = 0.04; k = 0.004; }
-  else if (G.state === 'wait' && S.lineUnder){ p = S.lineUnder[0]; every = G.lure && G.lure.reeling ? 0.35 : 0.9; r = 0.03; k = 0.003; }
-  if (!p || G.ringT > 0) return;
-  G.ringT = every*rand(0.75, 1.25);
+  G.ringT = (G.ringT || 0) - dt; G.ringGap = (G.ringGap || 0) - dt;
+  let p = null, every = 0, r = 0, k = 0, kick = false;
+  if (G.state === 'hooked' && S.lineUnder){
+    const t = G.fight ? G.fight.tension : 0.5, f = G.hooked;
+    p = S.lineUnder[0]; every = 0.22 - 0.1*t; r = 0.07 + 0.04*t; k = 0.010 + 0.014*t;
+    kick = f && f.run && f.run.burst && G.ringGap <= 0;            // the fish surges: an extra ring
+  } else if (G.state === 'wait' && S.bobber && !S.bobber.flying){
+    const rig = G.rig; p = S.bobber.pos; every = 1.4; r = 0.065; k = 0.006;
+    kick = rig && Math.abs(rig.bobV || 0) > 0.12 && G.ringGap <= 0;  // the float bobs (nibble, bite, settling)
+  } else if (G.state === 'wait' && S.lineUnder){
+    const reel = !!(G.lure && G.lure.reeling);
+    p = S.lineUnder[0]; every = reel ? 0.4 : 1.1; r = 0.06; k = reel ? 0.006 : 0.004;
+    kick = reel !== G.ringReel && G.ringGap <= 0; G.ringReel = reel;  // start / stop reeling
+  }
+  if (!p) return;
+  if (kick){ G.ringGap = 0.3; Rn.splash(p[0], p[2], r*1.2, k*1.8); }
+  if (G.ringT > 0) return;
+  G.ringT = every*rand(0.8, 1.2);
   Rn.splash(p[0], p[2], r, k);
 }
 function rodSpec(){
