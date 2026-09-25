@@ -321,7 +321,7 @@
   body.touch #topline .tl-l { gap:8px; }
   body.touch #topline #place { max-width:28vw; }
   /* touch: tension / boat readout top-right (fish finder above it while driving); keep net behind a button */
-  body.touch #gauges { left:auto !important; right:10px; top:calc(46px + env(safe-area-inset-top,0px)); width:140px; }
+  body.touch #gauges { left:auto !important; right:10px; top:calc(66px + env(safe-area-inset-top,0px)); width:140px; }
   body.touch #status { display:none !important; }
   #tnet { display:none; }
   body.touch #tnet { display:grid; place-items:center; position:fixed; z-index:7; right:calc(78px + env(safe-area-inset-right,0px)); bottom:calc(22px + env(safe-area-inset-bottom,0px)); width:52px; height:52px; padding:0; border-radius:50%; font-size:20px; background:rgba(8,26,30,.5); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
@@ -423,6 +423,7 @@
   .dx .tag.fresh, #dexdet .tag.fresh { color:#ffd84a; background:rgba(255,216,74,.14); }   /* freshwater tags in yellow */
   /* window headers (title … ✕) stay pinned while the list scrolls */
   .mbox > .maphead, .shopbox > .maphead { position:sticky; top:0; z-index:3; background:#08161d; border-radius:14px 14px 0 0; box-shadow:0 6px 12px -8px rgba(0,0,0,.6); }
+  .mbox > .rtabs { position:sticky; top:56px; z-index:2; background:#08161d; padding-top:2px; }   /* tab rows stay under the pinned header */
 </style>
 </head>
 <body>
