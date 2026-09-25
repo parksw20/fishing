@@ -653,23 +653,81 @@ function landFish(){
 }
 
 /* ---------------- UI ---------------- */
+// catch card: the photo first, then the name, then length and weight roll up from zero on an ease-out curve,
+// then the price; a new personal record gets a fanfare, rays and confetti. A tap skips to the end, the next closes.
+const CARD = { seq: 0, timers: [], running: false, finish: null };
 function showCard(r, record, first){
-  const c = $('card');
-  c.querySelector('.sp').textContent = r.name;
-  c.querySelector('.latin').textContent = r.sp.latin;
-  c.querySelector('.len').textContent = (r.len*100).toFixed(1) + 'cm';
-  c.querySelector('.wt').textContent = kg(r.weight);
-  c.querySelector('.pts').textContent = '+' + r.pts + '점';
-  c.querySelector('.badge').textContent = first ? '첫 포획! 도감 등록' : record ? '개인 최대어 갱신!' : '';
-  c.querySelector('.tipc').textContent = r.sp.tip ? '💡 ' + r.sp.tip : '';
-  c.querySelector('.pts').textContent = `+${r.pts}점 · 🧺 판매가 ${r.pts}🪙`;
-  // real photo (iNaturalist, CC-licensed) when available, otherwise the drawn icon
-  const ph = (window.FISH_PHOTOS || {})[r.sp.id], img = c.querySelector('.photo'), cred = c.querySelector('.credit'), cv = c.querySelector('canvas');
+  const c = $('card'), seq = ++CARD.seq;
+  CARD.timers.forEach(clearTimeout); CARD.timers = []; c.getAnimations({ subtree: true }).forEach(a => a.cancel());
+  c.classList.remove('record'); c.querySelector('.rays')?.remove();
+  const q = sel => c.querySelector(sel);
+  q('.sp').textContent = r.name; q('.latin').textContent = r.sp.latin;
+  q('.len').textContent = '0.0cm'; q('.wt').textContent = kg(0);
+  q('.pts').textContent = `+${r.pts}점 · 🧺 판매가 ${r.pts}🪙`;
+  q('.badge').textContent = record ? '🏆 개인 최대어 갱신!' : first ? '✨ 첫 포획! 도감 등록' : '';
+  q('.tipc').textContent = r.sp.tip ? '💡 ' + r.sp.tip : '';
+  const ph = (window.FISH_PHOTOS || {})[r.sp.id], img = q('.photo'), cred = q('.credit'), cv = q('canvas');
   if (ph){ img.src = ph.file; img.alt = r.sp.name; img.hidden = false; cv.hidden = true; cred.hidden = false; cred.textContent = `📷 ${ph.author} · ${ph.license.toUpperCase()} · iNaturalist`; }
   else { img.hidden = true; cred.hidden = true; cv.hidden = false; drawFishIcon(cv, r.sp); }
-  c.hidden = false;
+  const pic = ph ? img : cv;
+  const parts = [pic, cred, q('.sp'), q('.latin'), q('.stats'), q('.pts'), q('.badge'), q('.tipc'), q('.foot')];
+  for (const el of parts) el.style.opacity = 0;
+  c.hidden = false; CARD.running = true;
+  const show = (el, kf, dur) => { el.style.opacity = ''; el.animate(kf || [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: dur || 320, easing: 'cubic-bezier(.2,.8,.3,1)' }); };
+  const at = (ms, fn) => CARD.timers.push(setTimeout(() => { if (CARD.seq === seq) fn(); }, ms));
+  c.animate([{ transform: 'translate(-50%,-50%) scale(.85)', opacity: 0 }, { transform: 'translate(-50%,-50%) scale(1)', opacity: 1 }], { duration: 260, easing: 'cubic-bezier(.2,.9,.3,1.2)' });
+  at(60, () => { show(pic, [{ opacity: 0, transform: 'scale(1.08)', filter: 'brightness(2)' }, { opacity: 1, transform: 'none', filter: 'none' }], 480); show(cred); });
+  at(520, () => { show(q('.sp'), [{ opacity: 0, transform: 'scale(.7)', letterSpacing: '.3em' }, { opacity: 1, transform: 'none', letterSpacing: 'normal' }], 420); show(q('.latin')); sfx.plop(); });
+  const L = r.len*100, Wt = r.weight, T = 1300;
+  at(950, () => {
+    show(q('.stats'), null, 200);
+    const t0 = performance.now(); let lastTick = 0;
+    const step = now => {
+      if (CARD.seq !== seq) return;
+      const u = Math.min(1, (now - t0)/T), e = 1 - Math.pow(1 - u, 3);          // ease-out cubic: fast first, settling on the value
+      q('.len').textContent = (L*e).toFixed(1) + 'cm'; q('.wt').textContent = kg(Wt*e);
+      if (now - lastTick > 70 && u < 1){ lastTick = now; sfx.click(0.03 + 0.03*e); }
+      if (u < 1) requestAnimationFrame(step);
+      else { q('.len').textContent = L.toFixed(1) + 'cm'; q('.wt').textContent = kg(Wt); for (const el of [q('.len'), q('.wt')]) el.animate([{ transform: 'scale(1.25)' }, { transform: 'scale(1)' }], { duration: 260 }); }
+    };
+    requestAnimationFrame(step);
+  });
+  at(950 + T + 150, () => { show(q('.pts'), [{ opacity: 0, transform: 'scale(.6)' }, { opacity: 1, transform: 'scale(1.12)', offset: 0.7 }, { opacity: 1, transform: 'none' }], 380); sfx.click(0.08); });
+  at(950 + T + 550, () => {
+    if (record){
+      c.classList.add('record'); const rays = document.createElement('div'); rays.className = 'rays'; c.prepend(rays);
+      show(q('.badge'), [{ opacity: 0, transform: 'scale(2)' }, { opacity: 1, transform: 'scale(.95)', offset: 0.6 }, { opacity: 1, transform: 'none' }], 520);
+      fanfare(); const b = c.getBoundingClientRect(); confetti(90, b.left + b.width/2, b.top + b.height*0.35); padRumble(0.5, 0.8, 300, 120);
+    } else if (first){ show(q('.badge')); const b = c.getBoundingClientRect(); confetti(30, b.left + b.width/2, b.top + b.height*0.3); sfx.win(); }
+    else show(q('.badge'));
+    show(q('.tipc')); show(q('.foot')); CARD.running = false;
+  });
+  CARD.finish = () => {    // tap during the reveal: jump to the end state
+    CARD.timers.forEach(clearTimeout); CARD.timers = []; CARD.seq++;
+    for (const el of parts) el.style.opacity = '';
+    q('.len').textContent = L.toFixed(1) + 'cm'; q('.wt').textContent = kg(Wt);
+    if (record && !c.classList.contains('record')){ c.classList.add('record'); const rays = document.createElement('div'); rays.className = 'rays'; c.prepend(rays); fanfare(); }
+    CARD.running = false;
+  };
 }
-function hideCard(){ $('card').hidden = true; if (G.state === 'result') G.state = 'idle'; }
+function hideCard(){
+  if (CARD.running && CARD.finish){ CARD.finish(); return; }
+  CARD.timers.forEach(clearTimeout); CARD.timers = []; CARD.seq++;
+  $('card').hidden = true; if (G.state === 'result') G.state = 'idle';
+}
+// a short brass-like fanfare (no audio files): rising arpeggio and a held chord
+function fanfare(){
+  if (!AU.ctx) return;
+  const c = AU.ctx, t0 = c.currentTime + 0.02;
+  const note = (f, t, d, g) => {
+    const o = c.createOscillator(), o2 = c.createOscillator(), fl = c.createBiquadFilter(), gn = c.createGain();
+    o.type = 'sawtooth'; o2.type = 'square'; o.frequency.value = f; o2.frequency.value = f*1.003; fl.type = 'lowpass'; fl.frequency.setValueAtTime(900, t); fl.frequency.linearRampToValueAtTime(2600, t + 0.06);
+    gn.gain.setValueAtTime(0.0001, t); gn.gain.exponentialRampToValueAtTime(g, t + 0.03); gn.gain.setValueAtTime(g, t + d*0.7); gn.gain.exponentialRampToValueAtTime(0.0001, t + d);
+    o.connect(fl); o2.connect(fl); fl.connect(gn); gn.connect(AU.sfx); o.start(t); o2.start(t); o.stop(t + d + 0.05); o2.stop(t + d + 0.05);
+  };
+  [[523.3, 0, 0.16], [659.3, 0.14, 0.16], [784, 0.28, 0.16], [1046.5, 0.42, 0.7]].forEach(([f, t, d]) => note(f, t0 + t, d, 0.06));
+  [523.3, 659.3, 784].forEach(f => note(f, t0 + 0.42, 0.9, 0.035));
+}
 function drawFishIcon(cv, sp){
   const x = cv.getContext('2d'), w = cv.width, h = cv.height;
   x.clearRect(0,0,w,h);
@@ -2561,5 +2619,5 @@ function frame(now){
 buildToolbar(); updateLog();
 requestAnimationFrame(frame);
 window.__mapS = (lon, lat) => m2s(nearLon(lon), lat);
-window.__game = { questEvent, updateLog, G, fishes, cam, mouse, hookFish, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
+window.__game = { showCard, questEvent, updateLog, G, fishes, cam, mouse, hookFish, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
 })();

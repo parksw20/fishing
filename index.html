@@ -395,6 +395,17 @@
   #dexdet .pf { padding:3px 9px; border-radius:999px; background:rgba(255,255,255,.08); }
   #dexdet .pf em { font-style:normal; color:#ffd84a; font-size:10px; }
   @media (max-width: 600px) { #dexdet .dtop { grid-template-columns:1fr; } #dexdet .dgrid { grid-template-columns:1fr 1fr; } }
+  /* catch card reveal */
+  #card { width:320px; overflow:hidden; }
+  #card .stats { gap:26px; margin-top:8px; }
+  #card .stats .st { display:flex; flex-direction:column; align-items:center; min-width:96px; }
+  #card .stats small { font-size:11px; opacity:.55; font-weight:600; }
+  #card .stats span { font-size:26px; font-weight:900; font-variant-numeric:tabular-nums; }
+  #card .pts { font-size:22px; }
+  #card.record { box-shadow:0 0 0 2px #ffd84a, 0 0 50px rgba(255,216,74,.55), 0 20px 60px rgba(0,0,0,.4); }
+  #card.record .badge { color:#ffd84a; font-size:18px; font-weight:900; text-shadow:0 0 12px rgba(255,216,74,.7); }
+  #card .rays { position:absolute; inset:-60%; background:conic-gradient(from 0deg, transparent 0 10deg, rgba(255,216,74,.09) 10deg 20deg, transparent 20deg 40deg, rgba(255,216,74,.09) 40deg 50deg, transparent 50deg 70deg, rgba(255,216,74,.09) 70deg 80deg, transparent 80deg 100deg, rgba(255,216,74,.09) 100deg 110deg, transparent 110deg 130deg, rgba(255,216,74,.09) 130deg 140deg, transparent 140deg 160deg, rgba(255,216,74,.09) 160deg 170deg, transparent 170deg 190deg, rgba(255,216,74,.09) 190deg 200deg, transparent 200deg 220deg, rgba(255,216,74,.09) 220deg 230deg, transparent 230deg 250deg, rgba(255,216,74,.09) 250deg 260deg, transparent 260deg 280deg, rgba(255,216,74,.09) 280deg 290deg, transparent 290deg 310deg, rgba(255,216,74,.09) 310deg 320deg, transparent 320deg 340deg, rgba(255,216,74,.09) 340deg 350deg, transparent 350deg); z-index:-1; pointer-events:none; animation:spin 9s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
 </style>
 </head>
 <body>
@@ -507,12 +518,12 @@
 
 <div id="card" class="glass" hidden>
   <div class="t">CATCH</div>
-  <div class="sp"></div>
-  <div class="latin"></div>
   <canvas width="480" height="200"></canvas>
   <img class="photo" alt="" hidden>
   <div class="credit" hidden></div>
-  <div class="stats"><span class="len"></span><span class="wt"></span></div>
+  <div class="sp"></div>
+  <div class="latin"></div>
+  <div class="stats"><div class="st"><small>길이</small><span class="len"></span></div><div class="st"><small>무게</small><span class="wt"></span></div></div>
   <div class="pts"></div>
   <div class="badge"></div>
   <div class="tipc"></div>
