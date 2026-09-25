@@ -667,7 +667,7 @@ function landFish(){
 /* ---------------- UI ---------------- */
 // catch card: the photo first, then the name, then length and weight roll up from zero on an ease-out curve,
 // then the price; a new personal record gets a fanfare, rays and confetti. A tap skips to the end, the next closes.
-const CARD = { seq: 0, timers: [], running: false, finish: null };
+const CARD = { seq: 0, timers: [], running: false, finish: null, slow: 1.2 };   // slow: pace of the whole reveal (1.2 = 20% slower)
 function showCard(r, record, first){
   const c = $('card'), seq = ++CARD.seq;
   CARD.timers.forEach(clearTimeout); CARD.timers = []; c.getAnimations({ subtree: true }).forEach(a => a.cancel());
@@ -685,9 +685,10 @@ function showCard(r, record, first){
   const parts = [pic, cred, q('.sp'), q('.latin'), q('.stats'), q('.pts'), q('.badge'), q('.tipc'), q('.foot')];
   for (const el of parts) el.style.opacity = 0;
   c.hidden = false; CARD.running = true;
-  const show = (el, kf, dur) => { el.style.opacity = ''; el.animate(kf || [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: dur || 320, easing: 'cubic-bezier(.2,.8,.3,1)' }); };
-  const at = (ms, fn) => CARD.timers.push(setTimeout(() => { if (CARD.seq === seq) fn(); }, ms));
-  c.animate([{ transform: 'translate(-50%,-50%) scale(.85)', opacity: 0 }, { transform: 'translate(-50%,-50%) scale(1)', opacity: 1 }], { duration: 260, easing: 'cubic-bezier(.2,.9,.3,1.2)' });
+  const K = CARD.slow;
+  const show = (el, kf, dur) => { el.style.opacity = ''; el.animate(kf || [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: (dur || 320)*K, easing: 'cubic-bezier(.2,.8,.3,1)' }); };
+  const at = (ms, fn) => CARD.timers.push(setTimeout(() => { if (CARD.seq === seq) fn(); }, ms*K));
+  c.animate([{ transform: 'translate(-50%,-50%) scale(.85)', opacity: 0 }, { transform: 'translate(-50%,-50%) scale(1)', opacity: 1 }], { duration: 260*K, easing: 'cubic-bezier(.2,.9,.3,1.2)' });
   at(60, () => { show(pic, [{ opacity: 0, transform: 'scale(1.08)', filter: 'brightness(2)' }, { opacity: 1, transform: 'none', filter: 'none' }], 480); show(cred); });
   at(520, () => { show(q('.sp'), [{ opacity: 0, transform: 'scale(.7)', letterSpacing: '.3em' }, { opacity: 1, transform: 'none', letterSpacing: 'normal' }], 420); show(q('.latin')); sfx.plop(); });
   const L = r.len*100, Wt = r.weight, T = 1300;
@@ -696,7 +697,7 @@ function showCard(r, record, first){
     const t0 = performance.now(); let lastTick = 0;
     const step = now => {
       if (CARD.seq !== seq) return;
-      const u = Math.min(1, (now - t0)/T), e = 1 - Math.pow(1 - u, 3);          // ease-out cubic: fast first, settling on the value
+      const u = Math.min(1, (now - t0)/(T*K)), e = 1 - Math.pow(1 - u, 3);          // ease-out cubic: fast first, settling on the value
       q('.len').textContent = (L*e).toFixed(1) + 'cm'; q('.wt').textContent = kg(Wt*e);
       if (now - lastTick > 70 && u < 1){ lastTick = now; sfx.click(0.03 + 0.03*e); }
       if (u < 1) requestAnimationFrame(step);
