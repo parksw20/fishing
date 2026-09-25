@@ -2422,8 +2422,8 @@ function renderDex(){
       <div class="nm">${esc(sp.name)}<span class="tag">${salt ? '바다' : '민물'}</span>${sp.sight ? '<span class="tag">관찰</span>' : ''}</div><div class="dd">${info}</div></div>`;
   });
   $('dexgrid').innerHTML = cards.join('');
-  $('dsub').textContent = `${got} / ${SPECIES.length} 등록 · 잡으면 사진과 최대 기록이 공개돼요`;
-  $('dexgrid').hidden = false; $('dexdet').hidden = true;
+  $('dcount').textContent = `(${got}/${SPECIES.length})`; $('dsub').textContent = '';
+  $('dexgrid').hidden = false; $('dexdet').hidden = true; $('dexback').hidden = true;
   for (const c of $('dexgrid').querySelectorAll('[data-sp]')) c.onclick = e => { e.stopPropagation(); showDexEntry(c.dataset.sp); };
 }
 // one species in detail: photo and records once caught, plus where it lives and how to catch it
@@ -2442,8 +2442,8 @@ function showDexEntry(id){
   const rec = sp.sight ? (seen ? `관찰 <b>${seen}</b>회` : '아직 못 봤어요')
     : n ? `최대 <b>${(b.len*100).toFixed(1)}cm</b> · <b>${kg(b.weight)}</b> · 잡은 수 <b>${n}</b>마리${seen ? ` · 목격 ${seen}` : ''}` : '아직 못 잡았어요';
   $('dexgrid').hidden = true; const d = $('dexdet'); d.hidden = false;
-  d.innerHTML = `<button class="dback">← 도감</button>
-    <div class="dtop"><div class="dph${open ? '' : ' locked'}">${ph ? `<img src="${ph.file}" alt="">` : `<span>${sp.icon || '🐟'}</span>`}${open ? '' : '<b class="qm">?</b>'}</div>
+  $('dexback').hidden = false;
+  d.innerHTML = `<div class="dtop"><div class="dph${open ? '' : ' locked'}">${ph ? `<img src="${ph.file}" alt="">` : `<span>${sp.icon || '🐟'}</span>`}${open ? '' : '<b class="qm">?</b>'}</div>
       <div class="dhead"><h3>${esc(sp.name)}</h3><div class="latin">${esc(sp.latin || '')}</div>
         <div class="tags"><span class="tag">${salt ? '바다' : '민물'}</span>${sp.sight ? '<span class="tag">관찰</span>' : ''}${zone ? `<span class="tag">${zone}</span>` : ''}</div>
         <div class="drec">${rec}</div>
@@ -2457,7 +2457,7 @@ function showDexEntry(id){
       <div class="wide"><h4>사는 곳</h4><p>${biomes.map(([, B]) => esc(B.name)).join(' · ') || '-'}${spots.length ? `<br><small>명소: ${spots.map(esc).join(', ')}</small>` : ''}</p></div>
       ${sp.tip ? `<div class="wide"><h4>💡 공략</h4><p>${esc(sp.tip)}</p></div>` : ''}
     </div>`;
-  d.querySelector('.dback').onclick = e => { e.stopPropagation(); d.hidden = true; $('dexgrid').hidden = false; };
+  $('dexback').onclick = e => { e.stopPropagation(); d.hidden = true; $('dexgrid').hidden = false; $('dexback').hidden = true; };
   $('dexm').querySelector('.mbox').scrollTop = 0;
 }
 

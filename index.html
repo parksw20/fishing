@@ -415,6 +415,11 @@
   #card .sp { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
   #card .badge { min-height:24px; }
   #card .tipc { height:3.2em; line-height:1.6; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  /* window close: icon-only ✕ (all windows); back arrow beside it in the fish guide detail */
+  .xbtn { width:36px; height:36px; padding:0; border-radius:50%; display:grid; place-items:center; font-size:16px; line-height:1; flex:none; margin-left:auto; }
+  .xbtn + .xbtn { margin-left:6px; }
+  #dexback { margin-left:auto; } #dexback:not([hidden]) + .mclose { margin-left:6px; }
+  #dcount { font-weight:600; opacity:.8; }
 </style>
 </head>
 <body>
@@ -478,7 +483,7 @@
 <div id="target" class="glass" hidden></div>
 <div id="questm" class="modal" hidden>
   <div class="mbox glass">
-    <div class="maphead"><b>📜 퀘스트</b><span class="sub" id="qsub"></span><button class="mclose">닫기 (Esc)</button></div>
+    <div class="maphead"><b>📜 퀘스트</b><span class="sub" id="qsub"></span><button class="mclose xbtn" aria-label="닫기 (Esc)" title="닫기 (Esc)">✕</button></div>
     <div class="qtop">
       <div class="attend"><div class="ah"><b>출석 체크</b><span id="streak"></span></div><div id="attdays"></div><button id="attbtn">출석하기</button></div>
       <div class="weekly"><div class="ah"><b>이번 주 퀘스트</b><span id="wkpct"></span></div><div class="wbar"><div id="wkfill"></div></div><div id="wkstat"></div></div>
@@ -488,28 +493,28 @@
 </div>
 <div id="rankm" class="modal" hidden>
   <div class="mbox glass">
-    <div class="maphead"><b>🏆 랭킹</b><span class="sub" id="rsub"></span><button class="mclose">닫기 (Esc)</button></div>
+    <div class="maphead"><b>🏆 랭킹</b><span class="sub" id="rsub"></span><button class="mclose xbtn" aria-label="닫기 (Esc)" title="닫기 (Esc)">✕</button></div>
     <div class="rtabs"><button data-t="len" class="on">어종별 크기</button><button data-t="kg">어종별 무게</button><button data-t="day">하루 최다</button><select id="rsp"></select></div>
     <div id="rlist"></div>
   </div>
 </div>
 <div id="dexm" class="modal" hidden>
   <div class="mbox glass">
-    <div class="maphead"><b>📖 도감</b><span class="sub" id="dsub"></span><button class="mclose">닫기 (Esc)</button></div>
+    <div class="maphead"><b>📖 도감 <span id="dcount"></span></b><span class="sub" id="dsub"></span><button id="dexback" class="xbtn" aria-label="뒤로" hidden>←</button><button class="mclose xbtn" aria-label="닫기 (Esc)" title="닫기 (Esc)">✕</button></div>
     <div id="dexgrid"></div>
     <div id="dexdet" hidden></div>
   </div>
 </div>
 <div id="setm" class="modal" hidden>
   <div class="mbox glass sbox">
-    <div class="maphead"><b>⚙️ 환경설정</b><span class="sub">자동 저장돼요</span><button class="mclose">닫기 (Esc)</button></div>
+    <div class="maphead"><b>⚙️ 환경설정</b><span class="sub">자동 저장돼요</span><button class="mclose xbtn" aria-label="닫기 (Esc)" title="닫기 (Esc)">✕</button></div>
     <div class="rtabs stabs"><button data-st="gfx" class="on">🖥 그래픽</button><button data-st="snd">🔊 사운드</button><button data-st="pad">🎮 패드</button></div>
     <div id="setbody"></div>
   </div>
 </div>
 <div id="netm" class="modal" hidden>
   <div class="mbox glass nbox">
-    <div class="maphead"><b>🧺 살림망</b><span class="sub" id="netsub"></span><button class="mclose">닫기 (Esc)</button></div>
+    <div class="maphead"><b>🧺 살림망</b><span class="sub" id="netsub"></span><button class="mclose xbtn" aria-label="닫기 (Esc)" title="닫기 (Esc)">✕</button></div>
     <div id="netlist"></div>
     <div class="nbtns"><button id="nsell">모두 판매</button><button id="nrel">방생 <small>+25% · 🍀</small></button></div>
   </div>
@@ -519,7 +524,7 @@
 </div>
 <div id="shop" hidden>
   <div class="shopbox glass">
-    <div class="maphead"><b>🛒 낚시 용품점</b><span class="coins">보유 <b id="coins2">0</b>🪙</span><button id="shopclose">닫기 (Esc)</button></div>
+    <div class="maphead"><b>🛒 낚시 용품점</b><span class="coins">보유 <b id="coins2">0</b>🪙</span><button id="shopclose" class="xbtn" aria-label="닫기 (Esc)" title="닫기 (Esc)">✕</button></div>
     <div id="shopgrid"></div>
   </div>
 </div>
@@ -541,7 +546,7 @@
 
 <div id="map" hidden>
   <div class="mapbox glass">
-    <div class="maphead"><b>🗺 세계 낚시 지도</b><span id="mapinfo" hidden></span><span class="sub"></span><button id="mapclose">닫기 (Esc)</button></div>
+    <div class="maphead"><b>🗺 세계 낚시 지도</b><span id="mapinfo" hidden></span><span class="sub"></span><button id="mapclose" class="xbtn" aria-label="닫기 (Esc)" title="닫기 (Esc)">✕</button></div>
     <div class="mapbody"><div class="mapwrap"><canvas id="mapcv"></canvas><span id="mapzoom"><button id="mapout" aria-label="축소">−</button><button id="mapin" aria-label="확대">+</button></span></div><div id="mappanel"></div></div>
   </div>
 </div>
