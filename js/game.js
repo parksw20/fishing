@@ -1040,6 +1040,18 @@ function camShake(dt){
   const n = (w, p) => Math.sin(t*w + p)*0.6 + Math.sin(t*w*1.73 + p*2.1)*0.4;
   return { pos: [n(31, 0)*a, n(27, 1.3)*a*0.8, n(35, 2.7)*a], look: [n(23, 4.1)*a*2.2, n(29, 5.3)*a*1.6, n(19, 0.7)*a*2.2] };
 }
+// small rings where the rig touches the water: around a floating float, where the line cuts the surface,
+// and stronger/faster at the line entry while a fish fights
+function waterRings(S, dt){
+  G.ringT = (G.ringT || 0) - dt;
+  let p = null, every = 0, r = 0, k = 0;
+  if (G.state === 'hooked' && S.lineUnder){ const t = G.fight ? G.fight.tension : 0.5; p = S.lineUnder[0]; every = 0.16; r = 0.05 + 0.03*t; k = 0.006 + 0.010*t; }
+  else if (G.state === 'wait' && S.bobber && !S.bobber.flying){ p = S.bobber.pos; every = 1.3; r = 0.04; k = 0.004; }
+  else if (G.state === 'wait' && S.lineUnder){ p = S.lineUnder[0]; every = G.lure && G.lure.reeling ? 0.35 : 0.9; r = 0.03; k = 0.003; }
+  if (!p || G.ringT > 0) return;
+  G.ringT = every*rand(0.75, 1.25);
+  Rn.splash(p[0], p[2], r, k);
+}
 function rodSpec(){
   const e = eyeWorld(), m = modeCfg();
   let yaw = viewYaw(), el = G.mode === 'pole' ? 0.2 : 0.5, bend = 0.04, target;
@@ -1105,6 +1117,7 @@ function scene(dt){
     if (G.mode === 'pole') S.bobber = { pos: [entry[0], -0.05, entry[2]], tilt: 1.3, flying: true };
   }
   rod.target = S.lineTo || add(rod.base, mul(rod.dir, 10));
+  waterRings(S, dt);
   return S;
 }
 
