@@ -666,7 +666,9 @@ vec3 underwaterView(vec3 rd, out float tHit){
     if (lureHit) L += oAlb*0.35 + vec3(0.02);
   } else if (sB <= sS && sB < FAR){
     float hgt; vec3 alb = pebbles(X.xz, 1.0, hgt);
-    alb = mix(vec3(0.30,0.29,0.27), pow(alb, vec3(1.2)), 0.72)*0.6*uBed.yzw;
+    // darker, contrasty stones: deep gaps between pebbles, dark grey-brown rock
+    alb = mix(vec3(0.13,0.12,0.11), pow(alb, vec3(1.35)), 0.6)*0.42*uBed.yzw;
+    alb *= mix(0.35, 1.0, smoothstep(0.08, 0.45, hgt));
     vec3 caus = texture(uCaus, (X.xz - uCausShift)/uL, 1.0).rgb;
     float shd = shadowAt(X, -sunT);
     L = alb/PI*(SUN*Ts*exp(-SIG_T*dep/(-sunT.y))*caus*(-sunT.y)*shd + skyIrr*exp(-(SIG_A + 0.4*SIG_S)*dep*1.25));
