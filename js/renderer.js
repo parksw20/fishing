@@ -628,7 +628,7 @@ vec2 wakeAt(vec2 x){
 }
 
 // ---- camera below the surface: look around inside the water column ----
-vec3 underwaterView(vec3 rd){
+vec3 underwaterView(vec3 rd, out float tHit){
   vec3 ro = uCam;
   vec3 sunT = refract(-uSun, vec3(0,1,0), 1.0/IOR);
   float Ts = 1.0 - fresnel(uSun.y, IOR);
@@ -653,6 +653,7 @@ vec3 underwaterView(vec3 rd){
   vec3 oN, oAlb; float oSpec;
   float so = traceObjects(ro, rd, sMax, oN, oAlb, oSpec);
   float sHit = so > 0.0 ? so : sMax;
+  tHit = (so > 0.0 || (sB <= sS && sB < FAR)) ? sHit : -1.0;   // fish / bottom: real depth for the rasterised decor
   vec3 X = ro + rd*sHit;
   float dep = max(-X.y, 0.0);
   vec3 L = vec3(0.0);
@@ -712,7 +713,12 @@ void main(){
   vec2 ndc = vUv*2.0-1.0;
   vec3 rd = normalize(uF + ndc.x*uAspect*uTanF*uR + ndc.y*uTanF*uU);
   vec3 wd = rd; wd.y = min(wd.y, -0.0015); wd = normalize(wd);
-  if (uCam.y < -0.03){ o = vec4(max(underwaterView(rd), 0.0), 1.0); gl_FragDepth = 1.0; return; }
+  if (uCam.y < -0.03){
+    float th; o = vec4(max(underwaterView(rd, th), 0.0), 1.0);
+    // write the depth of what was hit so rocks, weed and coral sort correctly against fish and the bed
+    if (th > 0.0){ float dz = max(dot(rd*th, uF), ${ZNEAR}); gl_FragDepth = clamp((${ZA.toFixed(8)} + (${ZB.toFixed(8)})/dz)*0.5 + 0.5, 0.0, 0.999999); }
+    else gl_FragDepth = 1.0;
+    return; }
 
   // ---- surface intersection (height field, fixed-point) ----
   float t = -uCam.y / wd.y;
@@ -1250,7 +1256,7 @@ function buildDecor(items){
       const u = [Math.sin(th)*Math.cos(ph), Math.cos(th), Math.sin(th)*Math.sin(ph)];
       return { p: [o[0] + u[0]*rad[0]*d, o[1] + Math.max(u[1], -0.35)*rad[1]*d*squash, o[2] + u[2]*rad[2]*d], n: norm3([u[0]/rad[0], u[1]/rad[1], u[2]/rad[2]]) }; };
     for (let i = 0; i < seg; i++) for (let j = 0; j < seg; j++){ const a = P(i, j), b = P(i + 1, j), d = P(i, j + 1), e = P(i + 1, j + 1);
-      const sh = 0.8 + 0.4*((i*7 + j*3) % 5)/4, c = col.map(v => v*sh);
+      const sh = 0.65 + 0.6*((i*7 + j*3 + Math.floor(R*3)) % 5)/4, c = col.map(v => v*sh);   // blotchy facets stand in for a texture
       tri(a.p, b.p, e.p, a.n, b.n, e.n, c, c, c, 0, 0, 0); tri(a.p, e.p, d.p, a.n, e.n, d.n, c, c, c, 0, 0, 0); }
   };
   const blade = (o, ang, h, w, bend, col, col2, sway) => {   // a flat ribbon of weed/grass, 5 segments, swaying towards the tip

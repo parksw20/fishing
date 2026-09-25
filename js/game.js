@@ -2677,16 +2677,16 @@ function updateDecor(){
       else if (shallow && r < 0.45) it = { k: 'brain', s: 0.35 + r2*0.4, c: pick([[0.75,0.65,0.4],[0.55,0.7,0.45],[0.8,0.5,0.55]], r2*3) };
       else if (shallow && r < 0.58) it = { k: 'fan', s: 0.6 + r2*0.6, c: pick([[0.8,0.3,0.55],[0.9,0.55,0.2],[0.6,0.4,0.85]], r2*3) };
       else if (r < 0.72) it = { k: 'grass', s: 0.8, c: [0.18,0.38,0.12] };
-      else it = { k: 'rock', s: 0.3 + r2*0.9, c: [0.55,0.52,0.46] };
+      else it = { k: 'rock', s: 0.3 + r2*0.9, c: [0.17,0.16,0.14].map(v => v*(0.8 + r*0.5)) };
     } else if (sea){
       if (shallow && r < 0.28) it = { k: 'kelp', s: 0.9 + r2*0.6, c: wt === 'sea_cold' ? [0.30,0.24,0.08] : [0.32,0.28,0.10] };
       else if (shallow && r < 0.42) it = { k: 'grass', s: 0.9, c: [0.15,0.32,0.10] };
-      else it = { k: 'rock', s: 0.3 + r2*1.2, c: [0.42,0.42,0.40].map(v => v*(0.8 + r*0.4)) };
+      else it = { k: 'rock', s: 0.3 + r2*1.2, c: [0.14,0.14,0.13].map(v => v*(0.8 + r*0.5)) };
     } else {
       if (real < 6 && r < 0.40) it = { k: 'reed', s: 0.9 + r2*0.5, c: [0.22,0.40,0.10] };
       else if (real < 9 && r < 0.62) it = { k: 'grass', s: 1.0, c: river ? [0.26,0.30,0.10] : [0.16,0.38,0.12] };
       else if (river && r < 0.72) it = { k: 'log', s: 0.8 + r2*1.2, c: [0.22,0.16,0.10] };
-      else it = { k: 'rock', s: 0.25 + r2*0.8, c: [0.40,0.38,0.34].map(v => v*(0.8 + r*0.4)) };
+      else it = { k: 'rock', s: 0.25 + r2*0.8, c: [0.15,0.14,0.12].map(v => v*(0.8 + r*0.5)) };
     }
     it.p = [x, y, z]; it.r = yaw; it.h = i*7.13 + j*3.71 + 0.5;
     items.push(it);
