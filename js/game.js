@@ -749,9 +749,9 @@ function buildItems(){
   });
   placeItems();
 }
-// line the dropdown up with the tackle button it belongs to (the bar may be CSS-scaled, so measure on screen)
+// line the dropdown up with the tackle buttons (the bar may be CSS-scaled, so measure on screen)
 function placeItems(){
-  const mb = $('modes').children[G.mode === 'pole' ? 0 : 1], bar = $('bottombar'); if (!mb) return;
+  const mb = $('modes'), bar = $('bottombar'); if (!mb) return;   // same spot for bait and lure: the left edge of the tackle buttons
   const br = bar.getBoundingClientRect(), k = br.width/(bar.offsetWidth || 1);
   $('itempop').style.left = (mb.getBoundingClientRect().left - br.left)/k + 'px';
 }
