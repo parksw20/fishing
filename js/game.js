@@ -71,7 +71,7 @@ const keys = {};
 /* ---------------- settings (menu → 환경설정), kept in the browser ---------------- */
 const CFG_KEY = 'boatfish.cfg';
 const CFG = Object.assign({ gfx: 'auto', res: null, fps: null, glare: true, showFps: false,
-  vol: 0.8, sfx: 1, amb: 1, mute: false,
+  vol: 0.8, sfx: 1, amb: 1, mute: false, tips: true,
   joy: 'm', look: 1, invY: false, lefty: false, pad: true, padSens: 1, dead: 0.18, rumble: true, vibe: true, shake: 0.5 },
   (() => { try { return JSON.parse(localStorage.getItem(CFG_KEY) || '{}') || {}; } catch(e){ return {}; } })());
 function saveCfg(){ try { localStorage.setItem(CFG_KEY, JSON.stringify(CFG)); } catch(e){} }
@@ -2242,6 +2242,7 @@ function renderSettings(){
       setRow('해상도', `<button class="tog${CFG.res == null ? ' on' : ''}" data-res="auto">자동</button>` + rangeCtl('res', 0.4, 1, 0.05, FMT.res).replace(`value="null"`, `value="${Rn.quality.toFixed(2)}"`), '자동: 속도에 맞춰 조절 · 낮출수록 가볍고 흐려져요') +
       setRow('프레임 제한', segCtl('fps', [[null, '자동'], [30, '30'], [60, '60'], [0, '제한 없음']]), '30으로 두면 발열과 배터리 소모가 크게 줄어요') +
       setRow('FPS 표시', toggleCtl('showFps')) +
+      setRow('하단 팁 표시', toggleCtl('tips'), '화면 아래 조작 설명') +
       `<div class="snote">지금: ${info.lite ? '가벼운 모드' : '일반 모드'} · 글레어 ${info.glare ? '켬' : '끔'} · ${info.w}×${info.h} · ${info.fps ? info.fps + 'fps 제한' : '제한 없음'}</div>` +
       (needReload ? `<div class="snote warn">그래픽 품질·글레어는 새로고침 후 적용돼요 <button id="sreload">지금 새로고침</button></div>` : '');
   } else if (SET.tab === 'snd'){
@@ -2287,6 +2288,7 @@ function applyCfg(){
   if (Rn.setRes && JSON.stringify(CFG.res) !== SET.lastRes){ SET.lastRes = JSON.stringify(CFG.res); Rn.setRes(CFG.res); }
   if (Rn.setDebug) Rn.setDebug(CFG.showFps || new URLSearchParams(location.search).has('debug'));
   document.body.classList.toggle('lefty', !!CFG.lefty);
+  document.body.classList.toggle('notips', !CFG.tips);
   document.body.dataset.joy = CFG.joy;
 }
 for (const b of document.querySelectorAll('#setm .stabs button')) b.addEventListener('click', e => { e.stopPropagation(); SET.tab = b.dataset.st; renderSettings(); });
