@@ -2419,7 +2419,7 @@ function renderDex(){
     const info = sp.sight ? (seen ? `관찰 ${seen}회` : '관찰 대상 · 아직 못 봤어요')
       : n ? `최대 ${(b ? b.len*100 : 0).toFixed(1)}cm · ${b ? kg(b.weight) : '-'}<br>잡은 수 ${n}마리${seen ? ` · 목격 ${seen}` : ''}` : `아직 못 잡았어요${seen ? ` · 목격 ${seen}` : ''}`;
     return `<div class="dx${open ? '' : ' locked'}" data-sp="${sp.id}"><div class="ph">${ph ? `<img loading="lazy" src="${ph.file}" alt="">` : `<span style="font-size:34px">${open ? sp.icon || '🐟' : ''}</span>`}${open ? '' : '<b class="qm">?</b>'}</div>
-      <div class="nm">${esc(sp.name)}<span class="tag">${salt ? '바다' : '민물'}</span>${sp.sight ? '<span class="tag">관찰</span>' : ''}</div><div class="dd">${info}</div></div>`;
+      <div class="nm">${esc(sp.name)}<span class="tag${salt ? '' : ' fresh'}">${salt ? '바다' : '민물'}</span>${sp.sight ? '<span class="tag">관찰</span>' : ''}</div><div class="dd">${info}</div></div>`;
   });
   $('dexgrid').innerHTML = cards.join('');
   $('dcount').textContent = `(${got}/${SPECIES.length})`; $('dsub').textContent = '';
@@ -2445,7 +2445,7 @@ function showDexEntry(id){
   $('dexback').hidden = false;
   d.innerHTML = `<div class="dtop"><div class="dph${open ? '' : ' locked'}">${ph ? `<img src="${ph.file}" alt="">` : `<span>${sp.icon || '🐟'}</span>`}${open ? '' : '<b class="qm">?</b>'}</div>
       <div class="dhead"><h3>${esc(sp.name)}</h3><div class="latin">${esc(sp.latin || '')}</div>
-        <div class="tags"><span class="tag">${salt ? '바다' : '민물'}</span>${sp.sight ? '<span class="tag">관찰</span>' : ''}${zone ? `<span class="tag">${zone}</span>` : ''}</div>
+        <div class="tags"><span class="tag${salt ? '' : ' fresh'}">${salt ? '바다' : '민물'}</span>${sp.sight ? '<span class="tag">관찰</span>' : ''}${zone ? `<span class="tag">${zone}</span>` : ''}</div>
         <div class="drec">${rec}</div>
         ${open && ph ? `<div class="dcred">📷 ${esc(ph.author)} · ${esc(ph.license.toUpperCase())} · iNaturalist</div>` : ''}</div></div>
     <div class="dgrid">
