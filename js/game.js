@@ -952,7 +952,7 @@ function toggleQuests(){ if (!$('questm').hidden) closeModal(); else openQuests(
 // buttons never keep keyboard focus: otherwise Space (cast) or Enter would click the last button again (e.g. reopen the menu)
 document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('button'); if (b) b.blur(); }, true);
 $('menubtn').addEventListener('click', e => { e.stopPropagation(); $('menu').hidden = !$('menu').hidden; });
-const MENU_IDLE_ONLY = ['shop', 'map'];
+const MENU_IDLE_ONLY = ['shop', 'map', 'time'];
 function menuBusy(){ return ['charge', 'fly', 'wait', 'hooked'].includes(G.state); }
 function updateMenuState(){
   const busy = menuBusy(); if (busy === G.menuBusy) return; G.menuBusy = busy;
@@ -1310,7 +1310,8 @@ function updateClock(dt){
   Rn.setLight(el, az, dayK, warm);
 }
 function skipTime(){
-  if (G.state !== 'idle' && G.state !== 'boat') return;
+  if (G.state === 'result') hideCard();
+  if (G.state !== 'idle' && G.state !== 'boat'){ say('채비를 회수한 뒤 이용할 수 있어요 (R)', 1.8); return; }
   const order = [['dawn', 5], ['day', 10], ['dusk', 17.5], ['night', 21]];
   const i = order.findIndex(o => o[0] === period());
   const [p, h] = order[(i + 1) % order.length];
