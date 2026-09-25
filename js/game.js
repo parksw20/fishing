@@ -1231,13 +1231,6 @@ function drawHUD(){
     const p = landingPoint(pw);
     const s = ringAt(p, G.state === 'charge' ? 14 : 9, G.state === 'charge' ? 'rgba(255,220,90,.95)' : 'rgba(255,255,255,.35)', 2);
     if (s && G.state === 'charge') label(dist2(p, eyeWorld()).toFixed(1) + 'm', s[0], s[1] - 20, '#ffe27a', 13);
-    if (G.state === 'charge'){
-      const w = Math.min(320, hudW*0.6), x = cx - w/2, y = hudH - 150;
-      ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(x-3, y-3, w+6, 18);
-      const gr = ctx.createLinearGradient(x, 0, x+w, 0); gr.addColorStop(0, '#6fd3ff'); gr.addColorStop(0.7, '#ffe27a'); gr.addColorStop(1, '#ff7a59');
-      ctx.fillStyle = gr; ctx.fillRect(x, y, w*G.power, 12);
-      label('캐스팅 파워', cx, y - 10, '#fff', 13);
-    }
   }
   if (G.state === 'wait' && G.rig){
     const r = G.rig;
@@ -2425,7 +2418,9 @@ function update(dt){
   pollPad(dt); fightHaptics(dt); updateMenuState(); mouseLook(dt); updateWeather(dt); updateClock(dt); updateRain(dt); updateVisitors(dt); checkSightings(dt); updateTarget(dt);
   updateWake(); updateParticles(dt);
   applyJoy(dt); SONAR.dt = dt; updateSonar(dt); updateEngine(); updateTouchUI();
-  { const c = ['fly', 'wait', 'hooked', 'result'].includes(G.state); if (c !== G.castingUI){ G.castingUI = c; document.body.classList.toggle('casting', c); if (c) $('itempop').hidden = true; } }
+  { const c = ['charge', 'fly', 'wait', 'hooked', 'result'].includes(G.state); if (c !== G.castingUI){ G.castingUI = c; document.body.classList.toggle('casting', c); if (c) $('itempop').hidden = true; } }
+  // casting power gauge sits where the tackle buttons were
+  { const ch = G.state === 'charge'; if (ch !== G.powerUI){ G.powerUI = ch; $('power').hidden = !ch; } if (ch) $('pwfill').style.width = ((1 - G.power)*100).toFixed(1) + '%'; }
   if (G.state === 'charge'){ G.chargeT += dt; const p = (G.chargeT/1.15) % 2; G.power = p < 1 ? p : 2 - p; }
   if (G.state === 'fly'){ G.fly.t += dt; if (G.fly.t >= G.fly.T) land(); }
   if (G.state === 'wait'){ if (G.mode === 'pole') updateRig(dt); else updateLure(dt); }

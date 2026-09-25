@@ -343,6 +343,13 @@
   body.touch.tc-joy #act { display:block !important; opacity:0; }
   body.touch.tc-joy #act:not(.down) { pointer-events:none; }
   body.touch #joy { z-index:8; }
+  /* casting power gauge (replaces the tackle buttons while charging) */
+  #power { display:flex; flex-direction:column; align-items:center; gap:6px; font-size:13px; font-weight:700; text-shadow:0 1px 3px rgba(0,0,0,.9); }
+  #power .pwbar { width:min(420px, 70vw); height:16px; border-radius:8px; display:flex; overflow:hidden; box-shadow:0 0 0 2px rgba(255,255,255,.25);
+    background:linear-gradient(90deg, #6fd3ff, #ffe27a 70%, #ff7a59); }
+  #pwfill { height:100%; width:100%; margin-left:auto; background:rgba(8,18,24,.82); }   /* covers the part not yet charged */
+  body:not(.touch) #power { transform:scale(1.25); transform-origin:50% 100%; margin-top:10px; }
+  body.touch #power .pwbar { width:min(280px, 70vw); }
 </style>
 </head>
 <body>
@@ -378,6 +385,7 @@
   <div id="modes" class="seg"></div>
   <div id="itempop" class="glass" hidden><div id="items"></div><div id="itemdesc"></div></div>
 </div>
+<div id="power" hidden><div class="pwbar"><div id="pwfill"></div></div><span>캐스팅 파워</span></div>
 <div id="help"></div>
 </div>
 
