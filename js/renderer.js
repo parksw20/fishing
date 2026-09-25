@@ -15,7 +15,10 @@ window.addEventListener('error', e => fail(e.message + (e.filename? `\n  @ ${e.f
 
 const Q = new URLSearchParams(location.search);
 const FIXED_T = Q.has('t') ? parseFloat(Q.get('t')) : null;
-const DEBUG = Q.has('debug');
+let DEBUG = Q.has('debug');
+// player settings (menu → 환경설정), saved by the game; URL parameters still win
+const CFG = (() => { try { return JSON.parse(localStorage.getItem('boatfish.cfg') || '{}') || {}; } catch(e){ return {}; } })();
+const GFX = CFG.gfx || 'auto';   // auto | low | mid | high
 
 const canvas = document.getElementById('c');
 const gl = canvas.getContext('webgl2', { antialias:false, alpha:false, depth:false, stencil:false, powerPreference:'high-performance', preserveDrawingBuffer: FIXED_T!==null });
@@ -240,7 +243,7 @@ function stepRipples(shiftUV){
 
 /* ---------------- Caustics ---------------- */
 // phones and tablets default to the lighter caustics / no glare path (?full forces the desktop quality)
-const LITE = Q.has('lite') || (!Q.has('full') && matchMedia('(pointer: coarse)').matches);
+const LITE = Q.has('lite') || GFX === 'low' || (!Q.has('full') && GFX === 'auto' && matchMedia('(pointer: coarse)').matches);
 const G = LITE ? 96 : 256, C = LITE ? 512 : 1024;
 const causRT = rt(C,C,gl.RGBA16F,{wrap:gl.REPEAT, mip:true, aniso:8});
 const gridVAO = gl.createVertexArray(); gl.bindVertexArray(gridVAO);
@@ -895,7 +898,7 @@ void main(){
    The star around each sun glint is the lens aperture's diffraction pattern (its Fourier transform),
    integrated over wavelengths so the spikes carry faint rainbow tints. The bright image is convolved
    with it by FFT every frame, so the cost does not depend on how many glints there are. */
-const GLARE_ON = !!extF32 && !Q.has('noglare') && !LITE;
+const GLARE_ON = !!extF32 && !Q.has('noglare') && !LITE && GFX !== 'mid' && CFG.glare !== false;
 const pFFTg = prog(VS, HEAD+`
 uniform sampler2D uSrc; uniform int uP, uHoriz, uHalf; uniform float uSign;
 vec2 cmul(vec2 a, vec2 b){ return vec2(a.x*b.x-a.y*b.y, a.x*b.y+a.y*b.x); }
@@ -1045,9 +1048,10 @@ let hdrDepth = null;
 let W=0, H=0, scale = 1.0, hdrRT, qA, qS, qB, qC, streakRT, b1, b2, b2t;
 const DPR = Math.min(window.devicePixelRatio||1, 2);
 // phones (LITE): about 1.1x CSS pixels at most and 30 fps, to keep the GPU (and the phone) cool; ?fps=60 / ?full override
-const FPS_CAP = Q.has('fps') ? parseFloat(Q.get('fps')) || 0 : (LITE ? 30 : 0);
+let FPS_CAP = Q.has('fps') ? parseFloat(Q.get('fps')) || 0 : CFG.fps != null ? CFG.fps : (LITE ? 30 : 0);
 const Q_MAX = LITE && !Q.has('q') ? (DPR > 1.5 ? 0.55 : 0.8) : 1.0;
-let quality = Q.has('q') ? parseFloat(Q.get('q')) : FIXED_T!==null ? 1.0 : LITE ? Q_MAX : (DPR > 1.5 ? 0.72 : 0.95);
+let FIXED_RES = Q.has('q') || CFG.res != null;   // a chosen resolution turns the adaptive scaling off
+let quality = Q.has('q') ? parseFloat(Q.get('q')) : CFG.res != null ? CFG.res : FIXED_T!==null ? 1.0 : LITE ? Q_MAX : (DPR > 1.5 ? 0.72 : 0.95);
 function alloc(){
   const cw = Math.max(1, Math.round(innerWidth*DPR*quality)), ch = Math.max(1, Math.round(innerHeight*DPR*quality));
   if (cw===W && ch===H) return;
@@ -1538,18 +1542,23 @@ function render(S){
   // (frames the game deliberately skipped, e.g. behind a menu, are not counted as slow)
   const TF = FPS_CAP ? 1000/FPS_CAP : 16.7;
   if (dt*1000 < TF*2.2){ ftAvg = ftAvg*0.95 + (dt*1000)*0.05; frames++; }
-  if (frames > 90){
+  if (frames > 90 && !FIXED_RES){
     if (ftAvg > TF*1.26 && quality > 0.42){ quality = Math.max(0.42, quality*0.87); alloc(); frames = 0; }
     else if (ftAvg < TF*0.87 && quality < Q_MAX){ quality = Math.min(Q_MAX, quality*1.06); alloc(); frames = 0; }
   }
-  if (DEBUG && frames%15===0) $dbg.textContent = `${(1000/ftAvg).toFixed(0)} fps · ${W}×${H} · q ${quality.toFixed(2)}`;
+  if (DEBUG && $dbg && frames%15===0) $dbg.textContent = `${(1000/ftAvg).toFixed(0)} fps · ${W}×${H} · q ${quality.toFixed(2)}`;
   return { tip };
 }
 const $dbg = document.getElementById('dbg'); if (DEBUG && $dbg) $dbg.hidden = false;
 
 return {
   render,
-  fpsCap: FPS_CAP,
+  get fpsCap(){ return FPS_CAP; },
+  get quality(){ return quality; },
+  gfxInfo: () => ({ lite: LITE, glare: GLARE_ON, gfx: GFX, fps: FPS_CAP, res: FIXED_RES ? quality : null, w: W, h: H }),
+  setFps(n){ FPS_CAP = n; },
+  setRes(q){ if (q == null){ FIXED_RES = false; } else { FIXED_RES = true; quality = q; } frames = 0; alloc(); },
+  setDebug(on){ DEBUG = on; if ($dbg) $dbg.hidden = !on; },
   setBoat(key, hull){ ENV.boat = key && glbModels[key] ? key : null; if (hull) ENV.hull = hull; return !!ENV.boat; },
   ready: () => pebReady,
   // radius is kept to at least ~2.5 ripple texels, smaller drops fall between texels and never show

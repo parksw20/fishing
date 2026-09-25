@@ -68,6 +68,15 @@ const mouse = { x: innerWidth/2, y: innerHeight/2, down: false, rdown: false, lx
 const keys = {};
 
 /* ---------------- audio (tiny synth, no assets) ---------------- */
+/* ---------------- settings (menu → 환경설정), kept in the browser ---------------- */
+const CFG_KEY = 'boatfish.cfg';
+const CFG = Object.assign({ gfx: 'auto', res: null, fps: null, glare: true, showFps: false,
+  vol: 0.8, sfx: 1, amb: 1, mute: false,
+  joy: 'm', look: 1, invY: false, lefty: false, pad: true, padSens: 1, dead: 0.18, rumble: true },
+  (() => { try { return JSON.parse(localStorage.getItem(CFG_KEY) || '{}') || {}; } catch(e){ return {}; } })());
+function saveCfg(){ try { localStorage.setItem(CFG_KEY, JSON.stringify(CFG)); } catch(e){} }
+const LOOK = () => CFG.look, INV = () => CFG.invY ? -1 : 1;
+
 const AU = { ctx: null, noise: null, reelT: 0, dragT: 0 };
 function audioInit(){
   if (AU.ctx) { if (AU.ctx.state === 'suspended') AU.ctx.resume(); return; }
@@ -76,7 +85,15 @@ function audioInit(){
     const n = AU.ctx.sampleRate; const b = AU.ctx.createBuffer(1, n, n); const d = b.getChannelData(0);
     for (let i=0;i<n;i++) d[i] = Math.random()*2-1;
     AU.noise = b;
+    // mixer: effects and ambience (rain, engine) buses into a master volume
+    const c = AU.ctx; AU.master = c.createGain(); AU.sfx = c.createGain(); AU.amb = c.createGain();
+    AU.sfx.connect(AU.master); AU.amb.connect(AU.master); AU.master.connect(c.destination);
+    applyVolume();
   } catch(e){ AU.ctx = null; }
+}
+function applyVolume(){
+  if (!AU.master) return;
+  AU.master.gain.value = CFG.mute ? 0 : CFG.vol; AU.sfx.gain.value = CFG.sfx; AU.amb.gain.value = CFG.amb;
 }
 function noise(dur, type, freq, q, gain, attack){
   if (!AU.ctx) return;
@@ -84,14 +101,14 @@ function noise(dur, type, freq, q, gain, attack){
   const s = c.createBufferSource(); s.buffer = AU.noise; s.loop = true;
   const f = c.createBiquadFilter(); f.type = type; f.frequency.value = freq; f.Q.value = q;
   const g = c.createGain(); g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + (attack||0.005)); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
-  s.connect(f); f.connect(g); g.connect(c.destination); s.start(t, Math.random()*0.5); s.stop(t + dur + 0.05);
+  s.connect(f); f.connect(g); g.connect(AU.sfx); s.start(t, Math.random()*0.5); s.stop(t + dur + 0.05);
 }
 function tone(freq, dur, gain, type){
   if (!AU.ctx) return;
   const c = AU.ctx, t = c.currentTime, o = c.createOscillator(), g = c.createGain();
   o.type = type||'sine'; o.frequency.setValueAtTime(freq, t); o.frequency.exponentialRampToValueAtTime(freq*0.6, t+dur);
   g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
-  o.connect(g); g.connect(c.destination); o.start(t); o.stop(t+dur+0.02);
+  o.connect(g); g.connect(AU.sfx); o.start(t); o.stop(t+dur+0.02);
 }
 const sfx = {
   splash: s => { noise(0.25 + 0.5*s, 'lowpass', 700 + 900*s, 0.6, 0.25*s + 0.04, 0.01); noise(0.12, 'bandpass', 2500, 1.2, 0.05*s); },
@@ -269,7 +286,7 @@ function updateFish(f, dt){
       else flee(f, rig.bait, rand(12, 25));
     } else if (f.state === 'nibble' && f.timer <= 0){
       if (f.nibbles-- > 0){ rig.bobV -= sp.bite === 'rise' ? 0.45 : 0.7; f.timer = rand(0.4, 1.1); Rn.splash(rig.pos[0], rig.pos[2], 0.035, 0.008); }
-      else { f.state = 'take'; f.timer = (sp.bite === 'rise' ? rand(1.6, 2.2) : rand(1.0, 1.5))*tierOf('hook').window; rig.take = { style: sp.bite, t: 0 }; }
+      else { f.state = 'take'; f.timer = (sp.bite === 'rise' ? rand(1.6, 2.2) : rand(1.0, 1.5))*tierOf('hook').window; rig.take = { style: sp.bite, t: 0 }; padRumble(0.15, 0.6, 170); }
     } else if (f.state === 'take'){
       if (sp.bite === 'sink'){ // swim off with the bait, dragging the float under
         const a = f.heading; f.pos[0] += Math.cos(a)*0.22*dt; f.pos[2] += Math.sin(a)*0.22*dt; f.pos[1] -= 0.05*dt;
@@ -498,7 +515,7 @@ function strike(f){
   const L = G.lure;
   if (L.pos[1] > -0.6){ Rn.splash(L.pos[0], L.pos[2], 0.12, 0.05); sfx.splash(0.3); }
   if (mouse.down){ hookFish(f); return; }
-  G.strike = { f, t: 0.5*tierOf('hook').window };
+  G.strike = { f, t: 0.5*tierOf('hook').window }; padRumble(0.45, 0.8, 200);
   say('바이트! 감아요!', 0.8, 'hot');
 }
 
@@ -506,7 +523,7 @@ function strike(f){
 function hookFish(f){
   const tip = tipXZ();
   G.strike = null; G.engaged = null;
-  G.hooked = f; f.state = 'hooked'; G.state = 'hooked';
+  G.hooked = f; f.state = 'hooked'; G.state = 'hooked'; padRumble(0.9, 0.7, 260);
   f.stamina = 1;
   f.pull = clamp((0.15 + 0.22*Math.pow(f.weight, 0.6)*f.sp.power)*7/(lineKg()*(G.mode === 'pole' ? 1.75 : 1)), 0.15, 1.3);
   f.endur = Math.max(0.6, f.sp.endurance*(0.7 + 0.6*(f.len - f.sp.minLen)/(f.sp.maxLen - f.sp.minLen)));
@@ -813,9 +830,10 @@ hud.addEventListener('pointermove', e => {
   }
   if (mouse.rdown || (mouse.down && G.state === 'boat')){
     const dx = e.clientX - mouse.lx, dy = e.clientY - mouse.ly; mouse.lx = e.clientX; mouse.ly = e.clientY;
-    if (G.state === 'boat'){ G.orbit -= dx*0.006; G.camPitch = clamp((G.camPitch ?? 0.32) + dy*0.004, 0.08, 1.2); }
-    else if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw += dx*0.005; G.aimPitch = clamp(G.aimPitch - dy*0.004, -0.9, 0.35); }
-    else { G.orbit -= dx*0.006; tiltView(dy*0.004); }
+    const lk = LOOK(), iy = INV();
+    if (G.state === 'boat'){ G.orbit -= dx*0.006*lk; G.camPitch = clamp((G.camPitch ?? 0.32) + dy*0.004*lk*iy, 0.08, 1.2); }
+    else if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw += dx*0.005*lk; G.aimPitch = clamp(G.aimPitch - dy*0.004*lk*iy, -0.9, 0.35); }
+    else { G.orbit -= dx*0.006*lk; tiltView(dy*0.004*lk*iy); }
   }
   if (e.pointerType !== 'touch' || G.state !== 'hooked') { mouse.x = e.clientX; mouse.y = e.clientY; if (e.pointerType === 'mouse') mouse.moved = true; }
 });
@@ -829,9 +847,9 @@ hud.addEventListener('pointerup', up); hud.addEventListener('pointercancel', up)
 window.addEventListener('blur', () => { mouse.down = false; mouse.rdown = false; for (const k in keys) keys[k] = false; });
 hud.addEventListener('wheel', e => { e.preventDefault(); wheel(e.deltaY < 0 ? 1 : -1); }, { passive: false });
 window.addEventListener('keydown', e => {
-  if (G.mapOpen){ const own = { KeyM: 'map', KeyP: 'shop', KeyQ: 'questm', KeyK: 'rankm', KeyI: 'dexm' }[e.code];
+  if (G.mapOpen){ const own = { KeyM: 'map', KeyP: 'shop', KeyQ: 'questm', KeyK: 'rankm', KeyI: 'dexm', KeyO: 'setm' }[e.code];
     if (e.code === 'Escape' || own && !$(own).hidden) closeModal();
-    else if (own && !MAP.anim && $('confirm').hidden){ closeModal(); ({ map: openMap, shop: openShop, questm: openQuests, rankm: openRank, dexm: openDex })[own](); }
+    else if (own && !MAP.anim && $('confirm').hidden){ closeModal(); ({ map: openMap, shop: openShop, questm: openQuests, rankm: openRank, dexm: openDex, setm: openSettings })[own](); }
     return; }
   if (e.repeat && !['KeyA','KeyD','KeyW','KeyS','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(e.code)) return;
   keys[e.code] = true; audioInit();
@@ -845,6 +863,7 @@ window.addEventListener('keydown', e => {
     case 'KeyP': openShop(); break;
     case 'KeyK': openRank(); break;
     case 'KeyI': openDex(); break;
+    case 'KeyO': openSettings(); break;
     case 'KeyT': skipTime(); break;
     case 'KeyR': retrieve(); break;
     case 'KeyH': G.help = !G.help; say(G.help ? '입질 표시 켬' : '입질 표시 끔', 1.2); break;
@@ -872,7 +891,7 @@ function joyMove(e){
   const l = Math.hypot(x, y); if (l > 1){ x /= l; y /= l; }
   JOY.x = x; JOY.y = y; knob.style.transform = `translate(${x*R*0.8}px, ${y*R*0.8}px)`;
 }
-joyEl.addEventListener('pointerdown', e => { e.preventDefault(); audioInit(); joyEl.setPointerCapture(e.pointerId); JOY.active = true; JOY.id = e.pointerId; joyEl.classList.add('on'); joyMove(e); });
+joyEl.addEventListener('pointerdown', e => { e.preventDefault(); audioInit(); joyEl.setPointerCapture(e.pointerId); JOY.pad = false; JOY.active = true; JOY.id = e.pointerId; joyEl.classList.add('on'); joyMove(e); });
 joyEl.addEventListener('pointermove', e => { if (JOY.active && e.pointerId === JOY.id) joyMove(e); });
 const joyUp = e => { if (e.pointerId !== JOY.id) return; JOY.active = false; JOY.id = null; JOY.x = JOY.y = 0; knob.style.transform = ''; joyEl.classList.remove('on');
   if (G.state === 'hooked'){ mouse.x = innerWidth/2; mouse.y = innerHeight/2; } };
@@ -883,8 +902,9 @@ function applyJoy(dt){
     return;
   }
   if (!JOY.active || G.state === 'boat') return;
-  if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw += JOY.x*dt*1.3; G.aimPitch = clamp(G.aimPitch - JOY.y*dt*0.8, -0.9, 0.35); }
-  else { G.orbit -= JOY.x*dt*1.4; tiltView(JOY.y*dt*0.9); }
+  const lk = LOOK(), iy = INV();
+  if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw += JOY.x*dt*1.3*lk; G.aimPitch = clamp(G.aimPitch - JOY.y*dt*0.8*lk*iy, -0.9, 0.35); }
+  else { G.orbit -= JOY.x*dt*1.4*lk; tiltView(JOY.y*dt*0.9*lk*iy); }
 }
 /* action button: hold = cast charge / reel / lift, tap = hook set; the label follows the situation */
 const act = $('act');
@@ -928,7 +948,7 @@ document.addEventListener('click', e => { const b = e.target.closest && e.target
 $('menubtn').addEventListener('click', e => { e.stopPropagation(); $('menu').hidden = !$('menu').hidden; });
 for (const b of document.querySelectorAll('#menu button')) b.addEventListener('click', e => {
   e.stopPropagation(); $('menu').hidden = true;
-  ({ shop: openShop, quest: openQuests, map: openMap, rank: openRank, dex: openDex, time: skipTime })[b.dataset.m]();
+  ({ shop: openShop, quest: openQuests, map: openMap, rank: openRank, dex: openDex, time: skipTime, set: openSettings })[b.dataset.m]();
 });
 $('qtrack').addEventListener('click', e => { e.stopPropagation(); openQuests(); });
 document.addEventListener('pointerdown', e => {
@@ -1313,7 +1333,7 @@ function updateRain(dt){
   RAIN.n = n;
   // rain hiss
   if (AU.ctx){
-    if (!AU.rain){ const c = AU.ctx, s0 = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain(); s0.buffer = AU.noise; s0.loop = true; f.type = 'bandpass'; f.frequency.value = 2200; f.Q.value = 0.4; g.gain.value = 0; s0.connect(f); f.connect(g); g.connect(c.destination); s0.start(); AU.rain = g; }
+    if (!AU.rain){ const c = AU.ctx, s0 = c.createBufferSource(), f = c.createBiquadFilter(), g = c.createGain(); s0.buffer = AU.noise; s0.loop = true; f.type = 'bandpass'; f.frequency.value = 2200; f.Q.value = 0.4; g.gain.value = 0; s0.connect(f); f.connect(g); g.connect(AU.amb); s0.start(); AU.rain = g; }
     AU.rain.gain.setTargetAtTime(0.05*G.wv[2] + 0.015*G.wv[3], AU.ctx.currentTime, 0.5);
   }
 }
@@ -1533,7 +1553,7 @@ function renderQuests(){
 }
 
 /* ---------------- modals ---------------- */
-const MODALS = ['map', 'shop', 'questm', 'rankm', 'dexm', 'confirm'];
+const MODALS = ['map', 'shop', 'questm', 'rankm', 'dexm', 'confirm', 'setm'];
 function openModal(id){
   for (const m of MODALS) $(m).hidden = m !== id;
   G.mapOpen = true; mouse.down = false; mouse.rdown = false; $('menu').hidden = true; $('itempop').hidden = true;
@@ -1548,7 +1568,7 @@ function closeModal(){
 }
 function idleOnly(what){ if (G.state === 'result') hideCard(); if (G.state === 'idle' || G.state === 'boat' || G.state === 'result') return true; say(`채비를 회수한 뒤 ${what} (R)`, 1.8); return false; }
 for (const b of document.querySelectorAll('.mclose')) b.addEventListener('click', e => { e.stopPropagation(); closeModal(); });
-for (const id of ['questm', 'rankm', 'dexm']) $(id).addEventListener('pointerdown', e => { if (e.target === $(id)) closeModal(); });
+for (const id of ['questm', 'rankm', 'dexm', 'setm']) $(id).addEventListener('pointerdown', e => { if (e.target === $(id)) closeModal(); });
 $('confirm').addEventListener('pointerdown', e => { if (e.target === $('confirm')) $('cno').click(); });
 function confirmBox(html, yes, onYes, onNo){
   openModal('confirm'); $('ctext').innerHTML = html; $('cyes').textContent = yes;
@@ -1746,7 +1766,7 @@ function updateEngine(){
   if (!AU.eng){
     const c = AU.ctx, o = c.createOscillator(), o2 = c.createOscillator(), f = c.createBiquadFilter(), g = c.createGain();
     o.type = 'sawtooth'; o2.type = 'square'; f.type = 'lowpass'; f.frequency.value = 380; g.gain.value = 0;
-    o.connect(f); o2.connect(f); f.connect(g); g.connect(c.destination); o.start(); o2.start();
+    o.connect(f); o2.connect(f); f.connect(g); g.connect(AU.amb); o.start(); o2.start();
     AU.eng = { o, o2, g };
   }
   const on = G.state === 'boat', v = Math.abs(G.boatV), t = AU.ctx.currentTime;
@@ -2182,6 +2202,120 @@ function renderDex(){
   $('dsub').textContent = `${got} / ${SPECIES.length} 등록 · 잡으면 사진과 최대 기록이 공개돼요`;
 }
 
+
+/* ---------------- settings window: graphics · sound · controls ---------------- */
+const SET = { tab: 'gfx' };
+function openSettings(){ openModal('setm'); renderSettings(); }
+function setRow(label, ctl, note){ return `<div class="srow2"><div><b>${label}</b>${note ? `<small>${note}</small>` : ''}</div><div class="sctl">${ctl}</div></div>`; }
+function segCtl(key, opts){ return `<div class="seg sseg">${opts.map(([v, t]) => `<button data-k="${key}" data-v='${JSON.stringify(v)}' class="${JSON.stringify(CFG[key]) === JSON.stringify(v) ? 'on' : ''}">${t}</button>`).join('')}</div>`; }
+function rangeCtl(key, min, max, step, fmt){ const v = CFG[key]; return `<input type="range" data-k="${key}" min="${min}" max="${max}" step="${step}" value="${v}"><span class="sval" data-for="${key}">${fmt(v)}</span>`; }
+function toggleCtl(key){ return `<button class="tog${CFG[key] ? ' on' : ''}" data-t="${key}">${CFG[key] ? '켜짐' : '꺼짐'}</button>`; }
+const FMT = { pct: v => Math.round(v*100) + '%', x: v => '×' + (+v).toFixed(2), res: v => v == null ? '자동' : Math.round(v*100) + '%' };
+function renderSettings(){
+  for (const b of document.querySelectorAll('#setm .stabs button')) b.classList.toggle('on', b.dataset.st === SET.tab);
+  const info = Rn.gfxInfo(), el = $('setbody');
+  if (SET.tab === 'gfx'){
+    const needReload = JSON.stringify([CFG.gfx, CFG.glare]) !== SET.bootGfx;
+    el.innerHTML =
+      setRow('그래픽 품질', segCtl('gfx', [['auto', '자동'], ['low', '낮음'], ['mid', '보통'], ['high', '높음']]), '낮음: 가벼운 물빛·빛 번짐 없음 · 보통: 빛 번짐 없음 · 높음: 전부 켬') +
+      setRow('빛 번짐(글레어)', toggleCtl('glare'), '해 반사가 번지는 효과 (보통·낮음에서는 항상 꺼짐)') +
+      setRow('해상도', `<button class="tog${CFG.res == null ? ' on' : ''}" data-res="auto">자동</button>` + rangeCtl('res', 0.4, 1, 0.05, FMT.res).replace(`value="null"`, `value="${Rn.quality.toFixed(2)}"`), '자동: 속도에 맞춰 조절 · 낮출수록 가볍고 흐려져요') +
+      setRow('프레임 제한', segCtl('fps', [[null, '자동'], [30, '30'], [60, '60'], [0, '제한 없음']]), '30으로 두면 발열과 배터리 소모가 크게 줄어요') +
+      setRow('FPS 표시', toggleCtl('showFps')) +
+      `<div class="snote">지금: ${info.lite ? '가벼운 모드' : '일반 모드'} · 글레어 ${info.glare ? '켬' : '끔'} · ${info.w}×${info.h} · ${info.fps ? info.fps + 'fps 제한' : '제한 없음'}</div>` +
+      (needReload ? `<div class="snote warn">그래픽 품질·글레어는 새로고침 후 적용돼요 <button id="sreload">지금 새로고침</button></div>` : '');
+  } else if (SET.tab === 'snd'){
+    el.innerHTML =
+      setRow('전체 볼륨', rangeCtl('vol', 0, 1, 0.05, FMT.pct)) +
+      setRow('효과음', rangeCtl('sfx', 0, 1, 0.05, FMT.pct), '캐스팅·물소리·릴·챔질') +
+      setRow('환경음', rangeCtl('amb', 0, 1, 0.05, FMT.pct), '빗소리·엔진') +
+      setRow('음소거', toggleCtl('mute')) +
+      `<div class="snote"><button id="stest">🔊 테스트 소리</button></div>`;
+  } else {
+    const pads = [...(navigator.getGamepads ? navigator.getGamepads() : [])].filter(Boolean);
+    el.innerHTML =
+      `<h4>화면 조작 (터치)</h4>` +
+      setRow('조그 크기', segCtl('joy', [['s', '작게'], ['m', '보통'], ['l', '크게']])) +
+      setRow('왼손 모드', toggleCtl('lefty'), '조그를 오른쪽, 버튼을 왼쪽으로') +
+      `<h4>시점</h4>` +
+      setRow('시점 회전 속도', rangeCtl('look', 0.4, 2, 0.05, FMT.x), '마우스 드래그 · 조그 · 패드 오른쪽 스틱') +
+      setRow('상하 반전', toggleCtl('invY')) +
+      `<h4>게임패드</h4>` +
+      setRow('게임패드 사용', toggleCtl('pad'), pads.length ? '연결됨: ' + esc(pads[0].id.slice(0, 40)) : '연결된 패드 없음 — 버튼을 한 번 누르면 인식돼요') +
+      setRow('스틱 감도', rangeCtl('padSens', 0.5, 2, 0.05, FMT.x)) +
+      setRow('데드존', rangeCtl('dead', 0.05, 0.4, 0.01, FMT.pct), '스틱이 살짝 기울어도 움직이지 않는 범위') +
+      setRow('진동', toggleCtl('rumble'), '입질·챔질·파이팅 때 패드 진동') +
+      `<div class="snote">A 던지기·챔질·감기 · B 회수 · X 대낚시/루어 · Y 보트 · LB/RB 드랙·찌 수심 · 왼쪽 스틱 방향/파이팅 · 오른쪽 스틱 시점 · Start 메뉴 · Back 지도</div>`;
+  }
+  // wire controls
+  for (const b of el.querySelectorAll('[data-k][data-v]')) b.onclick = e => { e.stopPropagation(); setCfg(b.dataset.k, JSON.parse(b.dataset.v)); };
+  for (const b of el.querySelectorAll('[data-t]')) b.onclick = e => { e.stopPropagation(); setCfg(b.dataset.t, !CFG[b.dataset.t]); };
+  for (const r of el.querySelectorAll('input[type=range]')) r.oninput = () => { setCfg(r.dataset.k, +r.value, true); const sv = el.querySelector(`[data-for="${r.dataset.k}"]`); if (sv) sv.textContent = (r.dataset.k === 'res' ? FMT.res : r.dataset.k === 'look' || r.dataset.k === 'padSens' ? FMT.x : FMT.pct)(+r.value); };
+  const ra = el.querySelector('[data-res]'); if (ra) ra.onclick = e => { e.stopPropagation(); setCfg('res', null); };
+  const rl = $('sreload'); if (rl) rl.onclick = () => location.reload();
+  const st = $('stest'); if (st) st.onclick = e => { e.stopPropagation(); audioInit(); sfx.splash(0.6); setTimeout(() => sfx.plop(), 350); };
+}
+function setCfg(k, v, quiet){
+  CFG[k] = v; saveCfg(); applyCfg();
+  if (!quiet) renderSettings();
+}
+function applyCfg(){
+  applyVolume();
+  if (Rn.setFps) Rn.setFps(CFG.fps != null ? CFG.fps : (Rn.gfxInfo().lite ? 30 : 0));
+  if (Rn.setRes && JSON.stringify(CFG.res) !== SET.lastRes){ SET.lastRes = JSON.stringify(CFG.res); Rn.setRes(CFG.res); }
+  if (Rn.setDebug) Rn.setDebug(CFG.showFps || new URLSearchParams(location.search).has('debug'));
+  document.body.classList.toggle('lefty', !!CFG.lefty);
+  document.body.dataset.joy = CFG.joy;
+}
+for (const b of document.querySelectorAll('#setm .stabs button')) b.addEventListener('click', e => { e.stopPropagation(); SET.tab = b.dataset.st; renderSettings(); });
+SET.bootGfx = JSON.stringify([CFG.gfx, CFG.glare]); SET.lastRes = JSON.stringify(CFG.res);
+applyCfg();
+
+/* ---------------- gamepad (standard mapping) ---------------- */
+const PAD = { prev: [], rumT: 0, repT: 0 };
+function padRumble(strong, weak, ms){
+  if (!CFG.pad || !CFG.rumble || !navigator.getGamepads) return;
+  const gp = [...navigator.getGamepads()].find(Boolean); const a = gp && gp.vibrationActuator;
+  if (a && a.playEffect) a.playEffect('dual-rumble', { duration: ms, strongMagnitude: strong, weakMagnitude: weak }).catch(() => {});
+}
+function pollPad(dt){
+  if (!CFG.pad || !navigator.getGamepads) return;
+  const gp = [...navigator.getGamepads()].find(p => p && p.connected); if (!gp) return;
+  const dz = CFG.dead, sens = CFG.padSens;
+  const axis = v => Math.abs(v) < dz ? 0 : Math.sign(v)*Math.min(1, (Math.abs(v) - dz)/(1 - dz)*sens);
+  const lx = axis(gp.axes[0] || 0), ly = axis(gp.axes[1] || 0), rx = axis(gp.axes[2] || 0), ry = axis(gp.axes[3] || 0);
+  const btn = i => !!(gp.buttons[i] && gp.buttons[i].pressed), down = i => btn(i) && !PAD.prev[i], up = i => !btn(i) && PAD.prev[i];
+  if (btn(0) || btn(1) || lx || ly || rx || ry) audioInit();
+  // left stick = the on-screen joystick (aim, fight direction, boat)
+  if (lx || ly){ JOY.pad = true; JOY.active = true; JOY.x = lx; JOY.y = ly; }
+  else if (JOY.pad){ JOY.pad = false; JOY.active = false; JOY.x = JOY.y = 0; if (G.state === 'hooked'){ mouse.x = innerWidth/2; mouse.y = innerHeight/2; } }
+  // right stick = look around
+  if (!G.mapOpen && (rx || ry)){
+    const lk = LOOK()*dt, iy = INV();
+    if (G.state === 'boat'){ G.orbit -= rx*2.2*lk; G.camPitch = clamp((G.camPitch ?? 0.32) + ry*1.2*lk*iy, 0.08, 1.2); }
+    else if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw += rx*1.6*lk; G.aimPitch = clamp(G.aimPitch - ry*0.9*lk*iy, -0.9, 0.35); }
+    else { G.orbit -= rx*1.6*lk; tiltView(ry*1.0*lk*iy); }
+  }
+  if (G.mapOpen){
+    if (down(1) || down(9)) closeModal();
+  } else {
+    if (down(0)){ if (G.state === 'boat') setNav(false); else if (!mouse.down){ mouse.down = true; mouse.downT = G.time; press(); } }
+    if (up(0) && mouse.down){ mouse.down = false; release(); }
+    if (down(1)){ if (G.state === 'result') hideCard(); else retrieve(); }
+    if (down(2)) setMode(G.mode === 'pole' ? 'lure' : 'pole');
+    if (down(3)) setNav(G.state !== 'boat');
+    if (down(9)) $('menu').hidden = !$('menu').hidden;
+    if (down(8)) openMap();
+    // bumpers: drag / float depth / zoom, repeating while held
+    const bump = btn(5) ? 1 : btn(4) ? -1 : 0;
+    if (bump){ PAD.repT -= dt; if (down(4) || down(5) || PAD.repT <= 0){ wheel(bump); PAD.repT = down(4) || down(5) ? 0.35 : 0.08; } }
+  }
+  // rumble while a fish pulls on the line
+  if (G.state === 'hooked' && G.fight){ PAD.rumT -= dt; if (PAD.rumT <= 0){ PAD.rumT = 0.2; const t = G.fight.tension; padRumble(clamp(t - 0.4, 0, 1)*0.7, 0.15 + t*0.35, 230); } }
+  PAD.prev = gp.buttons.map(b => b.pressed);
+}
+addEventListener('gamepadconnected', e => { if (CFG.pad) say(`🎮 게임패드 연결됨`, 1.8); if (!$('setm').hidden) renderSettings(); });
+
 /* ---------------- main loop ---------------- */
 function update(dt){
   G.time += dt;
@@ -2199,7 +2333,7 @@ function update(dt){
     if (keys.KeyW || keys.ArrowUp){ if (aiming) G.aimPitch = clamp(G.aimPitch + dt*0.8, -0.9, 0.35); else tiltView(-dt*0.9); }
     if (keys.KeyS || keys.ArrowDown){ if (aiming) G.aimPitch = clamp(G.aimPitch - dt*0.8, -0.9, 0.35); else tiltView(dt*0.9); }
   }
-  mouseLook(dt); updateWeather(dt); updateClock(dt); updateRain(dt); updateVisitors(dt); checkSightings(dt); updateTarget(dt);
+  pollPad(dt); mouseLook(dt); updateWeather(dt); updateClock(dt); updateRain(dt); updateVisitors(dt); checkSightings(dt); updateTarget(dt);
   updateWake(); updateParticles(dt);
   applyJoy(dt); SONAR.dt = dt; updateSonar(dt); updateEngine(); updateTouchUI();
   if (G.state === 'charge'){ G.chargeT += dt; const p = (G.chargeT/1.15) % 2; G.power = p < 1 ? p : 2 - p; }

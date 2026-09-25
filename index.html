@@ -75,7 +75,7 @@
   #loading.off { opacity:0; pointer-events:none; }
   #err { position:fixed; inset:auto 12px 12px 12px; max-height:45%; overflow:auto; font:12px/1.45 ui-monospace, Menlo, monospace; color:#ffd9d2; background:rgba(40,8,8,.92); border-radius:14px; padding:12px 14px; white-space:pre-wrap; z-index:30; }
   #err[hidden], #dbg[hidden] { display:none; }
-  #dbg { position:fixed; bottom:70px; left:14px; font:11px/1.4 ui-monospace, Menlo, monospace; color:#fff; background:rgba(0,0,0,.35); padding:6px 8px; border-radius:8px; z-index:8; pointer-events:none; }
+  #dbg { position:fixed; top:8px; left:50%; transform:translateX(-50%); font:11px/1.4 ui-monospace, Menlo, monospace; color:#fff; background:rgba(0,0,0,.35); padding:6px 8px; border-radius:8px; z-index:8; pointer-events:none; }
   /* ---- touch UI ---- */
   #joy, #tctl { display:none; }
   body.touch #joy { display:block; position:fixed; left:calc(18px + env(safe-area-inset-left,0px)); bottom:calc(18px + env(safe-area-inset-bottom,0px));
@@ -239,6 +239,26 @@
   body.touch #ginfo { font-size:11px; gap:1px; }
   body.touch #tbar { height:7px; }
   body.touch #target { display:none; }
+  /* settings */
+  .sbox { width:min(620px, 100%); }
+  #setbody { padding:0 14px 6px; display:flex; flex-direction:column; gap:2px; }
+  #setbody h4 { margin:12px 0 4px; font-size:12px; opacity:.6; letter-spacing:.08em; }
+  #setbody .srow2 { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:9px 4px; border-bottom:1px solid rgba(255,255,255,.07); font-size:13px; }
+  #setbody .srow2 small { display:block; font-size:11px; opacity:.6; margin-top:2px; font-weight:400; }
+  #setbody .sctl { display:flex; align-items:center; gap:8px; flex-shrink:0; }
+  #setbody .sseg button { padding:4px 10px; font-size:12px; }
+  #setbody input[type=range] { width:140px; accent-color:#ffd84a; touch-action:pan-x; }
+  #setbody .sval { min-width:44px; text-align:right; font-variant-numeric:tabular-nums; font-size:12px; opacity:.85; }
+  #setbody .tog { min-width:58px; }
+  #setbody .snote { font-size:11px; opacity:.7; padding:10px 4px 0; line-height:1.6; }
+  #setbody .snote.warn { color:#ffd84a; opacity:1; }
+  @media (max-width: 560px) { #setbody .srow2 { flex-direction:column; align-items:stretch; } #setbody .sctl { justify-content:flex-end; } }
+  /* touch joystick size and left-handed layout */
+  body.touch[data-joy="s"] #joy { width:76px; height:76px; } body.touch[data-joy="s"] #knob { width:34px; height:34px; margin:-17px 0 0 -17px; }
+  body.touch[data-joy="l"] #joy { width:120px; height:120px; } body.touch[data-joy="l"] #knob { width:52px; height:52px; margin:-26px 0 0 -26px; }
+  body.touch.lefty #joy { left:auto; right:calc(18px + env(safe-area-inset-right,0px)); }
+  body.touch.lefty #tctl { right:auto; left:calc(14px + env(safe-area-inset-left,0px)); flex-direction:row-reverse; }
+  body.touch.lefty #retrieve { right:auto; left:calc(14px + env(safe-area-inset-left,0px)); }
 </style>
 </head>
 <body>
@@ -281,6 +301,7 @@
   <button data-m="rank">🏆 랭킹 <kbd>K</kbd></button>
   <button data-m="dex">📖 도감 <kbd>I</kbd></button>
   <button data-m="time">⏩ 다음 시간대 <kbd>T</kbd></button>
+  <button data-m="set">⚙️ 환경설정 <kbd>O</kbd></button>
 </div>
 <button id="retrieve" hidden>회수 (R)</button>
 
@@ -315,6 +336,13 @@
   <div class="mbox glass">
     <div class="maphead"><b>📖 도감</b><span class="sub" id="dsub"></span><button class="mclose">닫기 (Esc)</button></div>
     <div id="dexgrid"></div>
+  </div>
+</div>
+<div id="setm" class="modal" hidden>
+  <div class="mbox glass sbox">
+    <div class="maphead"><b>⚙️ 환경설정</b><span class="sub">자동 저장돼요</span><button class="mclose">닫기 (Esc)</button></div>
+    <div class="rtabs stabs"><button data-st="gfx" class="on">🖥 그래픽</button><button data-st="snd">🔊 사운드</button><button data-st="pad">🎮 패드</button></div>
+    <div id="setbody"></div>
   </div>
 </div>
 <div id="confirm" class="modal" hidden>
