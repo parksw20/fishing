@@ -769,7 +769,7 @@ function updateLog(){
   $('count').textContent = P.net.length; $('cap').textContent = netCap();
   const val = P.net.reduce((a, f) => a + f.price, 0);
   $('netval').textContent = P.net.length ? `≈ ${val.toLocaleString()}🪙` : '';
-  $('releaseall').title = '방생: 판매가의 25% + 🍀 한 마리당 1분간 입질 +20% (최대 10분)';
+  $('releaseall').title = '방생: 판매가의 25% + 🍀 한 마리당 1분간 입질 +20% (최대 20분)';
   const ul = $('catches'); ul.innerHTML = '';
   for (const [i, c] of P.net.entries()){
     const li = document.createElement('li'); const sp = BY_ID[c.id];
@@ -794,8 +794,12 @@ function askNet(kind, idx){
     html = `${what} 판매할까요?<br><span style="color:#ffd84a;font-weight:700">+${sum.toLocaleString()}🪙</span>`; yes = '🪙 판매';
     confirmBox(html, yes, () => { sellFish(idx); back(); }, back);
   } else {
-    const n = P.net.length, bonus = Math.round(P.net.reduce((a, f) => a + f.price, 0)*0.25);
-    html = `<b>${n}마리</b>를 모두 방생할까요?<br><span style="opacity:.8;font-size:12px">판매가의 25% <b style="color:#ffd84a">+${bonus.toLocaleString()}🪙</b> · 🍀 ${Math.min(n, 10)}분 동안 입질 +20%</span>`; yes = '🐟 방생';
+    const idx = releasePick();
+    if (!idx.length){ say('🍀 행운이 이미 최대(20분)예요 — 살림망에 그대로 둘게요', 2.6, 'bad'); return; }
+    const n = idx.length, kept = P.net.length - n, bonus = Math.round(idx.reduce((a, i) => a + P.net[i].price, 0)*0.25);
+    const after = Math.min(LUCK_MAX, luckLeft() + n*60);
+    html = `<b>${n}마리</b>를 ${kept ? '' : '모두 '}방생할까요?<br><span style="opacity:.8;font-size:12px">판매가의 25% <b style="color:#ffd84a">+${bonus.toLocaleString()}🪙</b> · 🍀 행운 ${Math.round(after/60)}분 (입질 +20%)` +
+      (kept ? `<br>행운은 최대 20분이라 ${kept}마리는 살림망에 남아요 (싼 물고기부터 방생)` : '') + `</span>`; yes = '🐟 방생';
     confirmBox(html, yes, () => { releaseAll(); back(); }, back);
   }
 }
@@ -825,11 +829,20 @@ function sellFish(idx){
   P.net = P.net.filter((f, i) => !idx.includes(i)); P.coins += sum;
   say(`🪙 ${list.length}마리 판매 +${sum.toLocaleString()}🪙`, 2); sfx.win(); updateLog(); save();
 }
+// release luck caps at 20 minutes: only as many fish as still add time are released, the rest stay in the net
+const LUCK_MAX = 20*60;
+function releasable(){ return Math.max(0, Math.min(P.net.length, Math.round((LUCK_MAX - luckLeft())/60))); }
+function releasePick(){ return P.net.map((f, i) => i).sort((a, b) => P.net[a].price - P.net[b].price).slice(0, releasable()); }   // cheapest first
 function releaseAll(){
   if (!P.net.length) return;
-  const bonus = Math.round(P.net.reduce((a, f) => a + f.price, 0)*0.25);
-  const n = P.net.length; P.luckUntil = Math.min(Math.max(Date.now(), P.luckUntil || 0) + n*60000, Date.now() + 600000);
-  say(`🐟 ${n}마리 방생 · +${bonus}🪙 · 🍀 행운 ${Math.round(luckLeft()/60)}분 (입질 +20%)`, 3, 'hot'); P.coins += bonus; P.net = []; updateLog(); save();
+  const idx = releasePick();
+  if (!idx.length){ say('🍀 행운이 이미 최대(20분)예요 — 살림망에 그대로 둘게요', 2.6, 'bad'); return; }
+  const list = idx.map(i => P.net[i]), bonus = Math.round(list.reduce((a, f) => a + f.price, 0)*0.25), n = list.length, kept = P.net.length - n;
+  P.luckUntil = Math.min(Math.max(Date.now(), P.luckUntil || 0) + n*60000, Date.now() + LUCK_MAX*1000);
+  P.net = P.net.filter((f, i) => !idx.includes(i)); P.coins += bonus;
+  say(`🐟 ${n}마리 방생 · +${bonus}🪙 · 🍀 행운 ${Math.round(luckLeft()/60)}분 (입질 +20%)`, 3, 'hot');
+  if (kept) setTimeout(() => say(`🍀 행운이 최대(20분)라 ${kept}마리는 살림망에 남겨뒀어요`, 3), 1600);
+  updateLog(); save();
 }
 $('status').querySelector('.neth').addEventListener('click', e => { if (!TOUCH.on) return; e.stopPropagation(); $('status').querySelector('.net').classList.toggle('open'); });
 $('sellall').addEventListener('click', e => { e.stopPropagation(); askNet('sell', P.net.map((f, i) => i)); });
