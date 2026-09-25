@@ -2195,9 +2195,11 @@ function openMap(){
   if (!idleOnly('지도를 열 수 있어요')) return;
   openModal('map');
   const r = REGION.spot; MAP.cx = r.lon; MAP.cy = r.lat; MAP.sel = null;
-  sizeMap(); MAP.z = Math.max(MAP.minZ*2.2, MAP.z || 0); drawMap(); showSel(null);
+  // keep the zoom the player chose last time (also across reloads); first time: a regional view
+  sizeMap(); MAP.z = clamp(MAP.userZ || (() => { try { return +localStorage.getItem('boatfish.mapz'); } catch(e){ return 0; } })() || MAP.minZ*2.2, MAP.minZ, 60); drawMap(); showSel(null);
 }
 function closeMap(){ closeModal(); }
+function rememberZoom(){ MAP.userZ = MAP.z; try { localStorage.setItem('boatfish.mapz', MAP.z.toFixed(3)); } catch(e){} }
 function sizeMap(){
   const box = mapCv.parentElement.getBoundingClientRect(), d = Math.min(devicePixelRatio || 1, 2);
   MAP.w = box.width; MAP.h = box.height; mapCv.width = MAP.w*d; mapCv.height = MAP.h*d; mctx.setTransform(d, 0, 0, d, 0, 0);
@@ -2356,7 +2358,7 @@ mapCv.addEventListener('pointermove', e => {
   MAP.hover = s2m(x, y);
   if (MAP.pinch && MPTR.size >= 2){
     const P = pinchState(), [lon, lat] = MAP.pinch.anchor;
-    MAP.z = clamp(MAP.pinch.z0*P.d/Math.max(10, MAP.pinch.d0), MAP.minZ, 60);
+    MAP.z = clamp(MAP.pinch.z0*P.d/Math.max(10, MAP.pinch.d0), MAP.minZ, 60); rememberZoom();
     MAP.cx = lon - (P.mx - MAP.w/2)/MAP.z; MAP.cy = lat + (P.my - MAP.h/2)/MAP.z;   // keep the pinched spot under the fingers
   } else if (MAP.drag){ const dx = e.clientX - MAP.drag.x, dy = e.clientY - MAP.drag.y; if (Math.hypot(dx, dy) > 4) MAP.drag.moved = true;
     if (MAP.drag.moved){ MAP.cx = MAP.drag.cx - dx/MAP.z; MAP.cy = MAP.drag.cy + dy/MAP.z; } }
@@ -2379,12 +2381,12 @@ mapCv.addEventListener('wheel', e => {
   e.preventDefault(); if (MAP.anim) return;
   const b = mapCv.getBoundingClientRect(), x = e.clientX - b.left, y = e.clientY - b.top;
   const [lon, lat] = s2m(x, y);
-  MAP.z = clamp(MAP.z*(e.deltaY < 0 ? 1.25 : 0.8), MAP.minZ, 60);
+  MAP.z = clamp(MAP.z*(e.deltaY < 0 ? 1.25 : 0.8), MAP.minZ, 60); rememberZoom();
   MAP.cx = lon - (x - MAP.w/2)/MAP.z; MAP.cy = lat + (y - MAP.h/2)/MAP.z;
   drawMap();
 }, { passive: false });
 $('mapclose').addEventListener('click', closeMap);
-for (const [id, k] of [['mapin', 1.5], ['mapout', 1/1.5]]) $(id).addEventListener('click', () => { MAP.z = clamp(MAP.z*k, MAP.minZ, 60); drawMap(); });
+for (const [id, k] of [['mapin', 1.5], ['mapout', 1/1.5]]) $(id).addEventListener('click', () => { MAP.z = clamp(MAP.z*k, MAP.minZ, 60); rememberZoom(); drawMap(); });
 $('map').addEventListener('pointerdown', e => { if (e.target === $('map')) closeModal(); });
 addEventListener('resize', () => { if (!$('map').hidden){ sizeMap(); drawMap(); } });
 // the map area can change size without a window resize (info panel content, rotation): keep the canvas matched,

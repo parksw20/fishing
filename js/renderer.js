@@ -1714,7 +1714,7 @@ function render(S){
   if (S.rod){ tip = buildRod(S.rod); if (!S.hideRod) drawMesh(rodMesh, IDENT); }
     // night: glows fluorescent lime like a chemical light stick (야광찌) instead of washing out white
   if (bo) drawMesh(bobMesh, mat4TRS(bo.pos, 0, bo.tilt||0, 0), { emis: 0.55*(1 - 0.9*ENV.night), glow: [0.07*ENV.night, 0.40*ENV.night, 0.012*ENV.night] });
-  if (S.rain && S.rain.n){
+  if (S.rain && S.rain.n && !UW.on){   // no rain streaks below the surface
     gl.useProgram(pLine.p); setCamUniforms(pLine, B);
     const k = 0.35*(ENV.skyK[1] + 0.15); gl.uniform3f(pLine.u.uCol, k, k*1.02, k*1.06);
     gl.bindVertexArray(lineVAO); gl.bindBuffer(gl.ARRAY_BUFFER, lineVB); gl.bufferData(gl.ARRAY_BUFFER, S.rain.data.subarray(0, S.rain.n*6), gl.DYNAMIC_DRAW);
