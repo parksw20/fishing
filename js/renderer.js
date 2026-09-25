@@ -1219,6 +1219,7 @@ const pMesh = prog(MESH_VS, `#version 300 es
 precision highp float;
 in vec3 vN, vC, vW; out vec4 o;
 uniform vec3 uSun, uCam, uSunC, uSkyK, uGlow; uniform float uEmis, uInner;
+uniform vec4 uUW; uniform vec3 uUWsig;   // camera under water: fog colour (w = on) and extinction
 void main(){
   vec3 n = normalize(vN), v = normalize(uCam - vW), c = vC;
   if (dot(n, v) < 0.0){ n = -n; if (uInner > 0.5) c = vec3(0.26,0.16,0.08)*(0.85+0.3*fract(sin(floor(vW.x*9.0+vW.z*1.3)*91.7)*437.5)); }
@@ -1228,6 +1229,7 @@ void main(){
   vec3 col = c/3.14159*(SUN*nl + skyE);
   vec3 h = normalize(v+uSun); col += SUN*0.05*pow(max(dot(n,h),0.0),48.0)*nl;
   col += c*uEmis + uGlow;
+  if (uUW.w > 0.5){ float dd = length(vW - uCam); vec3 T = exp(-uUWsig*dd)*(vW.y > 0.02 ? 0.3 : 1.0); col = mix(uUW.rgb, col, T); }
   o = vec4(col,1);
 }`, 'mesh');
 const pLine = prog(`#version 300 es
@@ -1359,6 +1361,7 @@ void main(){
 precision highp float;
 in vec3 vN, vW; in vec2 vT; out vec4 o;
 uniform sampler2D uTex; uniform vec3 uSun, uCam, uSunC, uSkyK; uniform float uGain;
+uniform vec4 uUW; uniform vec3 uUWsig;
 void main(){
   vec3 n = normalize(vN), v = normalize(uCam - vW);
   if (dot(n, v) < 0.0) n = -n;
@@ -1367,6 +1370,9 @@ void main(){
   vec3 skyE = (vec3(0.62,0.70,0.78)*1.5*(0.55+0.45*n.y) + vec3(0.30,0.40,0.40)*0.5*max(-n.y,0.0))*uSkyK;
   vec3 col = c/3.14159*(uSunC*nl + skyE);
   vec3 h = normalize(v+uSun); col += uSunC*0.04*pow(max(dot(n,h),0.0),40.0)*nl;
+  // seen from under the water: the hull fades into the water colour with distance; parts above the surface
+  // are only glimpsed through the waves
+  if (uUW.w > 0.5){ float dd = length(vW - uCam); vec3 T = exp(-uUWsig*dd)*(vW.y > 0.02 ? 0.3 : 1.0); col = mix(uUW.rgb, col, T); }
   o = vec4(col,1);
 }`, 'texmesh');
 const glbModels = {};
@@ -1413,7 +1419,7 @@ function drawBoat(M){
   if (!m){ drawMesh(boatMesh, M, { inner:true }); return; }
   gl.useProgram(pTexMesh.p); setCamUniforms(pTexMesh, lastBasis);
   gl.uniform3fv(pTexMesh.u.uSun, SUNV); gl.uniform3fv(pTexMesh.u.uSunC, ENV.sunC); gl.uniform3fv(pTexMesh.u.uSkyK, ENV.skyK);
-  gl.uniformMatrix4fv(pTexMesh.u.uM, false, M); gl.uniform1f(pTexMesh.u.uGain, m.gain);
+  gl.uniformMatrix4fv(pTexMesh.u.uM, false, M); gl.uniform1f(pTexMesh.u.uGain, m.gain); setUW(pTexMesh);
   gl.activeTexture(gl.TEXTURE15); gl.bindTexture(gl.TEXTURE_2D, m.tex); gl.uniform1i(pTexMesh.u.uTex, 15); gl.activeTexture(gl.TEXTURE0);
   gl.bindVertexArray(m.vao); gl.drawElements(gl.TRIANGLES, m.n, m.type, 0);
   gl.useProgram(pMesh.p);
@@ -1508,9 +1514,19 @@ function basisFrom(pos, look){
   const u = cross3(r, f);
   return { pos, f, r, u };
 }
+// underwater fog for rasterised objects: same water column model as the underwater view (approximate colour)
+const UW = { on: 0, fog: [0,0,0], sig: [0,0,0] };
+function updateUW(B){
+  UW.on = B.pos[1] < -0.03 ? 1 : 0; if (!UW.on) return;
+  const sT = ENV.sigA.map((a, i) => a + ENV.sigS[i]), sig = sT.map((v, i) => v*1.35 + [0.045, 0.035, 0.03][i]);
+  const dm = Math.max(-B.pos[1], 0), sy = Math.max(SUNV[1], 0.35), sky = [0.62, 0.70, 0.78].map((v, i) => v*Math.PI*0.22*ENV.skyK[i]);
+  UW.sig = sig;
+  UW.fog = sT.map((t, i) => ENV.sigS[i]/t*(ENV.sunC[i]*0.97*Math.exp(-t*dm/sy)*0.07 + sky[i]*Math.exp(-ENV.sigA[i]*dm*1.2)/(4*Math.PI))*3.2);
+}
+function setUW(P){ gl.uniform4f(P.u.uUW, UW.fog[0], UW.fog[1], UW.fog[2], UW.on); gl.uniform3fv(P.u.uUWsig, UW.sig); }
 function drawMesh(m, M, opts){
   if (!m.n) return;
-  gl.useProgram(pMesh.p);
+  gl.useProgram(pMesh.p); setUW(pMesh);
   gl.uniformMatrix4fv(pMesh.u.uM, false, M);
   gl.uniform1f(pMesh.u.uEmis, (opts&&opts.emis)||0); gl.uniform1f(pMesh.u.uInner, (opts&&opts.inner)?1:0);
   gl.uniform3fv(pMesh.u.uGlow, (opts&&opts.glow)||[0,0,0]);
@@ -1526,7 +1542,7 @@ const fishBuf = { P:new Float32Array(MAXF*4), D:new Float32Array(MAXF*4), A:new 
 function render(S){
   const dt = S.dt, t = S.t;
   if (!pebReady) return false;
-  const B = basisFrom(S.cam.pos, S.cam.look); lastBasis = B;
+  const B = basisFrom(S.cam.pos, S.cam.look); lastBasis = B; updateUW(B);
 
   runFFT(t*0.9);
   // keep the ripple window centred under the view, snapped to whole texels
