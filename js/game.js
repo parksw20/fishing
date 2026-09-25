@@ -1006,14 +1006,25 @@ function baitView(focus, back, up, side){
   const oa = G.orbit + (side||0) + (G.state === 'hooked' ? 0 : (G.lookX || 0));
   const c = Math.cos(oa), s = Math.sin(oa); const rx = dx*c - dz*s, rz = dx*s + dz*c;
   // after casting the view can be tilted up/down around the rig (drag, W/S, joystick), but the camera stays above the water
-  const R = Math.hypot(back, up), el = clamp(Math.atan2(up, back) + (G.viewTilt || 0), 0.1, 1.35);
-  let h = Math.max(0.45, R*Math.sin(el)), b = R*Math.cos(el);
+  // after casting the camera may tilt below the surface to watch the bait / lure / fish underwater
+  const under = G.state === 'wait' || G.state === 'hooked';
+  const R = Math.hypot(back, up), el = clamp(Math.atan2(up, back) + (G.viewTilt || 0), under ? -0.6 : 0.1, 1.35);
+  let h = el >= 0.12 ? Math.max(0.45, R*Math.sin(el)) : R*Math.sin(el), b = R*Math.cos(el);
   // never put the camera inside the boat: come closer to the rig, and if that is not enough rise above the gunwale
   for (let i = 0; i < 8 && insideHull(focus[0] - rx*b, focus[2] - rz*b, 0.35); i++) b *= 0.75;
   if (insideHull(focus[0] - rx*b, focus[2] - rz*b, 0.35)) h = Math.max(h, SEAT[1] + 0.2);
-  return { pos: [focus[0] - rx*b, h, focus[2] - rz*b], look: [focus[0], -0.25 + Math.max(0, 0.35 - el)*2.5, focus[2]] };
+  const px = focus[0] - rx*b, pz = focus[2] - rz*b;
+  if (h < 0) h = Math.max(h, -(floorDepth(px, pz) - 0.35));            // stay above the bottom
+  const k = clamp(-h/0.6, 0, 1), ty = underTargetY();                    // underwater: look at the bait itself
+  return { pos: [px, h, pz], look: [focus[0], lerp(-0.25 + Math.max(0, 0.35 - el)*2.5, ty, k), focus[2]] };
 }
-function tiltView(d){ G.viewTilt = clamp((G.viewTilt || 0) + d, -0.7, 0.8); }
+function underTargetY(){
+  if (G.state === 'hooked' && G.hooked) return G.hooked.pos[1];
+  if (G.rig) return G.rig.bait[1];
+  if (G.lure) return G.lure.pos[1];
+  return -1;
+}
+function tiltView(d){ G.viewTilt = clamp((G.viewTilt || 0) + d, -1.6, 0.8); }
 function boatView(){
   const e = eyeWorld(), yw = viewYaw(), pt = viewPitch(), cp = Math.cos(pt);
   return { pos: e, look: add(e, [Math.sin(yw)*cp*10, Math.sin(pt)*10, -Math.cos(yw)*cp*10]) };
@@ -1042,7 +1053,10 @@ function updateCamera(dt){
   }
   const a = 1 - Math.exp(-dt*k);
   cam.pos = vlerp(cam.pos, T.pos, a); cam.look = vlerp(cam.look, T.look, a);
-  cam.pos[1] = Math.max(cam.pos[1], 0.45);
+  if (G.state === 'wait' || G.state === 'hooked') cam.pos[1] = Math.max(cam.pos[1], -(floorDepth(cam.pos[0], cam.pos[2]) - 0.3));
+  else cam.pos[1] = Math.max(cam.pos[1], Math.min(0.45, cam.pos[1] + dt*4));   // back above the water after retrieving
+  const uw = cam.pos[1] < -0.03;
+  if (uw !== G.camUnder){ G.camUnder = uw; if (uw && !G.underTold){ G.underTold = true; say('🤿 물속 시점 — 위로 기울이면 물 밖으로', 2.2); } }
 }
 
 /* ---------------- scene assembly ---------------- */

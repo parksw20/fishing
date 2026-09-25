@@ -624,10 +624,68 @@ vec2 wakeAt(vec2 x){
   return vec2(h, foam);
 }
 
+// ---- camera below the surface: look around inside the water column ----
+vec3 underwaterView(vec3 rd){
+  vec3 ro = uCam;
+  vec3 sunT = refract(-uSun, vec3(0,1,0), 1.0/IOR);
+  float Ts = 1.0 - fresnel(uSun.y, IOR);
+  vec3 skyIrr = vec3(0.62, 0.70, 0.78) * PI * 0.22 * uSkyK;
+  const float FAR = 70.0;
+  // bottom
+  float sB = FAR;
+  if (rd.y < -1e-4){
+    float fy = -floorDepth(ro.xz); float sb = (fy - ro.y)/rd.y; vec3 FP = ro + rd*sb;
+    for (int i=0;i<3;i++){ fy = -floorDepth(FP.xz); sb = (fy - ro.y)/rd.y; FP = ro + rd*sb; }
+    sB = clamp(sb, 0.0, FAR);
+  }
+  // underside of the surface (mean level; the normal carries the waves)
+  float sS = rd.y > 1e-4 ? min(-ro.y/rd.y, FAR) : FAR;
+  float sMax = min(sB, sS);
+  vec3 oN, oAlb; float oSpec;
+  float so = traceObjects(ro, rd, sMax, oN, oAlb, oSpec);
+  float sHit = so > 0.0 ? so : sMax;
+  vec3 X = ro + rd*sHit;
+  float dep = max(-X.y, 0.0);
+  vec3 L = vec3(0.0);
+  if (so > 0.0){
+    float focus = clamp(dep/uDepth, 0.0, 1.0);
+    vec3 caus = mix(vec3(1.0), texture(uCaus, (X.xz - uCausShift*focus)/uL, 1.0).rgb, focus);
+    vec3 att = exp(-SIG_T*dep/(-sunT.y));
+    L = oAlb/PI*(SUN*Ts*att*caus*max(dot(oN, -sunT), 0.0) + skyIrr*exp(-(SIG_A + 0.4*SIG_S)*dep*1.25)*(0.45 + 0.55*oN.y));
+    L += oSpec*SUN*Ts*att*caus*pow(max(dot(oN, normalize(-sunT - rd)), 0.0), 48.0)*0.35;
+    if (lureHit) L += oAlb*0.35 + vec3(0.02);
+  } else if (sB <= sS && sB < FAR){
+    float hgt; vec3 alb = pebbles(X.xz, 1.0, hgt);
+    alb = mix(vec3(0.30,0.29,0.27), pow(alb, vec3(1.2)), 0.72)*0.6*uBed.yzw;
+    vec3 caus = texture(uCaus, (X.xz - uCausShift)/uL, 1.0).rgb;
+    float shd = shadowAt(X, -sunT);
+    L = alb/PI*(SUN*Ts*exp(-SIG_T*dep/(-sunT.y))*caus*(-sunT.y)*shd + skyIrr*exp(-(SIG_A + 0.4*SIG_S)*dep*1.25));
+  } else if (sS < FAR){
+    // the surface from below: Snell's window (sky and sun) inside ~49°, mirror of the dark water outside it
+    vec4 A = texture(uSurf, X.xz/uL); vec4 R = texture(uRip, (X.xz - uRipCenter)/uRipSize + 0.5);
+    vec3 n = normalize(vec3(-(A.y + R.y), 1.0, -(A.z + R.z)));
+    vec3 tr = refract(rd, -n, IOR);
+    vec3 deepC = SIG_S/SIG_T*(SUN*Ts*0.02 + skyIrr/(4.0*PI))*exp(-SIG_A*2.0);
+    if (dot(tr, tr) < 0.01) L = deepC*0.8;
+    else {
+      float Fw = fresnel(max(dot(-rd, -n), 0.0), 1.0/IOR);
+      L = (1.0 - Fw)*(sky(tr, 0.0)*1.1 + SUN*6.0*smoothstep(0.9990, 0.99975, dot(tr, uSun))*(1.0 - uWeather.x)) + Fw*deepC;
+    }
+  }
+  // the water column between the eye and what it sees: absorption plus sunlit in-scatter
+  vec3 Tv = exp(-SIG_T*sHit);
+  float g = 0.8, cosS = dot(sunT, -rd);
+  float ph = (1.0-g*g)/(4.0*PI*pow(1.0+g*g-2.0*g*cosS, 1.5));
+  float dm = max(-ro.y, 0.0) + 0.5*max(-X.y - max(-ro.y, 0.0), 0.0);
+  vec3 Lmid = SUN*Ts*exp(-SIG_T*dm/(-sunT.y))*(ph + 0.02) + skyIrr*exp(-SIG_A*dm*1.2)/(4.0*PI);
+  return L*Tv + SIG_S/SIG_T*Lmid*(1.0 - Tv)*3.2;
+}
+
 void main(){
   vec2 ndc = vUv*2.0-1.0;
   vec3 rd = normalize(uF + ndc.x*uAspect*uTanF*uR + ndc.y*uTanF*uU);
   vec3 wd = rd; wd.y = min(wd.y, -0.0015); wd = normalize(wd);
+  if (uCam.y < -0.03){ o = vec4(max(underwaterView(rd), 0.0), 1.0); gl_FragDepth = 1.0; return; }
 
   // ---- surface intersection (height field, fixed-point) ----
   float t = -uCam.y / wd.y;
@@ -1445,7 +1503,7 @@ function render(S){
 
   runFFT(t*0.9);
   // keep the ripple window centred under the view, snapped to whole texels
-  const look = -B.pos[1]/Math.min(B.f[1],-0.2);
+  const look = Math.abs(B.pos[1])/Math.max(Math.abs(B.f[1]),0.2);
   const want = [B.pos[0]+B.f[0]*look*0.9, B.pos[2]+B.f[2]*look*0.9];
   const tx = RSIZE/RN;
   const dxT = Math.round((want[0]-ripCenter[0])/tx), dzT = Math.round((want[1]-ripCenter[1])/tx);
