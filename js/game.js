@@ -146,7 +146,7 @@ function pushOutOfHull(p, m){
 function isSalt(){ return BIOMES[REGION.biome].water === 'salt'; }
 function itemName(it){ return isSalt() && it.nameSea ? it.nameSea : it.name; }
 function lineKg(){ return baseLineKg()*tierOf('line').mult; }
-const GAME_HOUR = 45;   // real seconds per in-game hour
+const GAME_HOUR = 225;   // real seconds per game hour (a game day ≈ 90 minutes)
 function yawDir(y){ return [Math.sin(y), 0, -Math.cos(y)]; }
 function viewYaw(){ return G.aimYaw + (G.lookX || 0); }
 function viewPitch(){ return clamp(G.aimPitch + (G.lookY || 0), -1.0, 0.45); }
