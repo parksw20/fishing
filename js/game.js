@@ -780,13 +780,13 @@ const HELP = {
 };
 let lastHelp = '';
 const HELP_TOUCH = {
-  idle: () => '<b>조그</b> 방향 · 화면 드래그 시점 · <b>던지기</b> 길게 눌렀다 놓기 · ⛵ 보트 · ☰ 메뉴',
+  idle: () => '화면 드래그로 방향 · <b>던지기</b> 길게 눌렀다 놓기 · ⛵ 보트 · ☰ 메뉴',
   charge: () => '손을 떼면 던집니다',
   fly: () => '',
   wait: () => G.mode === 'pole' ? '찌가 <b>쑥 잠기거나 올라오면 챔질</b> (화면 탭도 가능) · +/− 수심' : '<b>감기</b>를 누르고 있기 · 감다 멈추기로 액션 · +/− 드랙',
-  hooked: () => `<b>조그를 물고기 반대쪽</b>으로 · <b>${G.mode === 'pole' ? '들기' : '감기'}</b> 누르기`,
+  hooked: () => `가운데 조그를 <b>누른 채</b> ${G.mode === 'pole' ? '들기' : '감기'} · <b>물고기 반대쪽</b>으로 밀기`,
   result: () => '탭하여 계속',
-  boat: () => '<b>조그</b> 위: 전진 · 아래: 후진 · 좌우: 조향 · 드래그 시점 · <b>⚓</b> 낚시',
+  boat: () => '<b>조그</b> 위: 전진 · 아래: 후진 · 좌우: 조향 · 드래그 시점 · 오른쪽 아래 🎣 낚시',
 };
 function updateHelp(){ const h = (TOUCH.on ? HELP_TOUCH : HELP)[G.state](); if (h !== lastHelp){ $('help').innerHTML = h; lastHelp = h; } }
 
@@ -891,10 +891,13 @@ function joyMove(e){
   const l = Math.hypot(x, y); if (l > 1){ x /= l; y /= l; }
   JOY.x = x; JOY.y = y; knob.style.transform = `translate(${x*R*0.8}px, ${y*R*0.8}px)`;
 }
-joyEl.addEventListener('pointerdown', e => { e.preventDefault(); audioInit(); joyEl.setPointerCapture(e.pointerId); JOY.pad = false; JOY.active = true; JOY.id = e.pointerId; joyEl.classList.add('on'); joyMove(e); });
+joyEl.addEventListener('pointerdown', e => { e.preventDefault(); audioInit(); joyEl.setPointerCapture(e.pointerId); JOY.pad = false; JOY.active = true; JOY.id = e.pointerId; joyEl.classList.add('on'); joyMove(e);
+  // fighting: the centre joystick also reels / lifts while it is held
+  if (G.state === 'hooked' && !mouse.down){ mouse.down = true; mouse.downT = G.time; press(); } });
 joyEl.addEventListener('pointermove', e => { if (JOY.active && e.pointerId === JOY.id) joyMove(e); });
 const joyUp = e => { if (e.pointerId !== JOY.id) return; JOY.active = false; JOY.id = null; JOY.x = JOY.y = 0; knob.style.transform = ''; joyEl.classList.remove('on');
-  if (G.state === 'hooked'){ mouse.x = innerWidth/2; mouse.y = innerHeight/2; } };
+  if (G.state === 'hooked'){ mouse.x = innerWidth/2; mouse.y = innerHeight/2; }
+  if (mouse.down && !act.classList.contains('down')){ mouse.down = false; release(); } };
 joyEl.addEventListener('pointerup', joyUp); joyEl.addEventListener('pointercancel', joyUp);
 function applyJoy(dt){
   if (G.state === 'hooked'){
@@ -934,6 +937,9 @@ $('tmap').addEventListener('click', e => { e.stopPropagation(); $('menu').hidden
 let actCache = '';
 function updateTouchUI(){
   if (!TOUCH.on) return;
+  // one centre control: joystick while driving or fighting, the cast / action button otherwise
+  const cj = G.state === 'boat' || G.state === 'hooked';
+  if (cj !== G.centerJoy){ G.centerJoy = cj; document.body.classList.toggle('tc-joy', cj); }
   const f = G.engaged, pole = G.mode === 'pole';
   const lbl = { idle: '던지기', charge: '놓으면<br>던짐', fly: '…', result: '계속', boat: '⚓<br>낚시',
     wait: pole ? '챔질' : '감기', hooked: pole ? '들기' : '감기' }[G.state];
@@ -1683,7 +1689,7 @@ function setNav(boat){
   if (G.mapOpen) return;
   if (boat){
     if (G.state !== 'idle'){ say(G.state === 'boat' ? '' : '채비를 회수한 뒤 보트를 운전할 수 있어요 (R)', 1.8); return; }
-    G.state = 'boat'; G.orbit = 0; say('⛵ 보트 운전 — W/S 가속, A/D 방향', 1.8);
+    G.state = 'boat'; G.orbit = 0; say(TOUCH.on ? '⛵ 보트 운전 — 가운데 조그로 조종' : '⛵ 보트 운전 — W/S 가속, A/D 방향', 1.8);
   } else {
     if (G.state !== 'boat') return;
     G.state = 'idle'; G.aimYaw = BOAT.heading; G.aimPitch = -0.2; G.orbit = 0;
@@ -2250,7 +2256,7 @@ function renderSettings(){
     el.innerHTML =
       `<h4>화면 조작 (터치)</h4>` +
       setRow('조그 크기', segCtl('joy', [['s', '작게'], ['m', '보통'], ['l', '크게']])) +
-      setRow('왼손 모드', toggleCtl('lefty'), '조그를 오른쪽, 버튼을 왼쪽으로') +
+      setRow('왼손 모드', toggleCtl('lefty'), '메뉴·보트 버튼 좌우와 +/− 위치를 바꿔요') +
       setRow('휴대폰 진동', toggleCtl('vibe'), '입질·챔질·파이팅 때 진동 (안드로이드 · 아이폰 Safari는 지원 안 함)') +
       `<h4>시점</h4>` +
       setRow('카메라 흔들림', rangeCtl('shake', 0, 1, 0.05, FMT.pct), '챔질·파이팅 때 화면 흔들림 · 0%면 끔') +

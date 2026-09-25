@@ -265,6 +265,30 @@
   body.touch.lefty #joy { left:auto; right:calc(18px + env(safe-area-inset-right,0px)); }
   body.touch.lefty #tctl { right:auto; left:calc(14px + env(safe-area-inset-left,0px)); flex-direction:row-reverse; }
   body.touch.lefty #retrieve { right:auto; left:calc(14px + env(safe-area-inset-left,0px)); }
+  /* ---- touch controls: one centre control, +/- on its left, menu bottom-left, boat/fishing bottom-right ---- */
+  body.touch #tctl, body.touch #tctl .tcol:first-child { display:contents; }
+  body.touch #act { position:fixed; left:50%; bottom:calc(18px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%); z-index:7; }
+  body.touch #act.down { transform:translateX(-50%) scale(.93); }
+  @keyframes pulseC { from { transform:translateX(-50%); } to { transform:translateX(-50%) scale(1.08); } }
+  body.touch #act.hot { animation-name:pulseC; }
+  body.touch #joy { display:none; left:50%; right:auto; bottom:calc(18px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%); width:92px; height:92px; }
+  body.touch.tc-joy #joy { display:block; }
+  body.touch.tc-joy #act { display:none; }
+  body.touch #tctl .tcol:nth-child(2) { position:fixed; z-index:7; bottom:calc(18px + env(safe-area-inset-bottom,0px)); right:calc(50% + 58px); left:auto; }
+  body.touch #tmap { position:fixed; z-index:7; left:calc(16px + env(safe-area-inset-left,0px)); right:auto; bottom:calc(22px + env(safe-area-inset-bottom,0px)); width:52px; height:52px; }
+  body.touch #tnav { position:fixed; z-index:7; right:calc(16px + env(safe-area-inset-right,0px)); left:auto; bottom:calc(22px + env(safe-area-inset-bottom,0px)); width:52px; height:52px; }
+  body.touch #retrieve { right:calc(14px + env(safe-area-inset-right,0px)); left:auto; bottom:calc(88px + env(safe-area-inset-bottom,0px)); }
+  body.touch #menu { left:calc(14px + env(safe-area-inset-left,0px)); right:auto; bottom:calc(84px + env(safe-area-inset-bottom,0px)); }
+  body.touch #dock { bottom:calc(150px + env(safe-area-inset-bottom,0px)); }
+  body.touch #help { max-width:calc(100vw - 32px); }
+  @media (min-width: 641px) { body.touch #help { max-width:calc(100vw - 360px); } }
+  /* left-handed: mirror the corners and put +/- on the right of the centre control */
+  body.touch.lefty #tmap { left:auto; right:calc(16px + env(safe-area-inset-right,0px)); }
+  body.touch.lefty #tnav { right:auto; left:calc(16px + env(safe-area-inset-left,0px)); }
+  body.touch.lefty #tctl .tcol:nth-child(2) { right:auto; left:calc(50% + 58px); }
+  body.touch.lefty #joy { left:50%; right:auto; }
+  body.touch.lefty #retrieve { right:auto; left:calc(14px + env(safe-area-inset-left,0px)); }
+  body.touch.lefty #menu { left:auto; right:calc(14px + env(safe-area-inset-right,0px)); }
 </style>
 </head>
 <body>
