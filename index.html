@@ -350,6 +350,10 @@
   #pwfill { height:100%; width:100%; margin-left:auto; background:rgba(8,18,24,.82); }   /* covers the part not yet charged */
   body:not(.touch) #power { transform:scale(1.25); transform-origin:50% 100%; margin-top:10px; }
   body.touch #power .pwbar { width:min(280px, 70vw); }
+  /* the dock spans the screen width so the hint line can run long instead of wrapping in half the screen */
+  #dock { left:0 !important; right:0; transform:none !important; }
+  #help { max-width:calc(100vw - 24px) !important; }
+  body.touch #help { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:12px; }
 </style>
 </head>
 <body>
