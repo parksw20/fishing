@@ -1368,14 +1368,21 @@ function drawHUD(){
   }
   if (G.state === 'wait' && G.rig){
     const r = G.rig;
+    // labels follow the float from above; underwater they sit by the bait (the float may be far above the view),
+    // and they are kept on screen
+    const uw = cam.pos[1] < -0.03;
+    const tag = (y, dx = 0, dy = 0) => {
+      const s = Rn.project(uw ? [r.bait[0], r.bait[1] + y*0.6, r.bait[2]] : [r.pos[0], y, r.pos[2]]); if (!s) return null;
+      return [clamp(s[0] + dx, 60, hudW - 60), clamp(s[1] + dy, 90, hudH - 150)];
+    };
     if (G.help){
-      const s = Rn.project([r.pos[0], 0.35, r.pos[2]]);
+      const s = tag(0.35);
       const f = G.engaged;
       if (s && f && f.state === 'take') label('챔질!', s[0], s[1] - 10, '#ffdf4a', 22);
       else if (s && f && f.state === 'nibble') label('입질…', s[0], s[1] - 10, '#bfe9ff', 15);
     }
-    if (r.baitGone){ const s = Rn.project([r.pos[0], 0.35, r.pos[2]]); if (s) label('미끼 없음', s[0], s[1] - 10, '#ff9a8a', 14); }
-    { const s = Rn.project([r.pos[0], 0.12, r.pos[2]]); if (s) label(`수심 ${fmtD(r.baitDepth)}m${r.laid ? ' · 바닥' : ''}`, s[0] + 42, s[1] + 4, 'rgba(255,255,255,.85)', 12); }
+    if (r.baitGone){ const s = tag(0.35, 0, -10); if (s) label('미끼 없음', s[0], s[1], '#ff9a8a', 14); }
+    { const s = tag(0.12, 42, 4); if (s) label(`수심 ${fmtD(r.baitDepth)}m${r.laid ? ' · 바닥' : ''}`, s[0], s[1], 'rgba(255,255,255,.85)', 12); }
   }
   if (G.state === 'wait' && G.lure){
     const L = G.lure, s = Rn.project(L.pos);
