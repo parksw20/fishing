@@ -1219,26 +1219,37 @@ const VFOV = 60*Math.PI/180;
 const pDecor = prog(`#version 300 es
 layout(location=0) in vec3 aP; layout(location=1) in vec3 aN; layout(location=2) in vec3 aC; layout(location=3) in float aS;
 uniform vec3 uCam, uR, uU, uF; uniform float uTanF, uAspect, uTime;
-out vec3 vN, vC, vW;
+out vec3 vN, vC, vW; out float vRock;
 void main(){
-  vec3 p = aP;
+  vec3 p = aP; vRock = aS < -0.5 ? 1.0 : 0.0;   // aS = -1 marks rock (textured in the fragment shader)
   // weed sways with the current: more towards the tip (aS = 0 at the root, 1 at the tip)
-  float w = aS*aS, ph = uTime*1.1 + p.x*0.45 + p.z*0.31;
+  float w = max(aS, 0.0)*max(aS, 0.0), ph = uTime*1.1 + p.x*0.45 + p.z*0.31;
   p.x += (sin(ph) + 0.35*sin(ph*2.3 + 1.7))*0.16*w; p.z += cos(ph*0.8 + 0.6)*0.11*w;
   vW = p; vN = aN; vC = aC;
   vec3 v = p - uCam; float dz = dot(v, uF);
   gl_Position = vec4(dot(v,uR)/(uAspect*uTanF), dot(v,uU)/uTanF, ${ZA.toFixed(8)}*dz + (${ZB.toFixed(8)}), dz);
 }`, `#version 300 es
 precision highp float;
-in vec3 vN, vC, vW; out vec4 o;
+in vec3 vN, vC, vW; in float vRock; out vec4 o;
 uniform vec3 uSun, uCam, uSunC, uSkyK, uSigT; uniform vec4 uUW; uniform vec3 uUWsig;
+float h3(vec3 p){ p = fract(p*0.3183099 + 0.1); p *= 17.0; return fract(p.x*p.y*p.z*(p.x + p.y + p.z)); }
+float n3(vec3 x){ vec3 i = floor(x), f = fract(x); f = f*f*(3.0 - 2.0*f);
+  return mix(mix(mix(h3(i), h3(i + vec3(1,0,0)), f.x), mix(h3(i + vec3(0,1,0)), h3(i + vec3(1,1,0)), f.x), f.y),
+             mix(mix(h3(i + vec3(0,0,1)), h3(i + vec3(1,0,1)), f.x), mix(h3(i + vec3(0,1,1)), h3(i + vec3(1,1,1)), f.x), f.y), f.z); }
 void main(){
   vec3 n = normalize(vN), v = normalize(uCam - vW);
+  vec3 alb = vC;
+  if (vRock > 0.5){   // procedural stone: mottled dark grey with darker pits and a few lighter mineral flecks, algae on top
+    float m = n3(vW*3.1)*0.55 + n3(vW*9.7)*0.3 + n3(vW*27.0)*0.15;
+    float pits = smoothstep(0.55, 0.75, n3(vW*6.3 + 11.0));
+    alb = (vC*mix(0.35, 1.2, m)*(1.0 - 0.6*pits) + vec3(0.04)*step(0.93, n3(vW*41.0)))*0.45;   // dark stone
+    alb = mix(alb, vec3(0.05, 0.09, 0.04), smoothstep(0.55, 0.95, n.y)*0.55*n3(vW*2.3 + 5.0));
+  }
   if (dot(n, v) < 0.0) n = -n;
   float dep = max(-vW.y, 0.0), sy = max(uSun.y, 0.3);
   vec3 att = exp(-uSigT*dep/sy*0.4);
   vec3 sky = vec3(0.62,0.70,0.78)*0.7*uSkyK*exp(-uSigT*dep*0.4)*(0.55 + 0.45*n.y);
-  vec3 col = vC/3.14159*(uSunC*0.97*att*max(dot(n, uSun), 0.0)*0.55 + sky*1.4);
+  vec3 col = alb/3.14159*(uSunC*0.97*att*max(dot(n, uSun), 0.0)*0.55 + sky*1.4);
   // a little kinder than physics so the colours of coral and weed read before the water swallows them
   if (uUW.w > 0.5){ float dd = length(vW - uCam); col = mix(uUW.rgb, col, exp(-uUWsig*dd*0.4)); }
   o = vec4(col, 1);
@@ -1253,13 +1264,13 @@ function buildDecor(items){
   const put = (p, n, c, sw) => V.push(p[0], p[1], p[2], n[0], n[1], n[2], c[0], c[1], c[2], sw);
   const tri = (a, b, c, na, nb, nc, ca, cb, cc, sa, sb, sc) => { put(a, na, ca, sa); put(b, nb, cb, sb); put(c, nc, cc, sc); };
   const rnd = seed => { let x = Math.sin(seed*127.1)*43758.5453; return () => { x = Math.sin(x*12.9898 + 78.233)*43758.5453; return x - Math.floor(x); }; };
-  const blob = (o, rad, col, seg, R, squash, jag) => {   // lumpy ellipsoid (rocks, brain coral)
+  const blob = (o, rad, col, seg, R, squash, jag, kind = 0) => {   // lumpy ellipsoid (rocks, brain coral)
     const P = (i, j) => { const th = i/seg*Math.PI, ph = j/seg*2*Math.PI, d = 1 + jag*(Math.sin(th*3.1 + R*9)*Math.cos(ph*2 + R*5)*0.6 + Math.sin(ph*5 + th*2 + R*3)*0.4);
       const u = [Math.sin(th)*Math.cos(ph), Math.cos(th), Math.sin(th)*Math.sin(ph)];
       return { p: [o[0] + u[0]*rad[0]*d, o[1] + Math.max(u[1], -0.35)*rad[1]*d*squash, o[2] + u[2]*rad[2]*d], n: norm3([u[0]/rad[0], u[1]/rad[1], u[2]/rad[2]]) }; };
     for (let i = 0; i < seg; i++) for (let j = 0; j < seg; j++){ const a = P(i, j), b = P(i + 1, j), d = P(i, j + 1), e = P(i + 1, j + 1);
       const sh = 0.65 + 0.6*((i*7 + j*3 + Math.floor(R*3)) % 5)/4, c = col.map(v => v*sh);   // blotchy facets stand in for a texture
-      tri(a.p, b.p, e.p, a.n, b.n, e.n, c, c, c, 0, 0, 0); tri(a.p, e.p, d.p, a.n, e.n, d.n, c, c, c, 0, 0, 0); }
+      tri(a.p, b.p, e.p, a.n, b.n, e.n, c, c, c, kind, kind, kind); tri(a.p, e.p, d.p, a.n, e.n, d.n, c, c, c, kind, kind, kind); }
   };
   const blade = (o, ang, h, w, bend, col, col2, sway) => {   // a flat ribbon of weed/grass, 5 segments, swaying towards the tip
     const dx = Math.cos(ang), dz = Math.sin(ang), nx = -dz, nz = dx; let prev = null;
@@ -1281,7 +1292,7 @@ function buildDecor(items){
   };
   for (const it of items){
     const R = rnd(it.h), o = it.p, s = it.s, c = it.c;
-    if (it.k === 'rock') blob([o[0], o[1] - 0.05*s, o[2]], [s*(0.8 + 0.5*R()), s*(0.45 + 0.4*R()), s*(0.8 + 0.5*R())], c, 7, R()*10, 1, 0.18);
+    if (it.k === 'rock') blob([o[0], o[1] - 0.05*s, o[2]], [s*(0.8 + 0.5*R()), s*(0.45 + 0.4*R()), s*(0.8 + 0.5*R())], c, 7, R()*10, 1, 0.18, -1);
     else if (it.k === 'brain') blob(o, [s, s*0.7, s], c, 8, R()*10, 1, 0.08);
     else if (it.k === 'coral'){   // branching coral: a few forks
       const grow = (a, dir, len, r, depth) => { const b = [a[0] + dir[0]*len, a[1] + dir[1]*len, a[2] + dir[2]*len]; branch(a, b, r, r*0.7, c, 0); if (depth > 0) for (let q = 0; q < 2; q++){ const t = R()*Math.PI*2, sp = 0.5 + R()*0.4; grow(b, norm3([dir[0] + Math.cos(t)*sp, dir[1], dir[2] + Math.sin(t)*sp]), len*0.72, r*0.7, depth - 1); } };
@@ -1624,7 +1635,7 @@ function updateUW(B){
   const sT = ENV.sigA.map((a, i) => a + ENV.sigS[i]), sig = sT.map((v, i) => v*1.35 + [0.045, 0.035, 0.03][i]);
   const dm = Math.max(-B.pos[1], 0), sy = Math.max(SUNV[1], 0.35), sky = [0.62, 0.70, 0.78].map((v, i) => v*Math.PI*0.22*ENV.skyK[i]);
   UW.sig = sig;
-  UW.fog = sT.map((t, i) => ENV.sigS[i]/t*(ENV.sunC[i]*0.97*Math.exp(-t*dm/sy)*0.07 + sky[i]*Math.exp(-ENV.sigA[i]*dm*1.2)/(4*Math.PI))*3.2);
+  UW.fog = sT.map((t, i) => ENV.sigS[i]/t*(ENV.sunC[i]*0.97*Math.exp(-t*(dm + 1.2)/sy)*0.032 + sky[i]*Math.exp(-ENV.sigA[i]*dm*1.2)/(4*Math.PI))*3.2);
 }
 function setUW(P){ gl.uniform4f(P.u.uUW, UW.fog[0], UW.fog[1], UW.fog[2], UW.on); gl.uniform3fv(P.u.uUWsig, UW.sig); }
 function drawMesh(m, M, opts){

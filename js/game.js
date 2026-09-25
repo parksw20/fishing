@@ -2751,8 +2751,8 @@ const SUBSTEPS = Math.max(1, +(new URLSearchParams(location.search).get('sim')) 
 { const v = new URLSearchParams(location.search).get('visit'); if (v && BY_ID[v]) setTimeout(() => spawnVisitor(BY_ID[v]), 500); }
 setInterval(save, 15000);
 function frame(now){
-  // frame pacing: phones run at 30 fps; behind a full-screen window (map, shop, quests…) the world only ticks at ~8 fps
-  const cap = G.mapOpen && !MAP.anim ? 8 : Rn.fpsCap;
+  // frame pacing: phones run at 30 fps (or the frame cap set in settings)
+  const cap = Rn.fpsCap;
   if (cap && now - last < 1000/cap - 3){ requestAnimationFrame(frame); return; }
   const dt = Math.min(0.05, (now - last)/1000); last = now;
   if (Rn.ready()){
