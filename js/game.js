@@ -98,7 +98,7 @@ function audioInit(){
     // mixer: effects and ambience (rain, engine) buses into a master volume
     const c = AU.ctx; AU.master = c.createGain(); AU.sfx = c.createGain(); AU.amb = c.createGain();
     AU.sfx.connect(AU.master); AU.amb.connect(AU.master); AU.master.connect(c.destination);
-    applyVolume();
+    applyVolume(); loadSounds();
   } catch(e){ AU.ctx = null; }
 }
 function applyVolume(){
@@ -130,6 +130,68 @@ const sfx = {
   hit: () => { tone(660, 0.12, 0.1, 'triangle'); setTimeout(() => tone(880, 0.16, 0.1, 'triangle'), 90); },
   win: () => [523,659,784,1046].forEach((f,i) => setTimeout(() => tone(f, 0.22, 0.08, 'triangle'), i*110)),
 };
+
+/* ---------------- recorded sounds (sound/*.mp3) ----------------
+   Numbered takes of the same sound play at random (never the same take twice in a row).
+   Until a file has loaded (or when it can't be fetched) the synthesised sfx above stand in. */
+const SND_GROUPS = {
+  cast: ['릴풀림'],                                          // line peeling off the spool as the cast flies
+  plunk: ['미끼퐁당1', '미끼퐁당2', '미끼퐁당3', '미끼퐁당4'],       // bait / lure lands
+  drag: ['릴드랙1', '릴드랙2', '릴드랙3', '릴드랙4'],              // drag slipping while a fish takes line (looped)
+  catch: ['물고기잡음'], fanfare: ['물고기팡파래'],
+  net: ['살림망물고기1', '살림망물고기2', '살림망물고기3', '살림망물고기4'],
+  reward: ['보상획득'], lap: ['환경음'],
+  ui: ['효과음1'], select: ['효과음2'], claim: ['효과음3'], deny: ['효과음4'], buy: ['효과음5'], quest: ['효과음6'],
+  engStart: ['보트이동1'], engLoop: ['보트이동1-1'], eng2: ['보트이동2'],
+};
+const SND = { buf: {}, k: {}, last: {} };
+function loadSounds(){
+  for (const n of new Set(Object.values(SND_GROUPS).flat()))
+    fetch('sound/' + encodeURIComponent(n) + '.mp3').then(r => r.ok ? r.arrayBuffer() : Promise.reject(r.status))
+      .then(a => AU.ctx.decodeAudioData(a)).then(b => {
+        // level-match the files: scale so the loudest stretch sits at a common loudness
+        const d = b.getChannelData(0), S = 12, len = Math.floor(d.length/S); let mx = 1e-4;
+        for (let j = 0; j < S; j++){ let e = 0; for (let i = j*len; i < (j+1)*len; i++) e += d[i]*d[i]; mx = Math.max(mx, Math.sqrt(e/len)); }
+        SND.k[n] = clamp(0.11/mx, 0.3, 5); SND.buf[n] = b;
+      }).catch(() => {});
+}
+function hasS(group){ return SND_GROUPS[group].some(n => SND.buf[n]); }
+function playS(group, o = {}){
+  if (!AU.ctx) return null;
+  const pool = SND_GROUPS[group].filter(n => SND.buf[n]); if (!pool.length) return null;
+  let n = pool[Math.floor(Math.random()*pool.length)];
+  if (pool.length > 1 && n === SND.last[group]) n = pool[(pool.indexOf(n) + 1) % pool.length];
+  SND.last[group] = n;
+  const c = AU.ctx, s = c.createBufferSource(), g = c.createGain(), k = SND.k[n];
+  s.buffer = SND.buf[n]; s.loop = !!o.loop; s.playbackRate.value = o.rate || 1; g.gain.value = k*(o.gain ?? 1);
+  s.connect(g); g.connect(o.bus || AU.sfx); s.start(c.currentTime + (o.delay || 0));
+  return { s, g, k };
+}
+// looped drag: louder and a touch higher as the fish strips line faster
+function updateDragSound(dt){
+  if (!AU.ctx) return;
+  const want = G.state === 'hooked' ? (AU.dragWant || 0) : 0, t = AU.ctx.currentTime;
+  if (want > 0.02 && !AU.dragS) AU.dragS = playS('drag', { loop: true, gain: 0 });
+  const D = AU.dragS; if (!D) return;
+  D.g.gain.setTargetAtTime(D.k*0.9*want, t, 0.06); D.s.playbackRate.setTargetAtTime(0.85 + 0.35*want, t, 0.1);
+  AU.dragIdle = want > 0.02 ? 0 : (AU.dragIdle || 0) + dt;
+  if (AU.dragIdle > 0.8){ D.s.stop(); AU.dragS = null; AU.dragIdle = 0; }
+}
+// water lapping against the hull now and then
+function updateLap(dt){
+  if (!AU.ctx || !hasS('lap')) return;
+  AU.lapT = (AU.lapT ?? 2) - dt; if (AU.lapT > 0) return;
+  AU.lapT = rand(2.5, 7);
+  if (Math.abs(G.boatV) < 1.5) playS('lap', { bus: AU.amb, gain: rand(0.45, 0.9), rate: rand(0.85, 1.15) });
+}
+// every button gets a soft click; tabs, segmented choices and tackle pickers a "select" tick.
+// Buttons whose action has its own sound (buy, claim, sell, cast...) stay quiet here.
+document.addEventListener('click', e => {
+  const b = e.target.closest && e.target.closest('button, [data-t], .seg > *');
+  if (!b || b.disabled || b.closest('[data-up], [data-buy], [data-c], #nsell, #nrel, #sellall, #releaseall, #act, #joy, #stest, #attbtn, #dbgm [data-d]')) return;
+  audioInit();
+  playS(b.closest('#modes, #itempop, .rtabs, #shoptabs, .seg, [data-t]') ? 'select' : 'ui', { gain: 0.55 });
+}, true);
 
 /* ---------------- helpers ---------------- */
 function modeCfg(){ return MODES[G.mode]; }
@@ -417,7 +479,7 @@ function cast(){
   to[0] += rand(-scatter, scatter); to[2] += rand(-scatter, scatter);
   G.fly = { from: G.tip.slice(), to, t: 0, T: 0.75 + d*0.03, h: 1.2 + d*0.12, power: G.power };
   G.state = 'fly'; G.orbit = 0;
-  sfx.whoosh(G.power);
+  sfx.whoosh(G.power); playS('cast', { gain: 0.6 + 0.4*G.power });
   say(m.name + ' 캐스팅!', 1.2);
 }
 function flyPos(){
@@ -428,7 +490,7 @@ function land(){
   const p = G.fly.to, it = curItem();
   const big = G.mode === 'pole' ? 0.5 : 0.35;
   Rn.splash(p[0], p[2], 0.10, 0.06*big + 0.02);
-  sfx.splash(big);
+  if (!playS('plunk', { gain: G.mode === 'pole' ? 0.9 : 0.7 })) sfx.splash(big);
   scareAround(p, 1.6);
   if (G.mode === 'pole'){
     const fd = floorDepth(p[0], p[2]);
@@ -562,6 +624,7 @@ function strike(f){
 
 /* ---------------- fight ---------------- */
 function hookFish(f){
+  AU.dragWant = 0;
   const tip = tipXZ();
   G.strike = null; G.engaged = null;
   G.hooked = f; f.state = 'hooked'; G.state = 'hooked'; padRumble(0.9, 0.7, 260);
@@ -637,8 +700,9 @@ function updateFight(dt){
   if (slack > 0.2) T *= clamp(1 - (slack - 0.2)/1.2, 0, 1);
   if (G.mode === 'lure'){
     if (T > G.drag){ const pay = (T - G.drag)*7; F.lineOut += pay*dt; F.payout = pay; T = G.drag + (T - G.drag)*0.2;
-      AU.dragT -= dt*pay*14; if (AU.dragT <= 0){ sfx.drag(); AU.dragT = 1; } }
-    else F.payout = 0;
+      AU.dragWant = Math.min(1, 0.35 + pay*0.5);
+      if (!hasS('drag')){ AU.dragT -= dt*pay*14; if (AU.dragT <= 0){ sfx.drag(); AU.dragT = 1; } } }
+    else { F.payout = 0; AU.dragWant = 0; }
   } else if (T > 0.55 && F.lineOut < F.maxReach){ F.lineOut = Math.min(F.maxReach, F.lineOut + (T - 0.55)*2.5*dt); T -= (T - 0.55)*0.3; }
   F.lineOut = Math.max(F.lineOut, 1.2);
   if (d > F.lineOut){ const k = F.lineOut/d; f.pos[0] = tip[0] + ax*k; f.pos[2] = tip[2] + az*k; d = F.lineOut; }
@@ -682,11 +746,11 @@ function landFish(){
   P.caught[sp.id] = (P.caught[sp.id] || 0) + 1;
   const day = dayKey(); P.daily[day] = (P.daily[day] || 0) + 1;
   let netMsg = '';
-  if (P.net.length < netCap()) P.net.unshift({ id: sp.id, len: f.len, weight: f.weight, price: pts });
+  if (P.net.length < netCap()){ P.net.unshift({ id: sp.id, len: f.len, weight: f.weight, price: pts }); G.toNet = true; }
   else netMsg = '살림망이 가득 차 방생했어요 — 판매하세요';
   fishes.splice(fishes.indexOf(f), 1);
   G.hooked = null; G.fight = null; G.state = 'result';
-  Rn.splash(f.pos[0], f.pos[2], 0.2, 0.05); sfx.splash(0.6); sfx.win();
+  Rn.splash(f.pos[0], f.pos[2], 0.2, 0.05); sfx.splash(0.6); if (!playS('catch')) sfx.win();
   showCard(rec, isBest && !!prev, !prev);
   if (netMsg) setTimeout(() => say(netMsg, 3, 'bad'), 400);
   questEvent({ type: 'catch', rec });
@@ -740,7 +804,7 @@ function showCard(r, record, first){
       c.classList.add('record'); const rays = document.createElement('div'); rays.className = 'rays'; c.prepend(rays);
       show(q('.badge'), [{ opacity: 0, transform: 'scale(2)' }, { opacity: 1, transform: 'scale(.95)', offset: 0.6 }, { opacity: 1, transform: 'none' }], 520);
       fanfare(); const b = c.getBoundingClientRect(); confetti(90, b.left + b.width/2, b.top + b.height*0.35); padRumble(0.5, 0.8, 300, 120);
-    } else if (first){ show(q('.badge')); const b = c.getBoundingClientRect(); confetti(30, b.left + b.width/2, b.top + b.height*0.3); sfx.win(); }
+    } else if (first){ show(q('.badge')); const b = c.getBoundingClientRect(); confetti(30, b.left + b.width/2, b.top + b.height*0.3); if (!playS('reward')) sfx.win(); }
     else show(q('.badge'));
     show(q('.tipc')); show(q('.foot')); CARD.running = false;
   });
@@ -779,10 +843,11 @@ function hideCard(){
   if (CARD.running && CARD.finish){ CARD.finish(); return; }
   CARD.timers.forEach(clearTimeout); CARD.timers = []; CARD.seq++;
   $('card').hidden = true; if (G.state === 'result') G.state = 'idle';
+  if (G.toNet){ G.toNet = false; playS('net', { gain: 0.8 }); }   // the catch goes into the keep net
 }
 // a short brass-like fanfare (no audio files): rising arpeggio and a held chord
 function fanfare(){
-  if (!AU.ctx) return;
+  if (!AU.ctx || playS('fanfare')) return;
   const c = AU.ctx, t0 = c.currentTime + 0.02;
   const note = (f, t, d, g) => {
     const o = c.createOscillator(), o2 = c.createOscillator(), fl = c.createBiquadFilter(), gn = c.createGain();
@@ -880,7 +945,7 @@ function sellFish(idx){
   const list = idx.map(i => P.net[i]).filter(Boolean); if (!list.length) return;
   const sum = list.reduce((a, f) => a + f.price, 0);
   P.net = P.net.filter((f, i) => !idx.includes(i)); P.coins += sum;
-  say(`🪙 ${list.length}마리 판매 +${sum.toLocaleString()}🪙`, 2); sfx.win(); updateLog(); save();
+  say(`🪙 ${list.length}마리 판매 +${sum.toLocaleString()}🪙`, 2); if (!playS('reward')) sfx.win(); updateLog(); save();
 }
 // release luck caps at 20 minutes: only as many fish as still add time are released, the rest stay in the net
 const LUCK_MAX = 20*60;
@@ -893,6 +958,7 @@ function releaseAll(){
   const list = idx.map(i => P.net[i]), bonus = Math.round(list.reduce((a, f) => a + f.price, 0)*0.25), n = list.length, kept = P.net.length - n;
   P.luckUntil = Math.min(Math.max(Date.now(), P.luckUntil || 0) + n*60000, Date.now() + LUCK_MAX*1000);
   P.net = P.net.filter((f, i) => !idx.includes(i)); P.coins += bonus;
+  playS('plunk'); setTimeout(() => playS('plunk', { gain: 0.7 }), 260);
   say(`🐟 ${n}마리 방생 · +${bonus}🪙 · 🍀 행운 ${Math.round(luckLeft()/60)}분 (입질 +20%)`, 3, 'hot');
   if (kept) setTimeout(() => say(`🍀 행운이 최대(20분)라 ${kept}마리는 살림망에 남겨뒀어요`, 3), 1600);
   updateLog(); save();
@@ -1685,7 +1751,7 @@ function checkSightings(dt){
     const bonus = first ? f.sp.sightCoins || 300 : Math.round((f.sp.sightCoins || 300)*0.2);
     P.coins += bonus;
     say(`${f.sp.icon || '👀'} ${f.sp.name} 목격! +${bonus}🪙${first ? ' (첫 목격)' : ''}`, 3.5, 'hot');
-    sfx.win();
+    if (!playS('reward')) sfx.win();
     questEvent({ type: 'sight', sp: f.sp });
     updateLog(); save();
   }
@@ -1802,7 +1868,7 @@ function celebrate(title, sub){
              { transform: 'translate(-50%,-50%) scale(1)', opacity: 1, offset: 0.28 }, { transform: 'translate(-50%,-50%) scale(1)', opacity: 1, offset: 0.85 },
              { transform: 'translate(-50%,-60%) scale(.96)', opacity: 0 }], { duration: 3200, easing: 'ease-out' }).onfinish = () => b.remove();
   confetti(70, innerWidth/2, innerHeight*0.36);
-  sfx.win(); setTimeout(() => sfx.plop(), 180); padRumble(0.3, 0.6, 200, 60);
+  if (!playS('quest')){ sfx.win(); setTimeout(() => sfx.plop(), 180); } padRumble(0.3, 0.6, 200, 60);
 }
 function coinBurst(amount, from){
   const L = fxLayer(), r = from ? from.getBoundingClientRect() : { left: innerWidth/2, top: innerHeight/2, width: 0, height: 0 };
@@ -1837,7 +1903,7 @@ function closeModal(){
   G.mapOpen = false;
   if (shop) buildToolbar();
 }
-function idleOnly(what){ if (G.state === 'result') hideCard(); if (G.state === 'idle' || G.state === 'boat' || G.state === 'result') return true; say(`채비를 회수한 뒤 ${what} (R)`, 1.8); return false; }
+function idleOnly(what){ if (G.state === 'result') hideCard(); if (G.state === 'idle' || G.state === 'boat' || G.state === 'result') return true; say(`채비를 회수한 뒤 ${what} (R)`, 1.8); playS('deny'); return false; }
 for (const b of document.querySelectorAll('.mclose')) b.addEventListener('click', e => { e.stopPropagation(); closeModal(); });
 for (const id of ['questm', 'rankm', 'dexm', 'setm', 'netm', 'dbgm']) $(id).addEventListener('pointerdown', e => { if (e.target === $(id)) closeModal(); });
 $('confirm').addEventListener('pointerdown', e => { if (e.target === $('confirm')) $('cno').click(); });
@@ -1859,7 +1925,7 @@ function attend(){
   a.streak = a.last === yesterdayKey() ? a.streak + 1 : 1; a.last = t;
   a.log = [...a.log.filter(k => k !== t), t].slice(-60);
   const r = attReward(a.streak); P.coins += r;
-  say(`📅 출석 ${a.streak}일째 · +${r}🪙`, 2.5, 'hot'); sfx.win(); updateLog(); save(); renderQuestModal();
+  say(`📅 출석 ${a.streak}일째 · +${r}🪙`, 2.5, 'hot'); if (!playS('claim')) sfx.win(); updateLog(); save(); renderQuestModal();
 }
 $('attbtn').addEventListener('click', e => { e.stopPropagation(); attend(); });
 
@@ -1896,7 +1962,7 @@ function renderQuestModal(){
 function claimQuest(id, btn){
   const q = P.quests.find(q => q.id === id); if (!q || q.got < q.n) return;
   P.coins += q.reward; P.quests = P.quests.filter(o => o !== q);
-  coinBurst(q.reward, btn); sfx.win();
+  coinBurst(q.reward, btn); if (!playS('claim')) sfx.win();
   fillQuests(); updateLog(); save(); renderQuestModal();
 }
 function kmBetween(a, b){
@@ -1905,7 +1971,7 @@ function kmBetween(a, b){
 }
 function askTravel(q){
   const sp = q && questSpot(q), back = () => openQuests();
-  const info = (html, yes = '확인') => confirmBox(html, yes, back, back);
+  const info = (html, yes = '확인') => { playS('deny'); confirmBox(html, yes, back, back); };
   if (!sp){ info(`<b>${esc(q ? q.where : '')}</b>의 위치 정보가 없어요.<br><span style="opacity:.7;font-size:12px">지도(M)에서 직접 찾아가 주세요.</span>`); return; }
   if (spotZone(sp) > boatZone()){ info(`🔒 <b>${esc(sp.name)}</b>에 가려면 <b>${zoneBoat(spotZone(sp)).name}</b> 이상이 필요해요.`); return; }
   if (G.state === 'hooked' || G.state === 'fly' || G.state === 'charge'){ info('물고기와 싸우는 중이거나 던지는 중에는 이동할 수 없어요.'); return; }
@@ -1938,12 +2004,12 @@ function renderShop(){
   $('shopgrid').innerHTML = sec('gear', '장비 업그레이드', up) + sec('bait', '대낚시 미끼', itemCards(BAITS)) + sec('lure', '루어', itemCards(LURES));
   for (const b of document.querySelectorAll('#shoptabs button')) b.classList.toggle('on', b.dataset.t === T);
   for (const b of $('shopgrid').querySelectorAll('[data-up]')) b.onclick = () => {
-    const s = shopItem(b.dataset.up), next = s.tiers[P.tier[s.id] + 1]; if (!next || P.coins < next.cost) return;
-    P.coins -= next.cost; P.tier[s.id]++; if (s.id === 'boat') applyBoatModel(); sfx.win(); say(`${s.name} → ${next.name}`, 1.8); save(); renderShop(); updateLog();
+    const s = shopItem(b.dataset.up), next = s.tiers[P.tier[s.id] + 1]; if (!next) return; if (P.coins < next.cost){ playS('deny'); return; }
+    P.coins -= next.cost; P.tier[s.id]++; if (s.id === 'boat') applyBoatModel(); if (!playS('buy')) sfx.win(); say(`${s.name} → ${next.name}`, 1.8); save(); renderShop(); updateLog();
   };
   for (const b of $('shopgrid').querySelectorAll('[data-buy]')) b.onclick = () => {
-    const it = [...BAITS, ...LURES].find(i => i.id === b.dataset.buy); if (P.coins < it.cost) return;
-    P.coins -= it.cost; P.owned[it.id] = true; sfx.win(); say(`${it.name} 구매!`, 1.6); save(); renderShop(); updateLog();
+    const it = [...BAITS, ...LURES].find(i => i.id === b.dataset.buy); if (P.coins < it.cost){ playS('deny'); return; }
+    P.coins -= it.cost; P.owned[it.id] = true; if (!playS('buy')) sfx.win(); say(`${it.name} 구매!`, 1.6); save(); renderShop(); updateLog();
   };
 }
 
@@ -2054,8 +2120,22 @@ function updateEngine(){
     AU.eng = { o, o2, g };
   }
   const on = G.state === 'boat', v = Math.abs(G.boatV), t = AU.ctx.currentTime;
+  const rec = hasS('engLoop') || hasS('eng2');
   AU.eng.o.frequency.setTargetAtTime(38 + v*9, t, 0.15); AU.eng.o2.frequency.setTargetAtTime(19 + v*4.5, t, 0.15);
-  AU.eng.g.gain.setTargetAtTime(on ? 0.018 + v*0.006 : 0, t, 0.3);
+  AU.eng.g.gain.setTargetAtTime(on && !rec ? 0.018 + v*0.006 : 0, t, 0.3);
+  if (!rec) return;
+  // recorded engine: each run picks a take at random — 보트이동1 (start) layered with the 보트이동1-1 loop, or the 보트이동2 loop
+  const moving = on && v > 0.25, vn = Math.min(1, v/8);
+  if (moving && !AU.engL){
+    const A = hasS('engLoop') && (!hasS('eng2') || Math.random() < 0.5);
+    if (A) playS('engStart', { bus: AU.amb, gain: 0.8 });
+    AU.engL = playS(A ? 'engLoop' : 'eng2', { bus: AU.amb, loop: true, gain: 0 }); AU.engIdle = 0;
+  }
+  const E = AU.engL; if (!E) return;
+  E.g.gain.setTargetAtTime(moving ? E.k*(0.45 + 0.4*vn) : 0, t, moving ? 0.25 : 0.4);
+  E.s.playbackRate.setTargetAtTime(0.85 + 0.35*vn, t, 0.3);
+  AU.engIdle = moving ? 0 : AU.engIdle + 1/60;
+  if (AU.engIdle > 2){ E.s.stop(); AU.engL = null; }
 }
 
 /* ---------------- sonar (fish finder) ---------------- */
@@ -2748,7 +2828,7 @@ const DEBUG_ACT = {
     say('📖 전체 도감 완료', 1.8, 'hot');
   },
 };
-for (const b of document.querySelectorAll('#dbgm [data-d]')) b.addEventListener('click', e => { e.stopPropagation(); DEBUG_ACT[b.dataset.d](); sfx.win(); updateLog(); save(); pushRankSoon(); });
+for (const b of document.querySelectorAll('#dbgm [data-d]')) b.addEventListener('click', e => { e.stopPropagation(); DEBUG_ACT[b.dataset.d](); if (!playS('claim')) sfx.win(); updateLog(); save(); pushRankSoon(); });
 
 /* ---------------- main loop ---------------- */
 function update(dt){
@@ -2769,7 +2849,7 @@ function update(dt){
   }
   pollPad(dt); fightHaptics(dt); updateMenuState(); mouseLook(dt); updateWeather(dt); updateClock(dt); updateRain(dt); updateVisitors(dt); checkSightings(dt); updateTarget(dt);
   updateWake(); updateParticles(dt); updateDecor();
-  applyJoy(dt); SONAR.dt = dt; updateSonar(dt); updateEngine(); updateTouchUI();
+  applyJoy(dt); SONAR.dt = dt; updateSonar(dt); updateEngine(); updateDragSound(dt); updateLap(dt); updateTouchUI();
   { const c = ['charge', 'fly', 'wait', 'hooked', 'result'].includes(G.state); if (c !== G.castingUI){ G.castingUI = c; document.body.classList.toggle('casting', c); if (c) $('itempop').hidden = true; } }
   // casting power gauge sits where the tackle buttons were
   { const ch = G.state === 'charge'; if (ch !== G.powerUI){ G.powerUI = ch; $('power').hidden = !ch; } if (ch) $('pwfill').style.width = ((1 - G.power)*100).toFixed(1) + '%'; }
@@ -2804,5 +2884,5 @@ buildToolbar(); updateLog();
 requestAnimationFrame(frame);
 window.__decorSolids = () => DECOR.solids || [];
 window.__mapS = (lon, lat) => m2s(nearLon(lon), lat); window.__mapZ = () => MAP.z;
-window.__game = { toReal, toVis, showCard, questEvent, updateLog, G, fishes, cam, mouse, hookFish, hookSet, jerkLift, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
+window.__game = { SND, playS, toReal, toVis, showCard, questEvent, updateLog, G, fishes, cam, mouse, hookFish, hookSet, jerkLift, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
 })();
