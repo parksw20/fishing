@@ -1836,7 +1836,7 @@ function openQuests(){ openModal('questm'); renderQuestModal(); }
 function renderQuestModal(){
   weekRoll();
   const a = P.att, t = dayKey(), alive = a.last === t || a.last === yesterdayKey(), streak = alive ? a.streak : 0;
-  $('qsub').textContent = `완료한 퀘스트 총 ${P.done}개 · 🚤 ${tierOf('boat').name} (${ZONES[boatZone()]}까지)`;
+  $('qsub').textContent = '';
   $('streak').textContent = `🔥 ${streak}일 연속`;
   const names = ['월', '화', '수', '목', '금', '토', '일'];
   $('attdays').innerHTML = weekDays().map((k, i) => `<i class="${a.log.includes(k) ? 'got' : ''}${k === t ? ' today' : ''}">${names[i]}<br>${a.log.includes(k) ? '✓' : '·'}</i>`).join('');
