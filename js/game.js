@@ -226,6 +226,21 @@ function moveY(f, ty, dt){
   f.pos[1] += vy*dt;
   f.pos[1] = clamp(f.pos[1], -(fd - f.len*0.2 - 0.03), -0.08 - f.len*0.18);
   f.pitch = lerp(f.pitch, clamp(Math.atan2(vy, Math.max(f.speed, 0.08))*0.8, -0.5, 0.5), Math.min(1, dt*4));
+  avoidRocks(f);
+}
+// rocks, coral heads and logs are solid: a fish that would swim into one is pushed to its edge and turns along it
+function avoidRocks(f){
+  const S = DECOR.solids; if (!S || !S.length) return;
+  for (const o of S){
+    const dx = f.pos[0] - o.x, dz = f.pos[2] - o.z, rr = o.r + f.len*0.35;
+    if (Math.abs(dx) > rr || Math.abs(dz) > rr) continue;
+    const d = Math.hypot(dx, dz); if (d >= rr || f.pos[1] > o.top + f.len*0.15) continue;
+    if (o.top + f.len*0.2 - f.pos[1] < (rr - d)*0.6 && o.top < -0.5){ f.pos[1] = o.top + f.len*0.2; continue; }   // just skims the top: go over
+    const nx = d > 1e-3 ? dx/d : 1, nz = d > 1e-3 ? dz/d : 0;
+    f.pos[0] = o.x + nx*rr; f.pos[2] = o.z + nz*rr;
+    const tang = Math.atan2(nz, nx) + (wrapA(f.heading - Math.atan2(nz, nx)) > 0 ? Math.PI/2 : -Math.PI/2);
+    turnToward(f, tang, 0.25);
+  }
 }
 function avoidBoat(f){
   if (f.state === 'hooked') return;
@@ -2663,7 +2678,7 @@ function updateDecor(){
   if (key === DECOR.key && Math.hypot(c[0] - DECOR.cx, c[2] - DECOR.cz) < 14) return;
   DECOR.key = key; DECOR.cx = c[0]; DECOR.cz = c[2];
   const wt = REGION.spot.water, trop = wt === 'sea_trop', sea = wt.startsWith('sea'), river = wt === 'river_brown';
-  const items = [], CELL = 2.2, RAD = 30;
+  const items = [], solids = [], CELL = 2.2, RAD = 30;
   const i0 = Math.floor((c[0] - RAD)/CELL), i1 = Math.floor((c[0] + RAD)/CELL), j0 = Math.floor((c[2] - RAD)/CELL), j1 = Math.floor((c[2] + RAD)/CELL);
   const pick = (arr, r) => arr[Math.floor(r*arr.length) % arr.length];
   for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++){
@@ -2692,7 +2707,10 @@ function updateDecor(){
     }
     it.p = [x, y, z]; it.r = yaw; it.h = i*7.13 + j*3.71 + 0.5;
     items.push(it);
+    const sd = { rock: [1.15, 0.8], brain: [1.0, 0.7], coral: [0.45, 0.9], log: [0.9, 0.3] }[it.k];   // [radius, height] × size
+    if (sd) solids.push({ x, z, r: it.s*sd[0], top: y + it.s*sd[1] });
   }
+  DECOR.solids = solids;
   Rn.setDecor(items);
 }
 
@@ -2748,6 +2766,7 @@ function frame(now){
 }
 buildToolbar(); updateLog();
 requestAnimationFrame(frame);
+window.__decorSolids = () => DECOR.solids || [];
 window.__mapS = (lon, lat) => m2s(nearLon(lon), lat); window.__mapZ = () => MAP.z;
 window.__game = { toReal, toVis, showCard, questEvent, updateLog, G, fishes, cam, mouse, hookFish, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
 })();
