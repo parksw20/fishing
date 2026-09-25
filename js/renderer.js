@@ -630,13 +630,19 @@ vec3 underwaterView(vec3 rd){
   vec3 sunT = refract(-uSun, vec3(0,1,0), 1.0/IOR);
   float Ts = 1.0 - fresnel(uSun.y, IOR);
   vec3 skyIrr = vec3(0.62, 0.70, 0.78) * PI * 0.22 * uSkyK;
-  const float FAR = 70.0;
-  // bottom
-  float sB = FAR;
-  if (rd.y < -1e-4){
-    float fy = -floorDepth(ro.xz); float sb = (fy - ro.y)/rd.y; vec3 FP = ro + rd*sb;
-    for (int i=0;i<3;i++){ fy = -floorDepth(FP.xz); sb = (fy - ro.y)/rd.y; FP = ro + rd*sb; }
-    sB = clamp(sb, 0.0, FAR);
+  const float FAR = 45.0;
+  // bottom: march outwards (fine steps near the eye) and refine by bisection; the fixed-point step used from
+  // above the water breaks down at the grazing angles you get down here and drew false shelves and rings
+  float sB = FAR, prevT = 0.0;
+  for (int i = 1; i <= 36; i++){
+    float tt = FAR*pow(float(i)/36.0, 1.7); vec3 q = ro + rd*tt;
+    if (q.y > 0.05 && rd.y > 0.0) break;
+    if (q.y < -floorDepth(q.xz)){
+      float a = prevT, b = tt;
+      for (int j = 0; j < 6; j++){ float m = 0.5*(a + b); vec3 qm = ro + rd*m; if (qm.y < -floorDepth(qm.xz)) b = m; else a = m; }
+      sB = b; break;
+    }
+    prevT = tt;
   }
   // underside of the surface (mean level; the normal carries the waves)
   float sS = rd.y > 1e-4 ? min(-ro.y/rd.y, FAR) : FAR;
@@ -672,13 +678,31 @@ vec3 underwaterView(vec3 rd){
       L = (1.0 - Fw)*(sky(tr, 0.0)*1.1 + SUN*6.0*smoothstep(0.9990, 0.99975, dot(tr, uSun))*(1.0 - uWeather.x)) + Fw*deepC;
     }
   }
-  // the water column between the eye and what it sees: absorption plus sunlit in-scatter
-  vec3 Tv = exp(-SIG_T*sHit);
+  // the water column between the eye and what it sees: absorption plus sunlit in-scatter;
+  // a little extra murk so the distance fades out (suspended matter the surface view does not need)
+  vec3 SIGV = SIG_T*1.35 + vec3(0.045, 0.035, 0.03);
+  vec3 Tv = exp(-SIGV*sHit);
   float g = 0.8, cosS = dot(sunT, -rd);
   float ph = (1.0-g*g)/(4.0*PI*pow(1.0+g*g-2.0*g*cosS, 1.5));
   float dm = max(-ro.y, 0.0) + 0.5*max(-X.y - max(-ro.y, 0.0), 0.0);
   vec3 Lmid = SUN*Ts*exp(-SIG_T*dm/(-sunT.y))*(ph + 0.02) + skyIrr*exp(-SIG_A*dm*1.2)/(4.0*PI);
-  return L*Tv + SIG_S/SIG_T*Lmid*(1.0 - Tv)*3.2;
+  vec3 fogC = SIG_S/SIG_T*Lmid*3.2;
+  vec3 col = L*Tv + fogC*(1.0 - Tv);
+  // fishing line in the water: thin nylon a touch brighter than the water around it
+  if (uLnA.w > 0.5){
+    vec3 a = uLnA.xyz, ba = uLnB.xyz - a, w0 = ro - a;
+    float bb = dot(rd, ba), cc = dot(ba, ba), dd = dot(rd, w0), ee = dot(ba, w0);
+    float den = max(cc - bb*bb, 1e-6);
+    float u = clamp((ee - bb*dd)/den, 0.0, 1.0);
+    vec3 q = a + ba*u; float tl = max(dot(q - ro, rd), 0.0);
+    float dl = length(ro + rd*tl - q);
+    float pw = max(tl, 0.05)*uPixAng, lw = max(pw*0.9, 0.0012);
+    float al = smoothstep(lw, lw*0.25, dl)*clamp(0.0035/pw, 0.3, 0.85)*step(tl, sHit + 0.05);
+    vec3 Tl = exp(-SIGV*tl);
+    vec3 lc = fogC*(1.0 - Tl)*1.25 + (fogC*1.6 + SUN*Ts*0.01*exp(-SIG_T*max(-q.y, 0.0)))*Tl;
+    col = mix(col, lc, al);
+  }
+  return col;
 }
 
 void main(){
@@ -1579,7 +1603,9 @@ function render(S){
   if (tip && S.lineTo){
     const pts = [], e = S.lineTo, sag = S.lineSag||0;
     for (let i=0;i<=24;i++){ const a=i/24; pts.push(tip[0]+(e[0]-tip[0])*a, tip[1]+(e[1]-tip[1])*a - sag*4*a*(1-a), tip[2]+(e[2]-tip[2])*a); }
-    gl.useProgram(pLine.p); setCamUniforms(pLine, B); gl.uniform3f(pLine.u.uCol, 1.6,1.6,1.5);
+    gl.useProgram(pLine.p); setCamUniforms(pLine, B);
+    if (B.pos[1] < -0.03){ const k = 0.10*(ENV.sunC[1]/5.4) + 0.05*ENV.skyK[1]; gl.uniform3f(pLine.u.uCol, k*0.75, k*1.25, k*1.2); }   // seen from below: a faint line through the water
+    else gl.uniform3f(pLine.u.uCol, 1.6,1.6,1.5);
     gl.bindVertexArray(lineVAO); gl.bindBuffer(gl.ARRAY_BUFFER, lineVB); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pts), gl.DYNAMIC_DRAW);
     // the above-water line always reads: waves would otherwise swallow its last metre where it meets the water
     gl.disable(gl.DEPTH_TEST); gl.drawArrays(gl.LINE_STRIP, 0, 25); gl.enable(gl.DEPTH_TEST);
