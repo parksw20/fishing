@@ -1724,7 +1724,9 @@ function render(S){
   drawDecor(B, t);
   drawBoat(mat4TRS(bt.pos, bt.heading, bt.pitch, bt.roll));
   let tip = null;
-  if (S.rod){ tip = buildRod(S.rod); if (!S.hideRod) drawMesh(rodMesh, IDENT); }
+  // from under the water the rod and the line above the surface are not drawn: without refraction they pointed off
+  // at odd angles; the line is seen only from where it enters the water
+  if (S.rod){ tip = buildRod(S.rod); if (!S.hideRod && !UW.on) drawMesh(rodMesh, IDENT); }
     // night: glows fluorescent lime like a chemical light stick (야광찌) instead of washing out white
   if (bo) drawMesh(bobMesh, mat4TRS(bo.pos, 0, bo.tilt||0, 0), { emis: 0.55*(1 - 0.9*ENV.night), glow: [0.07*ENV.night, 0.40*ENV.night, 0.012*ENV.night] });
   if (S.rain && S.rain.n && !UW.on){   // no rain streaks below the surface
@@ -1734,7 +1736,7 @@ function render(S){
     gl.drawArrays(gl.LINES, 0, S.rain.n*2);
   }
   if (S.flyObj){ gl.useProgram(pMesh.p); drawMesh(ballMesh, mat4TRS(S.flyObj.pos, 0,0,0, S.flyObj.r)); }
-  if (tip && S.lineTo){
+  if (tip && S.lineTo && !UW.on){
     const pts = [], e = S.lineTo, sag = S.lineSag||0;
     for (let i=0;i<=24;i++){ const a=i/24; pts.push(tip[0]+(e[0]-tip[0])*a, tip[1]+(e[1]-tip[1])*a - sag*4*a*(1-a), tip[2]+(e[2]-tip[2])*a); }
     gl.useProgram(pLine.p); setCamUniforms(pLine, B);

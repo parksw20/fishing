@@ -1307,7 +1307,8 @@ function rodSpec(){
       const hx = fx + P.w[0]*P.m*1.3, hz = fz + P.w[1]*P.m*1.3;
       yaw = Math.atan2(hx, -hz); el = 0.75 + 0.35*G.fight.tension*(mouse.down ? 1.4 : 1);
       bend = G.fight.tension*0.95;
-    } else bend = G.mode === 'lure' && G.lure && G.lure.reeling ? 0.15 : 0.06;
+    } else { bend = G.mode === 'lure' && G.lure && G.lure.reeling ? 0.15 : 0.06;
+      if (G.mode === 'pole') el = -0.02; }   // waiting on the float: pole held low over the water so its tip stays in view
   }
   const fw = yawDir(yaw), right = [Math.cos(yaw), 0, Math.sin(yaw)];
   const base = add(add(add(e, mul(right, 0.26)), [0, -0.42, 0]), mul(fw, 0.32));
@@ -1336,7 +1337,8 @@ function scene(dt){
   } else if (G.state === 'wait' && G.rig){
     const r = G.rig;
     S.bobber = { pos: [r.pos[0], r.bobY, r.pos[2]], tilt: r.tilt };
-    S.lineTo = [r.pos[0], r.bobY + 0.2*Math.cos(r.tilt), r.pos[2] + 0.2*Math.sin(r.tilt)];
+    // the line runs to the foot of the float (where it meets the water), not to the tip of the antenna
+    S.lineTo = [r.pos[0], Math.max(r.bobY, -0.02), r.pos[2]];
     S.lineSag = 0.02*dist2(r.pos, tip);
     if (!r.baitGone) S.lure = { pos: r.bait, dir: [1, 0, 0], size: it.size, color: it.color, kind: 0, metal: it.metal };
     S.lineUnder = [[r.pos[0], r.bobY - 0.3, r.pos[2]], r.bait];
