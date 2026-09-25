@@ -704,7 +704,7 @@ function updateLog(){
     const li = document.createElement('li'); const sp = BY_ID[c.id];
     li.innerHTML = `<b></b><span>${(c.len*100).toFixed(1)}cm · ${kg(c.weight)}</span>`; li.firstChild.textContent = sp.name;
     li.title = `클릭: ${c.price}🪙에 판매`; li.style.cursor = 'pointer';
-    li.onclick = e => { e.stopPropagation(); sellFish([i]); };
+    li.onclick = e => { e.stopPropagation(); askNet('sell', [i]); };
     ul.appendChild(li);
   }
   $('status').hidden = !P.net.length;   // an empty keep net takes no space
@@ -712,6 +712,22 @@ function updateLog(){
   if (!$('netm').hidden) renderNet();
 }
 function netCap(){ return tierOf('net').cap; }
+// confirm before selling or releasing; afterwards go back to the keep-net window if it was open
+function askNet(kind, idx){
+  if (!P.net.length) return;
+  const fromNet = !$('netm').hidden, back = () => { if (fromNet && P.net.length) openNet(); else closeModal(); };
+  let html, yes;
+  if (kind === 'sell'){
+    const list = idx.map(i => P.net[i]).filter(Boolean), sum = list.reduce((a, f) => a + f.price, 0);
+    const what = list.length === 1 ? `<b>${esc(BY_ID[list[0].id].name)}</b> ${(list[0].len*100).toFixed(1)}cm` : `<b>${list.length}마리</b>를 모두`;
+    html = `${what} 판매할까요?<br><span style="color:#ffd84a;font-weight:700">+${sum.toLocaleString()}🪙</span>`; yes = '🪙 판매';
+    confirmBox(html, yes, () => { sellFish(idx); back(); }, back);
+  } else {
+    const n = P.net.length, bonus = Math.round(P.net.reduce((a, f) => a + f.price, 0)*0.25);
+    html = `<b>${n}마리</b>를 모두 방생할까요?<br><span style="opacity:.8;font-size:12px">판매가의 25% <b style="color:#ffd84a">+${bonus.toLocaleString()}🪙</b> · 🍀 ${Math.min(n, 10)}분 동안 입질 +20%</span>`; yes = '🐟 방생';
+    confirmBox(html, yes, () => { releaseAll(); back(); }, back);
+  }
+}
 // keep-net window (phones: the 🧺 button next to boat/fishing)
 function openNet(){ openModal('netm'); renderNet(); }
 function renderNet(){
@@ -723,13 +739,13 @@ function renderNet(){
     const row = document.createElement('div'); row.className = 'nrow';
     row.innerHTML = `<div><b></b><br><span>${(c.len*100).toFixed(1)}cm · ${kg(c.weight)}</span></div><span>${c.price}🪙</span><button>판매</button>`;
     row.querySelector('b').textContent = BY_ID[c.id].name;
-    row.querySelector('button').onclick = e => { e.stopPropagation(); sellFish([i]); };
+    row.querySelector('button').onclick = e => { e.stopPropagation(); askNet('sell', [i]); };
     el.appendChild(row);
   }
   $('nsell').disabled = $('nrel').disabled = !P.net.length;
 }
-$('nsell').addEventListener('click', e => { e.stopPropagation(); sellFish(P.net.map((f, i) => i)); });
-$('nrel').addEventListener('click', e => { e.stopPropagation(); releaseAll(); });
+$('nsell').addEventListener('click', e => { e.stopPropagation(); askNet('sell', P.net.map((f, i) => i)); });
+$('nrel').addEventListener('click', e => { e.stopPropagation(); askNet('release'); });
 $('tnet').addEventListener('click', e => { e.stopPropagation(); audioInit(); if (!$('netm').hidden) closeModal(); else openNet(); });
 // keep net: catches wait here until sold (full price) or released (small good-will bonus)
 function sellFish(idx){
@@ -745,8 +761,8 @@ function releaseAll(){
   say(`🐟 ${n}마리 방생 · +${bonus}🪙 · 🍀 행운 ${Math.round(luckLeft()/60)}분 (입질 +20%)`, 3, 'hot'); P.coins += bonus; P.net = []; updateLog(); save();
 }
 $('status').querySelector('.neth').addEventListener('click', e => { if (!TOUCH.on) return; e.stopPropagation(); $('status').querySelector('.net').classList.toggle('open'); });
-$('sellall').addEventListener('click', e => { e.stopPropagation(); sellFish(P.net.map((f, i) => i)); });
-$('releaseall').addEventListener('click', e => { e.stopPropagation(); releaseAll(); });
+$('sellall').addEventListener('click', e => { e.stopPropagation(); askNet('sell', P.net.map((f, i) => i)); });
+$('releaseall').addEventListener('click', e => { e.stopPropagation(); askNet('release'); });
 function buildToolbar(){
   const modes = $('modes'); modes.innerHTML = '';
   for (const k of ['pole', 'lure']){
