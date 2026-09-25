@@ -577,7 +577,7 @@ float traceObjects(vec3 ro, vec3 rd, float tMax, out vec3 N, out vec3 alb, out f
   }
   float lureT = bt;
   if (uBob.w > 0.5){
-    mat3 Bb = mat3(vec3(0,1,0), vec3(1,0,0), vec3(0,0,1)); vec3 brad = vec3(0.09, 0.017, 0.017);
+    mat3 Bb = mat3(vec3(0,1,0), vec3(1,0,0), vec3(0,0,1)); vec3 brad = vec3(0.10, 0.017, 0.017);
     t = iEll(ro, rd, uBob.xyz, Bb, brad, lp);
     if (t > 0.0 && t < bt){ bt = t; N = normalize(Bb*(lp/brad)); alb = mix(vec3(0.9,0.25,0.03), vec3(0.9), step(0.55, lp.x)); spec = 0.3; }
   }
@@ -1421,10 +1421,10 @@ const bobMesh = makeMesh(true);
   const g = new Geo();
   const bands = [[1.0,0.25,0.05],[1.0,0.9,0.1],[0.2,1.0,0.25]];
   const N = 8, top = 0.20, ra = 0.011;
-  for (let i=0;i<N;i++){ const y0 = i*top/N, y1 = (i+1)*top/N; const c = i===N-1 ? [1.0,0.15,0.05] : bands[i%3];
+  for (let i=0;i<N;i++){ const y0 = i ? i*top/N : -0.03, y1 = (i+1)*top/N; const c = i===N-1 ? [1.0,0.15,0.05] : bands[i%3];   // the antenna reaches into the body: no gap
     g.tube([[0,y0,0],[0,y1,0]], [ra,ra], [c,c], 8); }
   g.ellipsoid([0,top,0],[ra,0.008,ra],[1.0,0.15,0.05],6);
-  g.ellipsoid([0,-0.12,0],[0.017,0.09,0.017], p => p[1] > -0.07 ? [0.9,0.9,0.9] : [0.9,0.25,0.03], 10);
+  g.ellipsoid([0,-0.10,0],[0.017,0.10,0.017], p => p[1] > -0.05 ? [0.9,0.9,0.9] : [0.9,0.25,0.03], 10);
   g.tube([[0,-0.21,0],[0,-0.30,0]], [0.003,0.002], [[0.15,0.15,0.15],[0.15,0.15,0.15]], 5);
   bobMesh.set(g.array());
 }
@@ -1576,7 +1576,7 @@ function render(S){
     gl.uniform3fv(u.uLureS, lu.size); gl.uniform4f(u.uLureC, lu.color[0], lu.color[1], lu.color[2], lu.metal);
   } else gl.uniform4f(u.uLure, 0,0,0,0);
   const bo = S.bobber;
-  if (bo && !bo.flying && (bo.tilt||0) < 0.6) gl.uniform4f(u.uBob, bo.pos[0], bo.pos[1]-0.12, bo.pos[2], 1); else gl.uniform4f(u.uBob, 0,0,0,0);
+  if (bo && !bo.flying && (bo.tilt||0) < 0.6) gl.uniform4f(u.uBob, bo.pos[0], bo.pos[1]-0.10, bo.pos[2], 1); else gl.uniform4f(u.uBob, 0,0,0,0);
   if (S.lineUnder){ gl.uniform4f(u.uLnA, ...S.lineUnder[0], 1); gl.uniform4f(u.uLnB, ...S.lineUnder[1], 1); } else gl.uniform4f(u.uLnA, 0,0,0,0);
   const wk = S.wake || [];
   wakeBuf.fill(0); for (let i = 0; i < Math.min(20, wk.length); i++) wakeBuf.set(wk[i], i*4);
