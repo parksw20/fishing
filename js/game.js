@@ -694,7 +694,7 @@ function showCard(r, record, first){
   q('.badge').textContent = record ? '🏆 개인 최대어 갱신!' : first ? '✨ 첫 포획! 도감 등록' : '';
   q('.tipc').textContent = r.sp.tip ? '💡 ' + r.sp.tip : '';
   const ph = (window.FISH_PHOTOS || {})[r.sp.id], img = q('.photo'), cred = q('.credit'), cv = q('canvas');
-  if (ph){ img.src = ph.file; img.alt = r.sp.name; img.hidden = false; cv.hidden = true; cred.hidden = false; cred.textContent = `📷 ${ph.author} · ${ph.license.toUpperCase()} · iNaturalist`; }
+  if (ph){ img.src = ph.file; img.alt = r.sp.name; img.hidden = false; cv.hidden = true; cred.hidden = !ph.author; cred.textContent = ph.author ? `📷 ${ph.author} · ${(ph.license || '').toUpperCase()} · iNaturalist` : ''; }
   else { img.hidden = true; cred.hidden = true; cv.hidden = false; drawFishIcon(cv, r.sp); }
   const pic = ph ? img : cv;
   const parts = [pic, cred, q('.sp'), q('.latin'), q('.stats'), q('.pts'), q('.badge'), q('.tipc'), q('.foot')];
@@ -2523,7 +2523,7 @@ function showDexEntry(id){
       <div class="dhead"><h3>${esc(sp.name)}</h3><div class="latin">${esc(sp.latin || '')}</div>
         <div class="tags"><span class="tag${salt ? '' : ' fresh'}">${salt ? '바다' : '민물'}</span>${sp.sight ? '<span class="tag obs">관찰</span>' : ''}${zone ? `<span class="tag">${zone}</span>` : ''}</div>
         <div class="drec">${rec}</div>
-        ${open && ph ? `<div class="dcred">📷 ${esc(ph.author)} · ${esc(ph.license.toUpperCase())} · iNaturalist</div>` : ''}</div></div>
+        ${open && ph && ph.author ? `<div class="dcred">📷 ${esc(ph.author)} · ${esc((ph.license || '').toUpperCase())} · iNaturalist</div>` : ''}</div></div>
     <div class="dgrid">
       ${sp.sight ? '' : `<div><h4>크기</h4><p>${Math.round(sp.minLen*100)}–${Math.round(sp.maxLen*100)}cm</p></div>`}
       ${sp.dmin != null ? `<div><h4>서식 수심</h4><p>${sp.dmin}–${sp.dmax}m${zone ? ' · ' + zone : ''}</p></div>` : ''}
