@@ -9,5 +9,24 @@
   "orientation": "landscape",
   "mobileReady": false,
   "scoreType": "higher_is_better",
-  "minPlaySeconds": 20
+  "minPlaySeconds": 10,
+  "leaderboards": [
+    {
+      "key": "small",
+      "title": "소형어 (50cm 미만)"
+    },
+    {
+      "key": "medium",
+      "title": "중형어 (50~100cm)"
+    },
+    {
+      "key": "large",
+      "title": "대형어 (1~2m)"
+    },
+    {
+      "key": "giant",
+      "title": "초대형어 (2m 이상)"
+    }
+  ],
+  "maxScorePerMinute": 60000
 }

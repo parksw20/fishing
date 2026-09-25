@@ -621,6 +621,8 @@ function landFish(){
   const isBest = !prev || f.len > prev.len;
   if (isBest) G.best[sp.id] = rec;
   G.catches.unshift(rec); G.score += pts;
+  // 크기 등급별 최고 기록을 올립니다. 등급 안에서 겨루기 때문에 붕어를 노려도 순위가 있습니다.
+  if (isBest && window.Ranking) Ranking.report(G.best);
   fishes.splice(fishes.indexOf(f), 1);
   G.hooked = null; G.fight = null; G.state = 'result';
   Rn.splash(f.pos[0], f.pos[2], 0.2, 0.05); sfx.splash(0.6); sfx.win();
