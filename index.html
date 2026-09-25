@@ -421,6 +421,8 @@
   #dexback { margin-left:auto; } #dexback:not([hidden]) + .mclose { margin-left:6px; }
   #dcount { font-weight:600; opacity:.8; }
   .dx .tag.fresh, #dexdet .tag.fresh { color:#ffd84a; background:rgba(255,216,74,.14); }   /* freshwater tags in yellow */
+  /* window headers (title … ✕) stay pinned while the list scrolls */
+  .mbox > .maphead, .shopbox > .maphead { position:sticky; top:0; z-index:3; background:#08161d; border-radius:14px 14px 0 0; box-shadow:0 6px 12px -8px rgba(0,0,0,.6); }
 </style>
 </head>
 <body>
