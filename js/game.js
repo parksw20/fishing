@@ -724,6 +724,7 @@ function releaseAll(){
   const n = P.net.length; P.luckUntil = Math.min(Math.max(Date.now(), P.luckUntil || 0) + n*60000, Date.now() + 600000);
   say(`🐟 ${n}마리 방생 · +${bonus}🪙 · 🍀 행운 ${Math.round(luckLeft()/60)}분 (입질 +20%)`, 3, 'hot'); P.coins += bonus; P.net = []; updateLog(); save();
 }
+$('status').querySelector('.neth').addEventListener('click', e => { if (!TOUCH.on) return; e.stopPropagation(); $('status').querySelector('.net').classList.toggle('open'); });
 $('sellall').addEventListener('click', e => { e.stopPropagation(); sellFish(P.net.map((f, i) => i)); });
 $('releaseall').addEventListener('click', e => { e.stopPropagation(); releaseAll(); });
 function buildToolbar(){
@@ -2347,6 +2348,7 @@ function update(dt){
   pollPad(dt); fightHaptics(dt); mouseLook(dt); updateWeather(dt); updateClock(dt); updateRain(dt); updateVisitors(dt); checkSightings(dt); updateTarget(dt);
   updateWake(); updateParticles(dt);
   applyJoy(dt); SONAR.dt = dt; updateSonar(dt); updateEngine(); updateTouchUI();
+  { const c = ['fly', 'wait', 'hooked', 'result'].includes(G.state); if (c !== G.castingUI){ G.castingUI = c; document.body.classList.toggle('casting', c); if (c) $('itempop').hidden = true; } }
   if (G.state === 'charge'){ G.chargeT += dt; const p = (G.chargeT/1.15) % 2; G.power = p < 1 ? p : 2 - p; }
   if (G.state === 'fly'){ G.fly.t += dt; if (G.fly.t >= G.fly.T) land(); }
   if (G.state === 'wait'){ if (G.mode === 'pole') updateRig(dt); else updateLure(dt); }

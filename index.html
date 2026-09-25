@@ -52,7 +52,7 @@
   #fade.on { opacity:1; }
   @media (max-width: 760px) { .mapbody { flex-direction:column; } #mappanel { width:auto; max-height:40%; } }
   #retrieve { position:fixed; right:14px; bottom:30px; z-index:5; }
-  #help { position:fixed; left:50%; bottom:calc(22px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%); padding:9px 16px; font-size:13px; border-radius:999px; white-space:nowrap; z-index:4; pointer-events:none; max-width:calc(100vw - 260px); overflow:hidden; text-overflow:ellipsis; }
+  #help { position:relative; padding:9px 16px; font-size:13px; border-radius:999px; white-space:nowrap; z-index:4; pointer-events:none; max-width:calc(100vw - 260px); overflow:hidden; text-overflow:ellipsis; }
   #help:empty { display:none; }
   #help b { color:#ffe27a; font-weight:700; }
   #msg { position:fixed; left:50%; top:22%; transform:translate(-50%, 10px); font-size:24px; font-weight:800; text-shadow:0 2px 12px rgba(0,0,0,.55); opacity:0; transition:opacity .25s, transform .25s; pointer-events:none; z-index:16; white-space:nowrap; }
@@ -139,7 +139,12 @@
   #ginfo { font-size:12px; display:flex; flex-direction:column; gap:4px; }
   #ginfo div { display:flex; justify-content:space-between; }
   #ginfo span { opacity:.65; }
-  #bottombar { position:fixed; left:50%; bottom:calc(14px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%); display:flex; gap:10px; align-items:center; z-index:6; }
+  /* bottom dock: mode / tackle buttons, the hint line under them */
+  #dock { position:fixed; left:50%; bottom:calc(14px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%); display:flex; flex-direction:column; align-items:center; gap:10px; z-index:6; pointer-events:none; }
+  #dock > * { pointer-events:auto; }
+  #dock > #help { pointer-events:none; }
+  #bottombar { position:relative; display:flex; gap:10px; align-items:center; }
+  body.casting #bottombar { display:none; }
   #bottombar.locked #modes, #bottombar.locked #navtoggle { opacity:.5; }
   #itempop { position:absolute; bottom:calc(100% + 6px); left:0; width:max-content; max-width:240px; padding:5px; display:flex; flex-direction:column; background:rgba(8,26,30,.9); border-radius:12px; }
   #items { display:flex; flex-direction:column; align-items:stretch; gap:2px; }
@@ -149,16 +154,14 @@
   #items button small { font-weight:500; font-size:10.5px; opacity:.65; color:#fff; line-height:1.35; }
   #itemdesc { display:none; }
   /* bottom controls 1.5x on desktop */
-  body:not(.touch) #bottombar { transform:translateX(-50%) scale(1.5); transform-origin:50% 100%; }
+  body:not(.touch) #bottombar { transform:scale(1.5); transform-origin:50% 100%; margin-top:22px; }
   body:not(.touch) #menubtn { transform:scale(1.5); transform-origin:100% 100%; }
   body:not(.touch) #menu { bottom:calc(76px + env(safe-area-inset-bottom,0px)); transform:scale(1.5); transform-origin:100% 100%; }
   body:not(.touch) #retrieve { bottom:calc(80px + env(safe-area-inset-bottom,0px)); transform:scale(1.25); transform-origin:100% 100%; }
-  body:not(.touch) #help { bottom:calc(84px + env(safe-area-inset-bottom,0px)) !important; }
   /* quests 1.5x on desktop: tracker and quest window */
   body:not(.touch) #qtrack { font-size:18px; padding:12px 18px; max-width:min(460px, calc(100vw - 420px)); }
   body:not(.touch) #qtrack .qth { font-size:15px; }
   body:not(.touch) #questm .mbox { zoom:1.5; width:min(900px, calc(100vw/1.5 - 24px)); max-height:calc(100vh/1.5 - 24px); }
-  #help { bottom:calc(66px + env(safe-area-inset-bottom,0px)) !important; }
   #menubtn { position:fixed; right:14px; bottom:calc(14px + env(safe-area-inset-bottom,0px)); z-index:6; padding:9px 16px; border-radius:14px; font-size:14px; }
   #menu { position:fixed; right:14px; bottom:calc(62px + env(safe-area-inset-bottom,0px)); z-index:7; padding:8px; display:flex; flex-direction:column; gap:4px; min-width:190px; background:rgba(8,26,30,.85); }
   #menu button { text-align:left; border-radius:10px; border:0; background:transparent; padding:8px 12px; display:flex; justify-content:space-between; }
@@ -215,11 +218,11 @@
   /* touch layout */
   body.touch #navtoggle, body.touch #menubtn { display:none; }
   /* touch: tackle buttons at the bottom between the joystick and the action button (above them in portrait), hints above */
-  body.touch #bottombar { bottom:calc(20px + env(safe-area-inset-bottom,0px)); }
-  body.touch #help { bottom:calc(70px + env(safe-area-inset-bottom,0px)) !important; max-width:calc(100vw - 400px); }
+  body.touch #dock { bottom:calc(16px + env(safe-area-inset-bottom,0px)); gap:8px; }
+  body.touch #help { max-width:calc(100vw - 460px); }
   @media (max-width: 640px) {
-    body.touch #bottombar { bottom:calc(146px + env(safe-area-inset-bottom,0px)); }
-    body.touch #help { bottom:calc(194px + env(safe-area-inset-bottom,0px)) !important; max-width:calc(100vw - 32px); }
+    body.touch #dock { bottom:calc(146px + env(safe-area-inset-bottom,0px)); }
+    body.touch #help { max-width:calc(100vw - 32px); }
   }
   body.touch #menu { bottom:calc(130px + env(safe-area-inset-bottom,0px)); }
   /* the page blocks touch gestures for the game; windows with lists must still scroll with a finger */
@@ -232,7 +235,10 @@
   body.touch #qlist div span { display:none; }
   body.touch #status .srow { flex-wrap:wrap; font-size:13px; }
   body.touch #status { right:10px; top:calc(10px + env(safe-area-inset-top,0px)); width:170px; padding:8px 10px; }
-  body.touch #status .net ul, body.touch #status .netbtns { display:none; }
+  body.touch #status .net ul { display:none; }
+  body.touch #status .net.open ul { display:block; max-height:120px; }
+  body.touch #status .neth { cursor:pointer; }
+  body.touch #status .netbtns button { font-size:10.5px; padding:4px 6px; }
   /* touch: tension / float depth … as plain text under the quests (no box); placed by JS */
   body.touch #gauges { left:10px; bottom:auto; top:calc(96px + env(safe-area-inset-top,0px)); width:140px; padding:0 2px; gap:4px;
     background:none; backdrop-filter:none; -webkit-backdrop-filter:none; text-shadow:0 1px 3px rgba(0,0,0,.9), 0 0 8px rgba(0,0,0,.5); }
@@ -285,11 +291,14 @@
   <div id="ginfo"></div>
 </div>
 
-<!-- bottom centre: fishing / boat toggle, tackle (2-level) -->
+<!-- bottom centre: fishing / boat toggle, tackle (2-level), and the hint line under them -->
+<div id="dock">
 <div id="bottombar">
   <div id="navtoggle" class="seg"><button id="navfish" class="on">🎣 낚시</button><button id="navboat">⛵ 보트</button></div>
   <div id="modes" class="seg"></div>
   <div id="itempop" class="glass" hidden><div id="items"></div><div id="itemdesc"></div></div>
+</div>
+<div id="help" class="glass"></div>
 </div>
 
 <!-- bottom right: menu -->
@@ -313,7 +322,6 @@
   <button id="act">던지기</button>
 </div>
 
-<div id="help" class="glass"></div>
 <div id="target" class="glass" hidden></div>
 <div id="questm" class="modal" hidden>
   <div class="mbox glass">
