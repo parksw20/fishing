@@ -1641,9 +1641,12 @@ function drawFightRing(cx, cy){
       ctx.fillStyle = `rgba(255,255,255,${(0.06 + 0.12*Math.min(1, k)).toFixed(2)})`; ctx.beginPath(); ctx.arc(tx, ty, r, 0, TAU); ctx.fill();
       F.qtePos = [tx, ty];
       // a finger in the target: tap here
-      ctx.save(); ctx.font = `${Math.round(tr*1.25)}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.globalAlpha = 0.75 + 0.25*Math.sin(G.time*14);
-      ctx.fillText('👆', tx, ty + tr*0.12); ctx.restore();
+      // big, shadowed, tapping up and down with its fingertip on the centre of the target
+      const fs = Math.max(34, tr*2.4), bob = Math.abs(Math.sin(G.time*7))*fs*0.18;
+      ctx.save(); ctx.font = `${Math.round(fs)}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.shadowColor = 'rgba(0,0,0,.75)'; ctx.shadowBlur = 10; ctx.shadowOffsetY = 2;
+      ctx.fillText('👆', tx + fs*0.12, ty - fs*0.05 + bob); ctx.restore();
     } else F.qtePos = [tx, ty];
     if (F.pop && F.qtePos){
       const P = F.pop, sc = P.t < 0.12 ? 0.6 + 0.6*P.t/0.12 : 1.2 - 0.2*Math.min(1, (P.t - 0.12)/0.2);
