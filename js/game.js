@@ -1370,8 +1370,8 @@ function baitView(focus, back, up, side){
   const oa = G.orbit + (side||0) + (G.state === 'hooked' ? 0 : (G.lookX || 0));
   const c = Math.cos(oa), s = Math.sin(oa); const rx = dx*c - dz*s, rz = dx*s + dz*c;
   // after casting the view can be tilted up/down around the rig (drag, W/S, joystick), but the camera stays above the water
-  // after casting the camera may tilt below the surface to watch the bait / lure / fish underwater
-  const under = G.state === 'wait' || G.state === 'hooked';
+  // after casting the camera may tilt below the surface to watch the bait / lure / fish underwater — with goggles
+  const under = (G.state === 'wait' || G.state === 'hooked') && P.tier.goggles > 0;
   const R = Math.hypot(back, up), el = clamp(Math.atan2(up, back) + (G.viewTilt || 0), under ? -0.6 : 0.1, 1.35);
   let h = el >= 0.12 ? Math.max(0.45, R*Math.sin(el)) : R*Math.sin(el), b = R*Math.cos(el);
   // never put the camera inside the boat: come closer to the rig, and if that is not enough rise above the gunwale
@@ -1388,7 +1388,13 @@ function underTargetY(){
   if (G.lure) return G.lure.pos[1];
   return -1;
 }
-function tiltView(d){ G.viewTilt = clamp((G.viewTilt || 0) + d, -1.6, 0.8); }
+function tiltView(d){
+  const lo = P.tier.goggles ? -1.6 : -0.6;   // without goggles the view stops at the surface (and doesn't wind up past it)
+  G.viewTilt = clamp((G.viewTilt || 0) + d, lo, 0.8);
+  if (d < 0 && G.viewTilt <= lo && !P.tier.goggles && (G.state === 'wait' || G.state === 'hooked') && !G.gogglesHint){
+    G.gogglesHint = true; say('🤿 수경이 있으면 물속을 볼 수 있어요 (상점 3,000🪙)', 2.6);
+  }
+}
 function boatView(){
   const e = eyeWorld(), yw = viewYaw(), pt = viewPitch(), cp = Math.cos(pt);
   return { pos: e, look: add(e, [Math.sin(yw)*cp*10, Math.sin(pt)*10, -Math.cos(yw)*cp*10]) };
@@ -1840,7 +1846,7 @@ function matchRating(sp){
 
 /* ---------------- save data ---------------- */
 const SAVE_KEY = 'boatfish.v2';
-const P = { coins: 200, tierV: 2, owned: {}, tier: { rod: 0, reel: 0, line: 0, hook: 0, sonar: 0, engine: 0, boat: 0, net: 0 }, sightings: {}, quests: [], done: 0,
+const P = { coins: 200, tierV: 2, owned: {}, tier: { rod: 0, reel: 0, line: 0, hook: 0, sonar: 0, engine: 0, boat: 0, net: 0, goggles: 0 }, sightings: {}, quests: [], done: 0,
   net: [], caught: {}, daily: {}, luckUntil: 0, att: { last: '', streak: 0, log: [] }, week: { key: '', issued: 0, done: 0 } };
 for (const it of [...BAITS, ...LURES]) if (!it.cost) P.owned[it.id] = true;
 function save(){
@@ -2167,6 +2173,11 @@ function renderShop(){
   $('coins2').textContent = P.coins.toLocaleString();
   const up = SHOP.map(s => {
     const cur = s.tiers[P.tier[s.id]], next = s.tiers[P.tier[s.id] + 1];
+    if (s.tiers.length === 2){   // one-off gear (goggles): buy once
+      const have = P.tier[s.id] > 0, it = s.tiers[1];
+      return `<div class="card"><div class="ct">${s.icon} ${s.name}</div><div class="cur"><span>${it.desc}</span></div>` +
+        (have ? `<div class="nx max">보유 중</div>` : `<button data-up="${s.id}" ${P.coins < it.cost ? 'disabled' : ''}>${it.cost.toLocaleString()}🪙 구매</button>`) + `</div>`;
+    }
     return `<div class="card"><div class="ct">${s.icon} ${s.name} <span class="lv">Lv.${P.tier[s.id] + 1}/${s.tiers.length}</span></div><div class="cur">현재: <b>${cur.name}</b><br><span>${cur.desc}</span></div>` +
       (next ? `<div class="nx">다음: <b>${next.name}</b><br><span>${next.desc}</span></div><button data-up="${s.id}" ${P.coins < next.cost ? 'disabled' : ''}>${next.cost.toLocaleString()}🪙 업그레이드</button>`
             : `<div class="nx max">최고 등급</div>`) + `</div>`;
@@ -2180,7 +2191,7 @@ function renderShop(){
   for (const b of document.querySelectorAll('#shoptabs button')) b.classList.toggle('on', b.dataset.t === T);
   for (const b of $('shopgrid').querySelectorAll('[data-up]')) b.onclick = () => {
     const s = shopItem(b.dataset.up), next = s.tiers[P.tier[s.id] + 1]; if (!next) return; if (P.coins < next.cost){ playS('deny'); return; }
-    P.coins -= next.cost; P.tier[s.id]++; if (s.id === 'boat') applyBoatModel(); if (!playS('buy')) sfx.win(); say(`${s.name} → ${next.name}`, 1.8); save(); renderShop(); updateLog();
+    P.coins -= next.cost; P.tier[s.id]++; if (s.id === 'boat') applyBoatModel(); if (!playS('buy')) sfx.win(); say(s.tiers.length === 2 ? `${s.icon} ${s.name} 구매!${s.id === 'goggles' ? ' 캐스팅 후 시점을 내려 물속을 볼 수 있어요' : ''}` : `${s.name} → ${next.name}`, 2.2); save(); renderShop(); updateLog();
   };
   for (const b of $('shopgrid').querySelectorAll('[data-buy]')) b.onclick = () => {
     const it = [...BAITS, ...LURES].find(i => i.id === b.dataset.buy); if (P.coins < it.cost){ playS('deny'); return; }

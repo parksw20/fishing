@@ -337,6 +337,10 @@ window.GameData = (function(){
     { id:'net', name:'살림망', icon:'🧺', tiers: tiers(
       ['기본 살림망', '중형 살림망', '대형 살림망', '접이식 살림망', '고급 살림망', '소형 활어통', '중형 활어통', '대형 활어통', '산소 활어통', '대형 산소 활어통'], 0.5,
       (u, i) => { const cap = Math.round(12 + 38*u); return { cap, desc: `물고기 ${cap}마리 보관` }; }) },
+    // one-off gear: 2 "levels" (none / owned)
+    { id:'goggles', name:'수경', icon:'🤿', tiers: [
+      { name:'없음', cost:0, lv:1, desc:'물 위만 볼 수 있어요' },
+      { name:'수경', cost:3000, lv:2, desc:'캐스팅 후 시점을 내려 물속을 볼 수 있어요' } ] },
     { id:'engine', name:'엔진', icon:'⚙️', tiers: tiers(
       ['5마력 선외기', '8마력 선외기', '10마력 선외기', '15마력 선외기', '20마력 선외기', '30마력 선외기', '40마력 선외기', '60마력 선외기', '90마력 선외기', '150마력 선외기'], 0.9,
       (u, i) => { const speed = 8 + 10*u; return { speed, desc: `최고 ${Math.round(speed*1.9)}노트` }; }) },
