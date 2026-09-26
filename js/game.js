@@ -47,7 +47,7 @@ function column(x, z){ return Math.min(floorDepth(x, z), VIS_DEPTH); }
 
 /* ---------------- setup ---------------- */
 const BOAT = { pos:[0,0,0], heading:0, pitch:0, roll:0 };
-const HULL = { l:2.05, w:0.72 };
+const HULL = { l:2.05, w:0.72, d:0.37 };
 const SEAT = [0, 1.02, 1.30];               // eye position in the boat (sitting on the stern thwart)
 // boat model per boat tier: b_1.glb RIB for every tier until the upgrades get their own models (rowboat = fallback if it fails to load)
 const BOAT_MODELS = [{ key: 'b1', hull: [1.45, 0.36, 1.08], seat: [0, 1.55, 1.02] }];
@@ -55,7 +55,7 @@ const ROWBOAT = { key: null, hull: [2.05, 0.37, 0.72], seat: [0, 1.02, 1.30] };
 function applyBoatModel(){
   let m = BOAT_MODELS[P.tier.boat] || BOAT_MODELS[0];   // tiers without their own model use b_1 for now
   if (!Rn.setBoat(m.key, m.hull)){ m = ROWBOAT; Rn.setBoat(null, m.hull); }
-  HULL.l = m.hull[0]; HULL.w = m.hull[2]; SEAT.splice(0, 3, ...m.seat);
+  HULL.l = m.hull[0]; HULL.d = m.hull[1]; HULL.w = m.hull[2]; SEAT.splice(0, 3, ...m.seat);
 }
 const MODES = {
   pole: { name:'대낚시', rodLen:4.5, minCast:4.0, maxCast:9.0, lineKg:4.0, items:BAITS },
@@ -204,8 +204,12 @@ function boatR(){ return [Math.cos(BOAT.heading), 0, Math.sin(BOAT.heading)]; }
 function toBoatLocal(x, z){ const dx = x - BOAT.pos[0], dz = z - BOAT.pos[2], f = boatF(), r = boatR(); return [dx*r[0] + dz*r[2], dx*f[0] + dz*f[2]]; }
 function boatToWorld(lat, y, back){ const f = boatF(), r = boatR(); return [BOAT.pos[0] + r[0]*lat - f[0]*back, y, BOAT.pos[2] + r[2]*lat - f[2]*back]; }
 function eyeWorld(){ return boatToWorld(SEAT[0] + BOAT.roll*0.9, SEAT[1] + BOAT.pos[1], SEAT[2] + BOAT.pitch*0.4); }
+// the hull is an ellipsoid below the waterline: only something at hull depth gets pushed out, and less so
+// towards the keel, where the hull narrows; fish swimming deeper pass freely under the boat
 function pushOutOfHull(p, m){
-  const [a, b] = toBoatLocal(p[0], p[2]); const r = Math.hypot(a/(HULL.w+m), b/(HULL.l+m));
+  const dy = Math.min(p[1], 0)/(HULL.d + m); if (dy <= -1) return;
+  const sc = Math.sqrt(1 - dy*dy);
+  const [a, b] = toBoatLocal(p[0], p[2]); const r = Math.hypot(a/((HULL.w+m)*sc), b/((HULL.l+m)*sc));
   if (r < 1 && r > 1e-4){ const f = boatF(), rr = boatR(), k = 1/r; p[0] = BOAT.pos[0] + rr[0]*a*k + f[0]*b*k; p[2] = BOAT.pos[2] + rr[2]*a*k + f[2]*b*k; }
 }
 function isSalt(){ return BIOMES[REGION.biome].water === 'salt'; }
@@ -460,7 +464,7 @@ function manageFish(dt){
   }
   while (fishes.filter(f => f.state !== 'hooked' && !f.visitor).length < FISH_N) fishes.push(newFish(c, 15, 24));
   for (const f of fishes.slice()) updateFish(f, dt);
-  if (Math.abs(G.boatV) > 1.2) for (const f of fishes) if (f.state === 'wander' && dist2(f.pos, BOAT.pos) < 4 + Math.abs(G.boatV)) flee(f, BOAT.pos, 4);
+  if (Math.abs(G.boatV) > 1.2) for (const f of fishes) if (f.state === 'wander' && dist3(f.pos, BOAT.pos) < 4 + Math.abs(G.boatV)) flee(f, BOAT.pos, 4);   // a running boat scares fish near it, not the ones far below
 }
 
 /* ---------------- casting ---------------- */
