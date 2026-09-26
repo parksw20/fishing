@@ -1463,6 +1463,22 @@ function label(text, x, y, color, size){
   ctx.font = `700 ${size||15}px system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif`;
   ctx.textAlign = 'center'; ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.strokeText(text, x, y); ctx.fillStyle = color || '#fff'; ctx.fillText(text, x, y);
 }
+// where something under the water appears on screen from a camera above it: the view ray bends at the surface
+// (Snell, same IOR as the water shader), so find the surface point S whose refracted ray reaches p and project S
+const IOR_W = 1.3335;
+function projectSeen(p){
+  const e = cam.pos;
+  if (e[1] <= 0.02 || p[1] >= 0) return Rn.project(p);
+  const dx = p[0] - e[0], dz = p[2] - e[2], D = Math.hypot(dx, dz), h1 = e[1], h2 = -p[1];
+  if (D < 1e-4) return Rn.project([p[0], 0, p[2]]);
+  let lo = 0, hi = D;
+  for (let i = 0; i < 30; i++){
+    const x = 0.5*(lo + hi), s1 = x/Math.hypot(x, h1), s2 = (D - x)/Math.hypot(D - x, h2);
+    if (s1 > IOR_W*s2) hi = x; else lo = x;
+  }
+  const x = 0.5*(lo + hi);
+  return Rn.project([e[0] + dx/D*x, 0, e[2] + dz/D*x]);
+}
 function ringAt(p, r, color, w){ const s = Rn.project(p); if (!s) return null; ctx.strokeStyle = color; ctx.lineWidth = w||2; ctx.beginPath(); ctx.arc(s[0], s[1], r, 0, TAU); ctx.stroke(); return s; }
 function drawHUD(){
   ctx.clearRect(0, 0, hudW, hudH);
@@ -1495,7 +1511,7 @@ function drawHUD(){
     { const s = tag(0.12, 0, 4); if (s) sideLabels(`수심 ${fmtD(r.baitDepth)}m${r.laid ? ' · 바닥' : ''}`, `거리 ${dist2(r.pos, BOAT.pos).toFixed(1)}m`, s[0], s[1], 28, 'rgba(255,255,255,.85)', 12); }
   }
   if (G.state === 'wait' && G.lure){
-    const L = G.lure, s = Rn.project(L.pos);
+    const L = G.lure, s = projectSeen(L.pos);
     if (s){ ctx.setLineDash([3, 4]); ctx.strokeStyle = 'rgba(255,230,120,.7)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(s[0], s[1], 21, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
       sideLabels(`수심 ${fmtD(-L.pos[1])}m`, `거리 ${dist2(L.pos, BOAT.pos).toFixed(1)}m`, s[0], s[1] + 4, 34, 'rgba(255,255,255,.85)', 12); }
     if (G.strike){ const q = Rn.project([L.pos[0], 0.2, L.pos[2]]); if (q) label('바이트!', q[0], q[1] - 10, '#ffdf4a', 22); }
@@ -1507,12 +1523,12 @@ function drawFightRing(cx, cy){
   const f = G.hooked, F = G.fight, R = ringRadius();
   const cq = F.cq;
   const col = cq > 0.45 ? '110,230,140' : cq > 0.05 ? '255,220,90' : '255,110,90';
-  const fp = Rn.project(f.pos);
+  const fp = projectSeen(f.pos);
   if (fp){ ctx.lineWidth = 1.5; ctx.strokeStyle = 'rgba(255,255,255,.35)'; ctx.setLineDash([3, 5]); ctx.beginPath(); ctx.arc(fp[0], fp[1], 26, 0, TAU); ctx.stroke(); ctx.setLineDash([]); }
   ctx.lineWidth = 3; ctx.strokeStyle = `rgba(${col},.55)`; ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.stroke();
   ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.beginPath(); ctx.arc(cx, cy, R*0.12, 0, TAU); ctx.stroke();
   // fish swimming direction on screen
-  const a = Rn.project(f.pos), b = Rn.project(add(f.pos, [Math.cos(f.heading), 0, Math.sin(f.heading)]));
+  const a = projectSeen(f.pos), b = projectSeen(add(f.pos, [Math.cos(f.heading), 0, Math.sin(f.heading)]));
   if (a && b){
     let dx = b[0]-a[0], dy = b[1]-a[1]; const l = Math.hypot(dx, dy) || 1; dx /= l; dy /= l;
     const x0 = cx + dx*R*0.25, y0 = cy + dy*R*0.25, x1 = cx + dx*R*1.08, y1 = cy + dy*R*1.08;
