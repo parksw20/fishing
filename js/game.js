@@ -161,8 +161,8 @@ const SND_GROUPS = {
   catch: ['물고기잡음'], fanfare: ['물고기팡파래'],
   net: ['살림망물고기1', '살림망물고기2', '살림망물고기3', '살림망물고기4'],
   reward: ['보상획득'], lap: ['환경음'],
-  // UI touches: menu (button, items, Esc/`) 3 · everything else 2 · debug panel 1
-  ui: ['UI 터치음2'], uiMenu: ['UI 터치음3'], uiDebug: ['UI 터치음1'],
+  // UI touches: menu (button, items, Esc/`) 3 · everything else 1 · debug panel 2
+  ui: ['UI 터치음1'], uiMenu: ['UI 터치음3'], uiDebug: ['UI 터치음2'],
   claim: ['효과음3'], deny: ['효과음4'], buy: ['효과음5'], quest: ['효과음6'],
   engStart: ['보트이동1'], engLoop: ['보트이동1-1'], eng2: ['보트이동2'],
 };
