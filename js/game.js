@@ -180,12 +180,12 @@ function updateDragSound(dt){
   AU.dragIdle = want > 0.02 ? 0 : (AU.dragIdle || 0) + dt;
   if (AU.dragIdle > 0.8){ D.s.stop(); AU.dragS = null; AU.dragIdle = 0; }
 }
-// water lapping against the hull now and then
+// water lapping against the hull now and then — only heard up on the boat, not with the camera under the water
 function updateLap(dt){
   if (!AU.ctx || !hasS('lap')) return;
   AU.lapT = (AU.lapT ?? 2) - dt; if (AU.lapT > 0) return;
   AU.lapT = rand(2.5, 7);
-  if (Math.abs(G.boatV) < 1.5) playS('lap', { bus: AU.amb, gain: rand(0.45, 0.9), rate: rand(0.85, 1.15) });
+  if (Math.abs(G.boatV) < 1.5 && cam.pos[1] > -0.03) playS('lap', { bus: AU.amb, gain: rand(0.22, 0.45), rate: rand(0.85, 1.15) });
 }
 // every button gets a soft click; tabs, segmented choices and tackle pickers a "select" tick.
 // Buttons whose action has its own sound (buy, claim, sell, cast...) stay quiet here.
