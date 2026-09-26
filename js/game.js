@@ -75,7 +75,7 @@ function applyBoatModel(){
   HULL.l = m.hull[0]; HULL.d = m.hull[1]; HULL.w = m.hull[2]; SEAT.splice(0, 3, ...m.seat);
 }
 const MODES = {
-  pole: { name:'대낚시', rodLen:4.5, minCast:4.0, maxCast:10.0, castByTier:[10, 20, 30], lineKg:4.0, items:BAITS },
+  pole: { name:'대낚시', rodLen:4.5, minCast:4.0, maxCast:10.0, lineKg:4.0, items:BAITS },
   lure: { name:'루어',   rodLen:2.1, minCast:6.0, maxCast:30.0, lineKg:7.0, items:LURES },
 };
 
@@ -496,8 +496,8 @@ function startCharge(){
   G.state = 'charge'; G.chargeT = 0; G.power = 0;
 }
 function landingPoint(power){
-  const m = modeCfg(), e = eyeWorld(), mx = m.castByTier ? m.castByTier[Math.min(P.tier.rod, m.castByTier.length - 1)] : m.maxCast*castScale();
-  const d = lerp(m.minCast, mx, power);   // pole: 10 / 20 / 30 m by rod tier
+  const m = modeCfg(), e = eyeWorld(), mx = G.mode === 'pole' ? tierOf('rod').poleCast : m.maxCast*castScale();
+  const d = lerp(m.minCast, mx, power);   // pole: 10 … 30 m by rod level
   let p = add(e, mul(yawDir(viewYaw()), d)); p[1] = 0;
   let k = 0; while (insideHull(p[0], p[2], 0.6) && ++k < 40) p = add(p, mul(yawDir(viewYaw()), 0.2));
   return p;
@@ -1839,7 +1839,7 @@ function matchRating(sp){
 
 /* ---------------- save data ---------------- */
 const SAVE_KEY = 'boatfish.v2';
-const P = { coins: 200, owned: {}, tier: { rod: 0, reel: 0, line: 0, hook: 0, sonar: 0, engine: 0, boat: 0, net: 0 }, sightings: {}, quests: [], done: 0,
+const P = { coins: 200, tierV: 2, owned: {}, tier: { rod: 0, reel: 0, line: 0, hook: 0, sonar: 0, engine: 0, boat: 0, net: 0 }, sightings: {}, quests: [], done: 0,
   net: [], caught: {}, daily: {}, luckUntil: 0, att: { last: '', streak: 0, log: [] }, week: { key: '', issued: 0, done: 0 } };
 for (const it of [...BAITS, ...LURES]) if (!it.cost) P.owned[it.id] = true;
 function save(){
@@ -1849,6 +1849,13 @@ function load(){
   try {
     const d = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); if (!d) return null;
     Object.assign(P.tier, d.P.tier || {}); Object.assign(P.owned, d.P.owned || {}); P.coins = d.P.coins ?? P.coins;
+    // saves from before the 10-level upgrades: map the old level to the new one with the same meaning
+    if (!d.P.tierV){
+      const OLD = { rod: [0, 4, 9], reel: [0, 4, 9], line: [0, 3, 6, 9], hook: [0, 4, 9], sonar: [0, 3, 6], boat: [0, 3, 6, 9], net: [0, 4, 9], engine: [0, 4, 9] };
+      for (const k in OLD) P.tier[k] = OLD[k][Math.min(P.tier[k] || 0, OLD[k].length - 1)];
+    }
+    P.tierV = 2;
+    for (const it of SHOP) P.tier[it.id] = clamp(P.tier[it.id] || 0, 0, it.tiers.length - 1);
     P.sightings = d.P.sightings || {};
     P.net = (d.P.net || []).filter(f => BY_ID[f.id]); P.caught = d.P.caught || {}; P.daily = d.P.daily || {}; P.luckUntil = d.P.luckUntil || 0;
     Object.assign(P.att, d.P.att || {}); Object.assign(P.week, d.P.week || {});
@@ -2159,7 +2166,7 @@ function renderShop(){
   $('coins2').textContent = P.coins.toLocaleString();
   const up = SHOP.map(s => {
     const cur = s.tiers[P.tier[s.id]], next = s.tiers[P.tier[s.id] + 1];
-    return `<div class="card"><div class="ct">${s.icon} ${s.name}</div><div class="cur">현재: <b>${cur.name}</b><br><span>${cur.desc}</span></div>` +
+    return `<div class="card"><div class="ct">${s.icon} ${s.name} <span class="lv">Lv.${P.tier[s.id] + 1}/${s.tiers.length}</span></div><div class="cur">현재: <b>${cur.name}</b><br><span>${cur.desc}</span></div>` +
       (next ? `<div class="nx">다음: <b>${next.name}</b><br><span>${next.desc}</span></div><button data-up="${s.id}" ${P.coins < next.cost ? 'disabled' : ''}>${next.cost.toLocaleString()}🪙 업그레이드</button>`
             : `<div class="nx max">최고 등급</div>`) + `</div>`;
   }).join('');
@@ -2356,7 +2363,7 @@ function drawSonar(){
     ctx.fillStyle = '#ff5a2a'; ctx.fillRect(x, by, 1, 2);
     ctx.fillStyle = '#b8401c'; ctx.fillRect(x, by + 2, 1, 3);
     ctx.fillStyle = '#6b2a14'; ctx.fillRect(x, by + 5, 1, Math.max(0, top + H - by - 5));
-    for (const [ed, el] of c.echoes){ ctx.fillStyle = P.tier.sonar ? (el > 1.2 ? '#ff3bd4' : el > 0.5 ? '#ff3b3b' : el > 0.25 ? '#ffd84a' : '#8ff0a8') : '#ffd84a'; ctx.fillRect(x, top + ed*sy - 1, 1, el > 0.5 ? 3 : 2); }
+    for (const [ed, el] of c.echoes){ ctx.fillStyle = P.tier.sonar >= 3 ? (el > 1.2 ? '#ff3bd4' : el > 0.5 ? '#ff3b3b' : el > 0.25 ? '#ffd84a' : '#8ff0a8') : '#ffd84a'; ctx.fillRect(x, top + ed*sy - 1, 1, el > 0.5 ? 3 : 2); }
   }
   ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '600 10px system-ui, sans-serif'; ctx.textAlign = 'right';
   const step = [2, 5, 10, 20, 50, 100].find(s => range/s <= 5) || 100;
@@ -2367,7 +2374,7 @@ function drawSonar(){
   ctx.fillText('어탐기', x0, y0 - 8);
   ctx.textAlign = 'right'; ctx.fillStyle = '#fff'; ctx.font = '800 14px system-ui, sans-serif';
   ctx.fillText(d.toFixed(1) + 'm', x0 + W, y0 - 7);
-  if (P.tier.sonar >= 2 && n){
+  if (P.tier.sonar >= 6 && n){
     const last = SONAR.cols[SONAR.cols.length - 1].echoes;
     if (last.length){ const big = last.reduce((a, b) => b[1] > a[1] ? b : a); ctx.textAlign = 'left'; ctx.font = '700 11px system-ui, sans-serif'; ctx.fillStyle = '#ffd84a';
       ctx.fillText(`${big[2]} ${Math.round(big[1]*100)}cm · ${big[0].toFixed(1)}m`, x0 + 2, top + H - 4); }

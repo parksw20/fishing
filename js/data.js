@@ -308,41 +308,38 @@ window.GameData = (function(){
       reel:1.6, diveDepth:2.5, idle:'float', cost:1200 },
   ];
   // equipment upgrades
+  // gear upgrades: 10 levels each. Stats climb evenly from level 1 to 10; prices grow ~1.5× a level.
+  const COST = [0, 200, 450, 800, 1300, 2000, 3000, 4500, 6500, 9500];
+  const tiers = (names, k, stat) => names.map((name, i) => Object.assign({ name, cost: Math.round(COST[i]*k/10)*10, lv: i + 1 }, stat(i/9, i)));
+  const pct = x => Math.round(x*100);
+  const POLE_CAST = [10, 12, 14, 16, 18, 20, 23, 26, 28, 30];
   const SHOP = [
-    { id:'rod', name:'낚싯대', icon:'🎣', tiers:[
-      { name:'기본 낚싯대', cost:0, cast:1, absorb:1, desc:'기본 캐스팅 거리 (대낚시 10m · 루어 30m)' },
-      { name:'카본 로드', cost:600, cast:1.2, absorb:0.9, desc:'대낚시 20m · 루어 +20% · 파이팅 장력 -10%' },
-      { name:'빅게임 로드', cost:2400, cast:1.4, absorb:0.8, desc:'대낚시 30m · 루어 +40% · 파이팅 장력 -20%' } ] },
-    { id:'reel', name:'릴', icon:'🌀', tiers:[
-      { name:'기본 스피닝 릴', cost:0, speed:1, desc:'기본 감기 속도' },
-      { name:'고기어 릴', cost:500, speed:1.3, desc:'감기 속도 +30%' },
-      { name:'전동 릴', cost:1800, speed:1.6, desc:'감기 속도 +60%' } ] },
-    { id:'line', name:'원줄', icon:'🧵', tiers:[
-      { name:'나일론', cost:0, mult:1, desc:'기본 강도' },
-      { name:'카본', cost:400, mult:1.5, desc:'강도 ×1.5 (예민한 어종은 입질이 조금 줄어듦)' },
-      { name:'PE 합사', cost:1200, mult:2.2, desc:'강도 ×2.2 (예민한 어종 입질 감소)' },
-      { name:'빅게임 PE', cost:3500, mult:3.2, desc:'강도 ×3.2 — 상어·다랑어용' } ] },
-    { id:'hook', name:'바늘', icon:'🪝', tiers:[
-      { name:'기본 바늘', cost:0, hold:1, window:1, desc:'기본 걸림' },
-      { name:'예리한 바늘', cost:300, hold:0.6, window:1.3, desc:'챔질 여유 +30% · 바늘 빠짐 -40%' },
-      { name:'서클훅', cost:1000, hold:0.3, window:1.6, desc:'챔질 여유 +60% · 바늘 빠짐 -70%' } ] },
-    { id:'sonar', name:'어탐기', icon:'📡', tiers:[
-      { name:'기본 어탐기', cost:0, desc:'수심과 어군 표시' },
-      { name:'컬러 어탐기', cost:500, desc:'물고기 크기별 색 구분' },
-      { name:'스캔 어탐기', cost:1500, desc:'발밑 가장 큰 물고기의 어종 표시' } ] },
-    { id:'boat', name:'보트', icon:'🚤', tiers:[
-      { name:'소형 보트', cost:0, zone:0, desc:'내륙 호수·강만 갈 수 있음' },
-      { name:'연안 보트', cost:800, zone:1, desc:'해안에서 20km 이내 연안 바다까지' },
-      { name:'근해 낚싯배', cost:2500, zone:2, desc:'해안에서 100km 이내 근해까지' },
-      { name:'원양 어선', cost:6000, zone:3, desc:'먼바다 어디든 (제한 없음)' } ] },
-    { id:'net', name:'살림망', icon:'🧺', tiers:[
-      { name:'기본 살림망', cost:0, cap:12, desc:'물고기 12마리 보관' },
-      { name:'대형 살림망', cost:400, cap:20, desc:'물고기 20마리 보관' },
-      { name:'활어통', cost:1500, cap:35, desc:'물고기 35마리 보관' } ] },
-    { id:'engine', name:'엔진', icon:'⚙️', tiers:[
-      { name:'5마력 선외기', cost:0, speed:8, desc:'최고 15노트' },
-      { name:'15마력 선외기', cost:700, speed:11, desc:'최고 21노트' },
-      { name:'40마력 선외기', cost:2200, speed:15, desc:'최고 29노트' } ] },
+    { id:'rod', name:'낚싯대', icon:'🎣', tiers: tiers(
+      ['기본 낚싯대', '입문 글라스 로드', '카본 로드', '고탄성 카본 로드', '라이트 게임 로드', '프로 카본 로드', '티타늄 가이드 로드', '토너먼트 로드', '빅게임 로드', '마스터 빅게임 로드'], 1,
+      (u, i) => { const cast = 1 + 0.5*u, absorb = 1 - 0.28*u;
+        return { cast, absorb, poleCast: POLE_CAST[i], desc: i ? `대낚시 ${POLE_CAST[i]}m · 루어 +${pct(cast - 1)}% · 파이팅 장력 -${pct(1 - absorb)}%` : '기본 캐스팅 거리 (대낚시 10m · 루어 30m)' }; }) },
+    { id:'reel', name:'릴', icon:'🌀', tiers: tiers(
+      ['기본 스피닝 릴', '경량 스피닝 릴', '고기어 릴', '실버 스피닝 릴', '베이트 릴', '하이기어 베이트 릴', '대형 스피닝 릴', '지깅 릴', '소형 전동 릴', '대형 전동 릴'], 0.8,
+      (u, i) => { const speed = 1 + 0.8*u; return { speed, desc: i ? `감기 속도 +${pct(speed - 1)}%` : '기본 감기 속도' }; }) },
+    { id:'line', name:'원줄', icon:'🧵', tiers: tiers(
+      ['나일론', '고강도 나일론', '카본', '고강도 카본', 'PE 합사 0.8호', 'PE 합사 1.5호', 'PE 합사 3호', '빅게임 PE 5호', '빅게임 PE 8호', '다이니마 극강 PE'], 0.75,
+      (u, i) => { const mult = 1 + 2.6*u; return { mult, desc: i ? `강도 ×${mult.toFixed(1)}${i >= 2 ? ' (예민한 어종은 입질이 조금 줄어듦)' : ''}` : '기본 강도' }; }) },
+    { id:'hook', name:'바늘', icon:'🪝', tiers: tiers(
+      ['기본 바늘', '가는 바늘', '예리한 바늘', '미늘 강화 바늘', '감성돔 바늘', '트레블 훅', '싱글 헤비 훅', '서클훅', '티타늄 서클훅', '마스터 서클훅'], 0.5,
+      (u, i) => { const hold = 1 - 0.75*u, window = 1 + 0.8*u; return { hold, window, desc: i ? `챔질 여유 +${pct(window - 1)}% · 바늘 빠짐 -${pct(1 - hold)}%` : '기본 걸림' }; }) },
+    { id:'sonar', name:'어탐기', icon:'📡', tiers: tiers(
+      ['기본 어탐기', '흑백 어탐기 II', '고감도 어탐기', '컬러 어탐기', '컬러 어탐기 HD', '듀얼 빔 어탐기', '스캔 어탐기', '사이드 스캔', '라이브 스캔', '3D 라이브 스캔'], 0.6,
+      (u, i) => ({ desc: i < 3 ? `수심과 어군 표시${i ? ` · 감도 +${i*10}%` : ''}` : i < 6 ? '물고기 크기별 색 구분' : '크기별 색 + 발밑 가장 큰 물고기의 어종 표시' })) },
+    { id:'boat', name:'보트', icon:'🚤', tiers: tiers(
+      ['소형 보트', '알루미늄 보트', '고무보트 RIB', '연안 보트', '연안 낚싯배', '센터콘솔 보트', '근해 낚싯배', '근해 크루저', '스포츠 피셔', '원양 어선'], 2,
+      (u, i) => { const zone = i < 3 ? 0 : i < 6 ? 1 : i < 9 ? 2 : 3;
+        return { zone, desc: ['내륙 호수·강만 갈 수 있음', '해안에서 20km 이내 연안 바다까지', '해안에서 100km 이내 근해까지', '먼바다 어디든 (제한 없음)'][zone] }; }) },
+    { id:'net', name:'살림망', icon:'🧺', tiers: tiers(
+      ['기본 살림망', '중형 살림망', '대형 살림망', '접이식 살림망', '고급 살림망', '소형 활어통', '중형 활어통', '대형 활어통', '산소 활어통', '대형 산소 활어통'], 0.5,
+      (u, i) => { const cap = Math.round(12 + 38*u); return { cap, desc: `물고기 ${cap}마리 보관` }; }) },
+    { id:'engine', name:'엔진', icon:'⚙️', tiers: tiers(
+      ['5마력 선외기', '8마력 선외기', '10마력 선외기', '15마력 선외기', '20마력 선외기', '30마력 선외기', '40마력 선외기', '60마력 선외기', '90마력 선외기', '150마력 선외기'], 0.9,
+      (u, i) => { const speed = 8 + 10*u; return { speed, desc: `최고 ${Math.round(speed*1.9)}노트` }; }) },
   ];
 
   return { SPECIES, BY_ID, BIOMES, WATERS, SPOTS, BAITS, LURES, SHOP };
