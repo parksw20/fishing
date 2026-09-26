@@ -1588,8 +1588,17 @@ function updateGauges(){
 const PERIOD_NAME = { dawn: '새벽', day: '낮', dusk: '해질녘', night: '밤' };
 function period(h){ h = h ?? G.clock; return h >= 4.5 && h < 7.5 ? 'dawn' : h >= 7.5 && h < 17 ? 'day' : h >= 17 && h < 19.8 ? 'dusk' : 'night'; }
 function activity(sp){ return Math.max(0.05, (sp.act || {})[period()] ?? 0.7); }
+// a time skip rolls the clock forward over a few seconds (fast at first, easing in) instead of jumping
+function setClockTo(h){ G.clockTo = ((h % 24) + 24) % 24; }
+function fmtHour(h){ const H = Math.floor(h), m = Math.floor((h - H)*60); return `${String(H).padStart(2, '0')}:${String(m).padStart(2, '0')}`; }
 function updateClock(dt){
-  G.clock = (G.clock + dt/GAME_HOUR) % 24;
+  let step = dt/GAME_HOUR;
+  if (G.clockTo != null){
+    const left = (G.clockTo - G.clock + 24) % 24;
+    step = Math.max(step, dt*Math.max(0.4, left*0.9));
+    if (left <= step){ step = left; G.clockTo = null; }
+  }
+  G.clock = (G.clock + step) % 24;
   const lat = REGION.spot.lat, h = G.clock;
   const noon = clamp(90 - Math.abs(lat - 10), 22, 82);
   const el = noon*Math.sin(Math.PI*(h - 5.5)/13.5);           // sunrise 05:30, sunset 19:00
@@ -1603,7 +1612,7 @@ function skipTime(){
   const order = [['dawn', 5], ['day', 10], ['dusk', 17.5], ['night', 21]];
   const i = order.findIndex(o => o[0] === period());
   const [p, h] = order[(i + 1) % order.length];
-  G.clock = h; say(`⏩ ${PERIOD_NAME[p]} (${fmtClock()})`, 1.6);
+  setClockTo(h); say(`⏩ ${PERIOD_NAME[p]} (${fmtHour(h)})`, 1.6);
 }
 function fmtClock(){ const h = Math.floor(G.clock), m = Math.floor((G.clock - h)*60); return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`; }
 
@@ -1634,7 +1643,9 @@ function updateWeather(dt){
   if (!G.weather) setWeather(new URLSearchParams(location.search).get('weather') || 'clear', true);
   G.weatherT -= dt/GAME_HOUR;
   if (G.weatherT <= 0){ const prev = G.weather; setWeather(pickWeather()); if (G.weather !== prev) say(`${WEATHERS[G.weather].icon} 날씨가 바뀌었어요: ${WEATHERS[G.weather].name}`, 2.5); }
-  const tv = WEATHERS[G.weather].v, k = Math.min(1, dt*0.06);
+  // weather drifts over ~20-40 s; a change asked for by hand blends in over ~8 s
+  G.wFastT = Math.max(0, (G.wFastT || 0) - dt);
+  const tv = WEATHERS[G.weather].v, k = Math.min(1, dt*(G.wFastT > 0 ? 0.4 : 0.06));
   for (let i = 0; i < 4; i++) G.wv[i] += (tv[i] - G.wv[i])*k;
   Rn.setWeather(G.wv);
 }
@@ -2880,8 +2891,8 @@ const DEBUG_ACT = {
   },
   questReset(){ P.quests = []; fillQuests(); renderQuests(); say('📜 퀘스트 초기화', 1.8); },
   // time:<hour> and w:<weather> chips
-  time(h){ G.clock = +h; say(`⏩ ${PERIOD_NAME[period()]} (${fmtClock()})`, 1.6); },
-  w(k){ setWeather(k, true); say(`${WEATHERS[k].icon} 날씨: ${WEATHERS[k].name}`, 1.6); },
+  time(h){ setClockTo(+h); say(`⏩ ${fmtHour(+h)}로 이동 중`, 1.6); },
+  w(k){ setWeather(k); G.wFastT = 10; say(`${WEATHERS[k].icon} 날씨: ${WEATHERS[k].name}`, 1.6); },
 };
 for (const b of document.querySelectorAll('#dbgm [data-d]')) b.addEventListener('click', e => {
   e.stopPropagation(); const [k, arg] = b.dataset.d.split(':');
