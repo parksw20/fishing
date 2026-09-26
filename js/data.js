@@ -310,9 +310,9 @@ window.GameData = (function(){
   // equipment upgrades
   const SHOP = [
     { id:'rod', name:'낚싯대', icon:'🎣', tiers:[
-      { name:'기본 낚싯대', cost:0, cast:1, absorb:1, desc:'기본 캐스팅 거리' },
-      { name:'카본 로드', cost:600, cast:1.2, absorb:0.9, desc:'캐스팅 +20% · 파이팅 장력 -10%' },
-      { name:'빅게임 로드', cost:2400, cast:1.4, absorb:0.8, desc:'캐스팅 +40% · 파이팅 장력 -20%' } ] },
+      { name:'기본 낚싯대', cost:0, cast:1, absorb:1, desc:'기본 캐스팅 거리 (대낚시 10m · 루어 30m)' },
+      { name:'카본 로드', cost:600, cast:1.2, absorb:0.9, desc:'대낚시 20m · 루어 +20% · 파이팅 장력 -10%' },
+      { name:'빅게임 로드', cost:2400, cast:1.4, absorb:0.8, desc:'대낚시 30m · 루어 +40% · 파이팅 장력 -20%' } ] },
     { id:'reel', name:'릴', icon:'🌀', tiers:[
       { name:'기본 스피닝 릴', cost:0, speed:1, desc:'기본 감기 속도' },
       { name:'고기어 릴', cost:500, speed:1.3, desc:'감기 속도 +30%' },

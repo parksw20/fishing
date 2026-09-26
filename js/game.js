@@ -75,7 +75,7 @@ function applyBoatModel(){
   HULL.l = m.hull[0]; HULL.d = m.hull[1]; HULL.w = m.hull[2]; SEAT.splice(0, 3, ...m.seat);
 }
 const MODES = {
-  pole: { name:'대낚시', rodLen:4.5, minCast:4.0, maxCast:10.0, lineKg:4.0, items:BAITS },
+  pole: { name:'대낚시', rodLen:4.5, minCast:4.0, maxCast:10.0, castByTier:[10, 20, 30], lineKg:4.0, items:BAITS },
   lure: { name:'루어',   rodLen:2.1, minCast:6.0, maxCast:30.0, lineKg:7.0, items:LURES },
 };
 
@@ -496,7 +496,8 @@ function startCharge(){
   G.state = 'charge'; G.chargeT = 0; G.power = 0;
 }
 function landingPoint(power){
-  const m = modeCfg(), e = eyeWorld(), d = lerp(m.minCast, m.maxCast*castScale(), power);
+  const m = modeCfg(), e = eyeWorld(), mx = m.castByTier ? m.castByTier[Math.min(P.tier.rod, m.castByTier.length - 1)] : m.maxCast*castScale();
+  const d = lerp(m.minCast, mx, power);   // pole: 10 / 20 / 30 m by rod tier
   let p = add(e, mul(yawDir(viewYaw()), d)); p[1] = 0;
   let k = 0; while (insideHull(p[0], p[2], 0.6) && ++k < 40) p = add(p, mul(yawDir(viewYaw()), 0.2));
   return p;
