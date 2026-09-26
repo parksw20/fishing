@@ -379,7 +379,9 @@ float mountains(float a){
   for (int i = 0; i < 5; i++){ float v = vnoise(ring(a, f) + float(i)*13.7); n += amp*(1.0 - abs(2.0*v - 1.0)); f *= 2.3; amp *= 0.5; }
   return n;
 }
+float gLand = 0.0;   // set by sky(): how much distant land covers this direction (hides the sun disk behind it)
 vec3 sky(vec3 d, float soft){
+  gLand = 0.0;
   float e = d.y;
   float mu = dot(d, uSun);
   vec3 zen = vec3(0.11, 0.27, 0.62), hor = vec3(0.66, 0.78, 0.90);
@@ -409,7 +411,8 @@ vec3 sky(vec3 d, float soft){
   land = mix(land, vec3(0.86, 0.88, 0.90)*(0.75 + 0.25*tex), snowK);
   land = mix(land, hor*0.92, clamp(0.2 + dkm/70.0, 0.2, 0.85) + 0.2*back);          // aerial perspective grows with distance
   float w = fwidth(e)*1.2 + 2e-4 + soft;
-  c = mix(c, land, smoothstep(r+w, r-w, e) * step(-0.3, e) * step(0.0002, base) * (soft > 0.0 ? 0.45 : 1.0));
+  gLand = smoothstep(r+w, r-w, e) * step(-0.3, e) * step(0.0002, base);
+  c = mix(c, land, gLand * (soft > 0.0 ? 0.45 : 1.0));
   // overcast: sky flattens to grey, sun glow goes, distant land fades into the murk
   c = mix(c, vec3(0.64, 0.67, 0.70)*(0.75 + 0.25*clamp(e*3.0 + 0.5, 0.0, 1.0)), uWeather.x*0.85);
   c = mix(c, vec3(0.70, 0.72, 0.74), uWeather.y*0.7*smoothstep(0.25, 0.0, abs(e)));
@@ -700,7 +703,7 @@ vec3 underwaterView(vec3 rd, out float tHit){
     if (dot(tr, tr) < 0.01) L = deepC*0.8;
     else {
       float Fw = fresnel(max(dot(-rd, -n), 0.0), 1.0/IOR);
-      L = (1.0 - Fw)*(sky(tr, 0.0)*1.1 + SUN*6.0*smoothstep(0.9990, 0.99975, dot(tr, uSun))*(1.0 - uWeather.x)) + Fw*deepC;
+      vec3 sk = sky(tr, 0.0); L = (1.0 - Fw)*(sk*1.1 + SUN*6.0*smoothstep(0.9990, 0.99975, dot(tr, uSun))*(1.0 - uWeather.x)*(1.0 - gLand)) + Fw*deepC;
     }
   }
   // the water column between the eye and what it sees: absorption plus sunlit in-scatter;
@@ -946,7 +949,7 @@ void main(){
   // sky above horizon
   vec3 skyc = sky(rd, 0.0);
   float mu = dot(rd, uSun);
-  skyc += SUN*18.0*smoothstep(0.99996, 0.999985, mu)*(1.0 - uWeather.x);
+  skyc += SUN*18.0*smoothstep(0.99996, 0.999985, mu)*(1.0 - uWeather.x)*(1.0 - gLand);
   float hz = smoothstep(-0.0005, 0.0015, rd.y);
   col = mix(col, skyc, hz);
 
