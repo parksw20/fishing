@@ -3005,6 +3005,19 @@ const DEBUG_ACT = {
     for (const q of open){ q.got = q.n; P.done++; P.week.done++; q.claim = true; q.doneAt = G.time; }
     celebrate('🎉 퀘스트 완료!', `${open.length}개 · 퀘스트 창에서 보상 받기`); renderQuests();
   },
+  // a fish takes the bait right away: float rig → one quick nibble then the take (float goes under); lure → strike
+  bite(){
+    if (G.state !== 'wait' || !(G.rig || G.lure)){ say('먼저 캐스팅한 뒤 사용하세요', 1.8, 'bad'); return; }
+    if (G.rig && G.rig.baitGone){ say('미끼가 없어요 — 회수 후 다시 던지세요', 1.8, 'bad'); return; }
+    const b = G.rig ? G.rig.bait : G.lure.pos;
+    let f = G.engaged && G.engaged.state !== 'flee' ? G.engaged : null;
+    if (!f){ f = newFish(b, 0.4, 0.8); fishes.push(f); }
+    f.pos = [b[0] - 0.3, b[1], b[2]]; f.heading = 0; f.cooldown = 0;
+    closeModal();
+    if (G.rig){ G.engaged = f; f.state = 'nibble'; f.nibbles = 1; f.timer = 0.25; }
+    else { G.engaged = null; strike(f); }
+    say(`🎣 ${f.sp.name} 입질!`, 1.5, 'hot');
+  },
   questReset(){ P.quests = []; fillQuests(); renderQuests(); say('📜 퀘스트 초기화', 1.8); },
   // time:<hour> and w:<weather> chips
   time(h){ setClockTo(+h); say(`⏩ ${fmtHour(+h)}로 이동 중`, 1.6); },
