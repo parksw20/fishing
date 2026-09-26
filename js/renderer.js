@@ -405,11 +405,27 @@ vec3 sky(vec3 d, float soft){
   float cliffHigh = smoothstep(0.52, 0.72, fbm2(ring(a, 55.0) + vec2(e*120.0, 3.0))) * smoothstep(0.25, 0.6, u);
   float cliff = mix(cliffLow, cliffHigh, tall);
   vec3 land = mix(pine, rock, cliff);
+  // detail, only where land is actually seen straight on (not in the blurred water reflections, so the water
+  // pixels pay nothing): sun-facing vs shaded slopes, erosion gullies running down the faces, darker forest bands
+  if (soft == 0.0 && e < r + 0.002 && e > -0.01 && tall > 0.0){
+    float da = 0.0035, sunA = atan(uSun.z, uSun.x);
+    float dm = mountains(a + da) - mountains(a - da);                    // + : the ridge climbs toward +a
+    float lit = -dm*sign(sin(sunA - a));                                 // slopes turned toward the sun's side
+    land *= 1.0 + tall*clamp(lit*3.5, -0.45, 0.35);
+    float gul = vnoise(vec2(a*1500.0, e*38.0 + 3.0*vnoise(ring(a, 70.0))));   // long vertical streaks
+    land *= 1.0 - tall*0.35*smoothstep(0.5, 0.85, gul)*smoothstep(0.1, 0.5, u);
+    land *= 1.0 - 0.18*smoothstep(0.55, 0.8, vnoise(ring(a, 160.0) + vec2(0.0, e*90.0)))*(1.0 - cliff);
+  }
   land *= mix(1.0, 0.45, back);                         // backlit toward the sun
   // snow only above the snow line, so it caps the high peaks instead of lining every ridge
   float snowK = uSnow*tall*smoothstep(base*0.68, base*0.8, e + base*0.12*(fbm2(ring(a, 80.0) + vec2(e*200.0, 0.0)) - 0.5));
   land = mix(land, vec3(0.86, 0.88, 0.90)*(0.75 + 0.25*tex), snowK);
   land = mix(land, hor*0.92, clamp(0.2 + dkm/70.0, 0.2, 0.85) + 0.2*back);          // aerial perspective grows with distance
+  // where the land meets the water: a low band of haze over the water softens the foot of the hills into the
+  // horizon, with a thin darker shoreline strip right at the waterline on nearby shores
+  float foot = smoothstep(0.30, 0.0, u);
+  land = mix(land, hor*0.95, foot*0.38*(1.0 - 0.5*uWeather.x));
+  land *= 1.0 - 0.22*smoothstep(0.0025, 0.0, e)*smoothstep(12.0, 2.0, dkm);
   float w = fwidth(e)*1.2 + 2e-4 + soft;
   gLand = smoothstep(r+w, r-w, e) * step(-0.3, e) * step(0.0002, base);
   c = mix(c, land, gLand * (soft > 0.0 ? 0.45 : 1.0));
