@@ -703,7 +703,7 @@ function updateQTE(dt){
   else { F.hpLag = f.stamina; F.hpHold = 0; }
   const Q = F.qte;
   if (!Q){
-    if (f.stamina > 0.12 && (F.qteT -= dt) <= 0) F.qte = { t: 0, T: rand(0.85, 1.25), r0: 70 + 30*Math.random() };
+    if (f.stamina > 0.12 && (F.qteT -= dt) <= 0) F.qte = { t: 0, T: rand(0.85, 1.25), r0: 140 + 40*Math.random() };
     return;
   }
   Q.t += dt;
