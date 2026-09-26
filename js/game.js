@@ -167,6 +167,7 @@ const SND_GROUPS = {
   engStart: ['보트이동1'], engLoop: ['보트이동1-1'], eng2: ['보트이동2'],
 };
 const SND = { buf: {}, k: {}, last: {} };
+const UI_GAIN = 0.33;   // button / menu touch sounds (60% of the earlier 0.55)
 function loadSounds(){
   for (const n of new Set(Object.values(SND_GROUPS).flat()))
     fetch('sound/' + encodeURIComponent(n) + '.mp3').then(r => r.ok ? r.arrayBuffer() : Promise.reject(r.status))
@@ -214,7 +215,7 @@ document.addEventListener('click', e => {
   const b = e.target.closest && e.target.closest('button, [data-t], .seg > *');
   if (!b || b.disabled || b.closest('[data-up], [data-buy], [data-c], #nsell, #nrel, #sellall, #releaseall, #act, #joy, #stest, #attbtn')) return;
   audioInit();
-  playS(b.closest('#dbgm') ? 'uiDebug' : b.closest('#menu, #menubtn, #tmap') ? 'uiMenu' : 'ui', { gain: 0.55 });
+  playS(b.closest('#dbgm') ? 'uiDebug' : b.closest('#menu, #menubtn, #tmap') ? 'uiMenu' : 'ui', { gain: UI_GAIN });
 }, true);
 
 /* ---------------- helpers ---------------- */
@@ -1144,7 +1145,7 @@ window.addEventListener('keydown', e => {
     case 'KeyH': G.help = !G.help; say(G.help ? '입질 표시 켬' : '입질 표시 끔', 1.2); break;
     case 'Space': e.preventDefault(); if (!mouse.down){ mouse.down = true; mouse.downT = G.time; press(); } break;
     case 'Enter': if (G.state === 'result') hideCard(); break;
-    case 'Escape': playS('uiMenu', { gain: 0.55 }); escMenu(); break;
+    case 'Escape': playS('uiMenu', { gain: UI_GAIN }); escMenu(); break;
     case 'BracketRight': case 'Equal': wheel(1); break;
     case 'BracketLeft': case 'Minus': wheel(-1); break;
   }
@@ -1156,7 +1157,7 @@ function escMenu(){
   else if (!$('itempop').hidden) $('itempop').hidden = true;
   else $('menu').hidden = false;
 }
-function onEsc(){ audioInit(); playS('uiMenu', { gain: 0.55 }); if (G.mapOpen) closeModal(); else escMenu(); }
+function onEsc(){ audioInit(); playS('uiMenu', { gain: UI_GAIN }); if (G.mapOpen) closeModal(); else escMenu(); }
 window.addEventListener('keyup', e => {
   if (isEsc(e)){ if (!escSeen) onEsc(); escSeen = false; }
   keys[e.code] = false; if (e.code === 'Space' && mouse.down){ mouse.down = false; release(); } });
