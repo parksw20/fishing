@@ -344,6 +344,7 @@ uniform vec4 uBoat;       // hull centre xyz, heading
 const float IOR = 1.3335;
 uniform vec3 uSigA, uSigS;   // per-region water: absorption / scattering (1/m)
 uniform vec4 uDepthP, uDepthQ; // depth profile: base, amp, min, max | scale, seed x, seed z, depth at the start anchor
+uniform vec4 uDepthS;         // bed shape (0 = water-type profile; then uDepthP = min, max), drop-off / river direction xz
 uniform vec4 uBed;             // seabed: sand fraction, tint rgb
 uniform float uLand;           // distant shoreline height (0 = open sea)
 uniform float uHor[32], uHorD[32];   // horizon: land elevation angle (rad) and distance (km) per direction, from the world map
@@ -438,7 +439,19 @@ float floorDepth(vec2 xz){
   // region depth profile (same formula as game.js), plus fine shader-only noise
   float sc = uDepthQ.x; vec2 q = xz*sc;
   float n = 0.5*sin(q.x + uDepthQ.y)*sin(q.y*0.83 + uDepthQ.z) + 0.3*sin((q.x*0.7 - q.y*0.9)*2.1 + uDepthQ.y*2.0) + 0.2*sin((q.x*1.3 + q.y*0.4)*4.3 + uDepthQ.z*3.0);
-  float k = 0.3*uDepthP.y, d = smin1(-smin1(-(uDepthP.x + uDepthP.y*n), -uDepthP.z, k), uDepthP.w, k);   // same smooth clamp as game.js
+  float d;
+  if (uDepthS.x < 0.5){ float k = 0.3*uDepthP.y; d = smin1(-smin1(-(uDepthP.x + uDepthP.y*n), -uDepthP.z, k), uDepthP.w, k); }   // same smooth clamp as game.js
+  else {   // the spot's own bed shape (bedShare in game.js)
+    float u = clamp(0.5 + 0.5*n, 0.0, 1.0), r = length(xz), al = dot(xz, uDepthS.yz), s = uDepthS.x, g;
+    if (s < 1.5) g = 0.55*pow(u, 1.3) + 0.45*smoothstep(20.0, 250.0, r);
+    else if (s < 2.5) g = 0.6*pow(u, 0.8) + 0.4*smoothstep(10.0, 150.0, r);
+    else if (s < 3.5) g = 0.85*exp(-pow(abs(al - 18.0)/14.0, 2.0)) + 0.15*u;
+    else if (s < 4.5) g = 0.35*u*u*u + 0.65*smoothstep(90.0, 170.0, r);
+    else if (s < 5.5) g = 0.25*u + 0.75*smoothstep(150.0, 300.0, r);
+    else if (s < 6.5) g = 0.15*u + 0.85*smoothstep(15.0, 70.0, al);
+    else g = u;
+    d = mix(uDepthP.x, uDepthP.y, clamp(g, 0.0, 1.0));
+  }
   d = toVis(mix(uDepthQ.w, d, smoothstep(12.0, 70.0, length(xz))));
   return d + 0.10*(vnoise(xz*0.9+7.0)-0.5);
 }
@@ -1212,7 +1225,7 @@ function post(t){
 
 /* ---------------- Above-water scene: boat, rod, float, line (rasterised, depth-tested against the water) ---------------- */
 let SUNV = [0,1,0];
-const ENV = { hor: new Float32Array(32).fill(0.04), horD: new Float32Array(32).fill(3), snow: 0, weather:[0,0,0,0], expo:1, sunC:[6,5.4,4.44], skyK:[1,1,1], night:0, sigA:[0.40,0.074,0.088], sigS:[0.028,0.052,0.068], depthP:[2.5,1.0,1.5,3.5], depthQ:[0.02,1.3,0.4,2.4], bed:[0,1,1,1], land:1, hull:[2.05,0.37,0.72], boat:null, waveK:1 };
+const ENV = { hor: new Float32Array(32).fill(0.04), horD: new Float32Array(32).fill(3), snow: 0, weather:[0,0,0,0], expo:1, sunC:[6,5.4,4.44], skyK:[1,1,1], night:0, sigA:[0.40,0.074,0.088], sigS:[0.028,0.052,0.068], depthP:[2.5,1.0,1.5,3.5], depthQ:[0.02,1.3,0.4,2.4], depthS:[0,0,0,0], bed:[0,1,1,1], land:1, hull:[2.05,0.37,0.72], boat:null, waveK:1 };
 function setEnv(e){
   Object.assign(ENV, e);
   const el = (e.sunEl ?? 31)*Math.PI/180, az = (e.sunAz ?? 6)*Math.PI/180;
@@ -1713,7 +1726,7 @@ function render(S){
   gl.uniform1f(u.uL, L); gl.uniform1f(u.uWaveK, ENV.waveK); gl.uniform1f(u.uDepth, DEPTH); gl.uniform1f(u.uTime, t);
   gl.uniform1f(u.uRipSize, RSIZE); gl.uniform2fv(u.uRipCenter, ripCenter); gl.uniform2fv(u.uCausShift, causShift);
   gl.uniform1f(u.uPixAng, 2*Math.tan(VFOV/2)/H);
-  gl.uniform3fv(u.uSigA, ENV.sigA); gl.uniform3fv(u.uSigS, ENV.sigS); gl.uniform4fv(u.uDepthP, ENV.depthP); gl.uniform4fv(u.uDepthQ, ENV.depthQ);
+  gl.uniform3fv(u.uSigA, ENV.sigA); gl.uniform3fv(u.uSigS, ENV.sigS); gl.uniform4fv(u.uDepthP, ENV.depthP); gl.uniform4fv(u.uDepthQ, ENV.depthQ); gl.uniform4fv(u.uDepthS, ENV.depthS);
   gl.uniform4fv(u.uBed, ENV.bed); gl.uniform1f(u.uLand, 1.0);
   gl.uniform1fv(u.uHor, ENV.hor); gl.uniform1fv(u.uHorD, ENV.horD); gl.uniform1f(u.uSnow, ENV.snow);
   gl.uniform3fv(u.uSunC, ENV.sunC); gl.uniform4fv(u.uWeather, ENV.weather); gl.uniform3fv(u.uSkyK, ENV.skyK); gl.uniform1f(u.uNight, ENV.night);

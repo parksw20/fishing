@@ -35,11 +35,28 @@ let REGION = null;
 // smooth clamp: the bed rounds off into its shallowest / deepest level instead of forming flat mesas with cliff edges
 function smin(a, b, k){ const h = Math.max(k - Math.abs(a - b), 0)/k; return Math.min(a, b) - h*h*k*0.25; }
 function sclamp(v, lo, hi, k){ return smin(-smin(-v, -lo, k), hi, k); }
+const ss = (a, b, x) => { const t = clamp((x - a)/(b - a), 0, 1); return t*t*(3 - 2*t); };
+// share (0..1) of the spot's depth range, by its bed shape (same formulas as floorDepth in the water shader)
+const BED_SHAPES = { basin: 1, valley: 2, river: 3, reef: 4, bank: 5, dropoff: 6, abyss: 7 };
+function bedShare(shape, u, x, z, dir){
+  const r = Math.hypot(x, z), al = x*dir[0] + z*dir[1];
+  switch (shape){
+    case 1: return 0.55*Math.pow(u, 1.3) + 0.45*ss(20, 250, r);                 // basin: deepens away from the spot
+    case 2: return 0.6*Math.pow(u, 0.8) + 0.4*ss(10, 150, r);                   // valley: steep drowned valley
+    case 3: return 0.85*Math.exp(-Math.pow(Math.abs(al - 18)/14, 2)) + 0.15*u;  // river: channel ~18 m off the boat
+    case 4: return 0.35*u*u*u + 0.65*ss(90, 170, r);                            // reef: shallow patches, drop-off ~100 m out
+    case 5: return 0.25*u + 0.75*ss(150, 300, r);                               // bank: flat, falls away far out
+    case 6: return 0.15*u + 0.85*ss(15, 70, al);                                // dropoff: a wall to one side
+    default: return u;                                                          // abyss
+  }
+}
 function floorDepth(x, z){
   const [base, amp, mn, mx] = REGION.depthP, [sc, sx, sz, st] = REGION.depthQ;
   const qx = x*sc, qz = z*sc;
   const n = 0.5*Math.sin(qx + sx)*Math.sin(qz*0.83 + sz) + 0.3*Math.sin((qx*0.7 - qz*0.9)*2.1 + sx*2) + 0.2*Math.sin((qx*1.3 + qz*0.4)*4.3 + sz*3);
-  const d = sclamp(base + amp*n, mn, mx, 0.3*amp);
+  const B = REGION.depthS;
+  const d = B[0] ? lerp(base, amp, clamp(bedShare(B[0], clamp(0.5 + 0.5*n, 0, 1), x, z, [B[1], B[2]]), 0, 1))   // depthP = [min, max, ...]
+    : sclamp(base + amp*n, mn, mx, 0.3*amp);
   const t = clamp((Math.hypot(x, z) - 12)/58, 0, 1);
   return toVis(lerp(st, d, t*t*(3 - 2*t)));    // the region data are real depths
 }
@@ -1096,10 +1113,13 @@ const up = e => {
 hud.addEventListener('pointerup', up); hud.addEventListener('pointercancel', up);
 window.addEventListener('blur', () => { mouse.down = false; mouse.rdown = false; for (const k in keys) keys[k] = false; });
 hud.addEventListener('wheel', e => { e.preventDefault(); wheel(e.deltaY < 0 ? 1 : -1); }, { passive: false });
-const isEsc = e => e.code === 'Escape' || e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27;
+// ` (backquote) works like Esc: inside claude.ai the page around the game takes Esc for itself and moves focus away
+const isEsc = e => e.code === 'Escape' || e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27 || e.code === 'Backquote';
+{ let framed = false; try { framed = window.self !== window.top; } catch(e){ framed = true; }
+  if (framed && $('menukey')) $('menukey').textContent = '`'; }
 let escSeen = false;   // Esc key-down reached us (some IMEs / embedding pages swallow it: then act on key-up instead)
 window.addEventListener('keydown', e => {
-  if (isEsc(e)){ escSeen = true; if (e.code !== 'Escape') return onEsc(e); }
+  if (isEsc(e)){ escSeen = true; if (e.code !== 'Escape'){ e.preventDefault(); return onEsc(e); } }
   if (G.mapOpen){ const own = { KeyM: 'map', KeyP: 'shop', KeyQ: 'questm', KeyK: 'rankm', KeyI: 'dexm', KeyO: 'setm' }[e.code];
     if (e.code === 'Escape' || own && !$(own).hidden) closeModal();
     else if (own && !MAP.anim && $('confirm').hidden){ closeModal(); ({ map: openMap, shop: openShop, questm: openQuests, rankm: openRank, dexm: openDex, setm: openSettings })[own](); }
@@ -2299,15 +2319,20 @@ function applyRegion(spot, first){
   const W = WATERS[spot.water];
   const seedA = hashf(spot.lat*3.1 + spot.lon*0.7)*6.28, seedB = hashf(spot.lon*1.7 - spot.lat)*6.28;
   // offshore the bed drops away: shelf water out to ~100 km from land, then the open-ocean abyss (real metres)
-  let dp = W.depth.slice(), z = BIOMES[spot.biome].water === 'fresh' ? 0 : spotZone(spot);
-  const km = spot.distKm || 0;
-  if (z === 2){ const b = lerp(dp[0]*2, 180, clamp((km - 20)/80, 0, 1)); dp = [b, b*0.35, b*0.4, b*1.6]; }
-  else if (z === 3){ const b = clamp(800 + km*3, 800, 4500); dp = [b, b*0.15, b*0.6, b*1.3]; }
-  REGION = { spot, biome: spot.biome, water: spot.water,
-    depthP: dp, depthQ: [W.scale, seedA, seedB, z >= 2 ? dp[0] : spot.start || Math.min(3, dp[0])] };
+  // spots with their own bed (start depth, range and shape) use it; others fall back to the water type,
+  // made deeper offshore by distance from land
+  let dp = W.depth.slice(), z = BIOMES[spot.biome].water === 'fresh' ? 0 : spotZone(spot), depthS = [0, 0, 0, 0];
+  let start = spot.start || Math.min(3, dp[0]);
+  if (spot.floor){ const da = seedA*2.3; dp = [spot.floor[0], spot.floor[1], 0, 0]; depthS = [BED_SHAPES[spot.floor[2]] || 7, Math.cos(da), Math.sin(da), 0]; }
+  else {
+    const km = spot.distKm || 0;
+    if (z === 2){ const b = lerp(dp[0]*2, 180, clamp((km - 20)/80, 0, 1)); dp = [b, b*0.35, b*0.4, b*1.6]; start = b; }
+    else if (z === 3){ const b = clamp(800 + km*3, 800, 4500); dp = [b, b*0.15, b*0.6, b*1.3]; start = b; }
+  }
+  REGION = { spot, biome: spot.biome, water: spot.water, depthP: dp, depthS, depthQ: [W.scale, seedA, seedB, start] };
   const sunEl = clamp(72 - Math.abs(spot.lat)*0.72, 18, 68), sunAz = (hashf(spot.lon) - 0.5)*40;
   Rn.setEnv(computeHorizon(spot));
-  Rn.setEnv({ sigA: W.sigA, sigS: W.sigS, depthP: REGION.depthP, depthQ: REGION.depthQ, bed: W.bed, land: W.land, sunEl, sunAz });
+  Rn.setEnv({ sigA: W.sigA, sigS: W.sigS, depthP: REGION.depthP, depthQ: REGION.depthQ, depthS: REGION.depthS, bed: W.bed, land: W.land, sunEl, sunAz });
   BOAT.pos = [0, 0, 0]; BOAT.heading = 0; G.boatV = 0; G.aimYaw = Math.PI/2; G.orbit = 0;   // start looking out over the side
   G.rig = null; G.lure = null; G.hooked = null; G.fight = null; G.engaged = null; G.strike = null;
   if (G.state !== 'boat') G.state = 'idle';
