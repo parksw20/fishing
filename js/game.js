@@ -1645,6 +1645,7 @@ function drawFightRing(cx, cy){
       const fs = Math.max(34, tr*2.4), bob = Math.abs(Math.sin(G.time*7))*fs*0.18;
       ctx.save(); ctx.font = `${Math.round(fs)}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
       ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+      ctx.fillStyle = '#fff'; ctx.globalAlpha = 0.8;   // the ring's faint fill colour was being applied to the emoji: 80% opaque now
       ctx.shadowColor = 'rgba(0,0,0,.75)'; ctx.shadowBlur = 10; ctx.shadowOffsetY = 2;
       ctx.fillText('👆', tx + fs*0.12, ty - fs*0.05 + bob); ctx.restore();
     } else F.qtePos = [tx, ty];
