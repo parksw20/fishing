@@ -1482,12 +1482,14 @@ function drawHUD(){
       else if (s && f && f.state === 'nibble') label('입질…', s[0], s[1] - 10, '#bfe9ff', 15);
     }
     if (r.baitGone){ const s = tag(0.35, 0, -10); if (s) label('미끼 없음', s[0], s[1], '#ff9a8a', 14); }
-    { const s = tag(0.12, 42, 4); if (s) label(`수심 ${fmtD(r.baitDepth)}m${r.laid ? ' · 바닥' : ''} · 거리 ${dist2(r.pos, BOAT.pos).toFixed(1)}m`, s[0], s[1], 'rgba(255,255,255,.85)', 12); }
+    { const s = tag(0.12, 18, 4); if (s){ const t = `수심 ${fmtD(r.baitDepth)}m${r.laid ? ' · 바닥' : ''} · 거리 ${dist2(r.pos, BOAT.pos).toFixed(1)}m`;
+      ctx.font = '700 12px system-ui, sans-serif'; label(t, s[0] + ctx.measureText(t).width/2, s[1], 'rgba(255,255,255,.85)', 12); } }   // left-aligned beside the float
   }
   if (G.state === 'wait' && G.lure){
     const L = G.lure, s = Rn.project(L.pos);
     if (s){ ctx.setLineDash([3, 4]); ctx.strokeStyle = 'rgba(255,230,120,.7)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(s[0], s[1], 14, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
-      label(`${fmtD(-L.pos[1])}m · 거리 ${dist2(L.pos, BOAT.pos).toFixed(1)}m`, s[0] + 30, s[1] + 4, 'rgba(255,255,255,.85)', 12); }
+      { const t = `${fmtD(-L.pos[1])}m · 거리 ${dist2(L.pos, BOAT.pos).toFixed(1)}m`; ctx.font = '700 12px system-ui, sans-serif';
+        label(t, s[0] + 20 + ctx.measureText(t).width/2, s[1] + 4, 'rgba(255,255,255,.85)', 12); } }   // starts right of the ring, never over the lure
     if (G.strike){ const q = Rn.project([L.pos[0], 0.2, L.pos[2]]); if (q) label('바이트!', q[0], q[1] - 10, '#ffdf4a', 22); }
   }
   if (G.state === 'hooked') drawFightRing(cx, cy);
@@ -2792,7 +2794,7 @@ function updateDecor(){
     const h = cellHash(i, j, 1); if (h > 0.55) continue;
     const x = (i + cellHash(i, j, 2))*CELL, z = (j + cellHash(i, j, 3))*CELL;
     if (Math.hypot(x - c[0], z - c[2]) > RAD || insideHull(x, z, 0.6)) continue;
-    const fd = floorDepth(x, z), real = toReal(fd); if (fd < 0.5) continue;
+    const fd = floorDepth(x, z), real = toReal(fd); if (fd < 0.5 || real > 50) continue;   // deeper than 50m the bed fades into the dark: nothing to place
     const r = cellHash(i, j, 4), r2 = cellHash(i, j, 5), yaw = r2*Math.PI*2, y = -fd;
     const shallow = real < 12;   // plants and coral need light
     let it = null;

@@ -695,6 +695,12 @@ vec3 underwaterView(vec3 rd, out float tHit){
   vec3 Lmid = SUN*Ts*exp(-SIG_T*dm/(-sunT.y))*(ph + 0.02) + skyIrr*exp(-SIG_A*dm*1.2)/(4.0*PI);
   vec3 fogC = SIG_S/SIG_T*Lmid*3.2;
   vec3 col = L*Tv + fogC*(1.0 - Tv);
+  // deep water: the bed fades into the water colour from 50m real depth and is gone past 100m (no decor down there either)
+  if (so <= 0.0 && sB <= sS && sB < FAR){
+    float gone = smoothstep(toVis(50.0), toVis(100.0), dep);
+    col = mix(col, fogC, gone);
+    if (gone > 0.98) tHit = -1.0;
+  }
   // fishing line in the water: thin nylon a touch brighter than the water around it
   if (uLnA.w > 0.5){
     vec3 a = uLnA.xyz, ba = uLnB.xyz - a, w0 = ro - a;
@@ -852,7 +858,7 @@ void main(){
     float shd = dist < 60.0 ? shadowAt(FP, -sunT) : 1.0;
     vec3 Esun = SUN * Ts * exp(-SIG_T*depthHere/(-sunT.y)) * caus * (-sunT.y) * mix(0.75, 1.0, ao) * shd;
     vec3 Esky = skyIrr * exp(-(SIG_A + 0.4*SIG_S)*depthHere*1.25) * ao;
-    Lsurf = alb/PI * (Esun + Esky);
+    Lsurf = alb/PI * (Esun + Esky) * (1.0 - smoothstep(toVis(50.0), toVis(100.0), depthHere));   // a bed past 100m is lost in the dark
   }
 
   vec3 Tv = exp(-SIG_T*sHit);
