@@ -432,6 +432,10 @@
   #shop .shopbox { height:min(760px, 100%); box-sizing:border-box; }   /* same size on every tab */
   .dbgbtns { display:flex; flex-direction:column; gap:8px; padding:4px 14px 6px; }
   .dbgbtns button { padding:12px; font-size:14px; border-radius:12px; text-align:left; }
+  .dbgbtns .dbgrow { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .dbgbtns h4 { margin:6px 2px 0; font-size:12px; opacity:.7; font-weight:600; }
+  .dbgbtns .dbgchips { display:flex; flex-wrap:wrap; gap:6px; }
+  .dbgbtns .dbgchips button { padding:8px 12px; text-align:center; flex:1 1 auto; }
   .dx .tag.obs, #dexdet .tag.obs { color:#8ff0a8; background:rgba(143,240,168,.15); }   /* observation-only species: green */
   .dx .tag { white-space:nowrap; }
   .dx .nm { display:flex; flex-wrap:wrap; align-items:center; gap:4px 0; }
@@ -540,7 +544,16 @@
 <div id="dbgm" class="modal" hidden>
   <div class="mbox glass" style="width:min(380px,100%)">
     <div class="maphead"><b>🛠 디버그</b><span class="sub"></span><button class="mclose xbtn" aria-label="닫기 (Esc)" title="닫기 (Esc)">✕</button></div>
-    <div class="dbgbtns"><button data-d="coins">🪙 코인 +1,000,000</button><button data-d="gear">⚙️ 전체 업그레이드 완료</button><button data-d="dex">📖 전체 도감 완료</button></div>
+    <div class="dbgbtns">
+      <button data-d="coins">🪙 코인 +1,000,000</button>
+      <div class="dbgrow"><button data-d="gear">⚙️ 업그레이드 완료</button><button data-d="gearReset">⚙️ 업그레이드 초기화</button></div>
+      <div class="dbgrow"><button data-d="dex">📖 도감 완료</button><button data-d="dexReset">📖 도감 초기화</button></div>
+      <div class="dbgrow"><button data-d="questDone">📜 현재 퀘스트 완료</button><button data-d="questReset">📜 퀘스트 초기화</button></div>
+      <h4>시간</h4>
+      <div class="dbgchips"><button data-d="time:5">새벽</button><button data-d="time:10">낮</button><button data-d="time:17.5">해질녘</button><button data-d="time:21">밤</button></div>
+      <h4>날씨</h4>
+      <div class="dbgchips"><button data-d="w:clear">☀️ 맑음</button><button data-d="w:cloudy">☁️ 흐림</button><button data-d="w:rain">🌧️ 비</button><button data-d="w:fog">🌫️ 안개</button><button data-d="w:windy">💨 강풍</button></div>
+    </div>
   </div>
 </div>
 <div id="confirm" class="modal" hidden>

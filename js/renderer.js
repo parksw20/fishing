@@ -429,11 +429,12 @@ vec4 texBS(sampler2D t, vec2 uv){ // cubic B-spline filtering in 4 bilinear taps
 // real depth → screen depth (inverse of game.js toReal: v·(1 + 0.078·v²)); the scene is drawn in screen metres
 float cbrt1(float x){ return sign(x)*pow(abs(x), 1.0/3.0); }
 float toVis(float r){ const float A = 0.078; float p = 1.0/A, q = -r/A, D = sqrt(q*q*0.25 + p*p*p/27.0); return cbrt1(-q*0.5 + D) + cbrt1(-q*0.5 - D); }
+float smin1(float a, float b, float k){ float h = max(k - abs(a - b), 0.0)/k; return min(a, b) - h*h*k*0.25; }
 float floorDepth(vec2 xz){
   // region depth profile (same formula as game.js), plus fine shader-only noise
   float sc = uDepthQ.x; vec2 q = xz*sc;
   float n = 0.5*sin(q.x + uDepthQ.y)*sin(q.y*0.83 + uDepthQ.z) + 0.3*sin((q.x*0.7 - q.y*0.9)*2.1 + uDepthQ.y*2.0) + 0.2*sin((q.x*1.3 + q.y*0.4)*4.3 + uDepthQ.z*3.0);
-  float d = clamp(uDepthP.x + uDepthP.y*n, uDepthP.z, uDepthP.w);
+  float k = 0.3*uDepthP.y, d = smin1(-smin1(-(uDepthP.x + uDepthP.y*n), -uDepthP.z, k), uDepthP.w, k);   // same smooth clamp as game.js
   d = toVis(mix(uDepthQ.w, d, smoothstep(12.0, 70.0, length(xz))));
   return d + 0.10*(vnoise(xz*0.9+7.0)-0.5);
 }
@@ -622,8 +623,8 @@ vec2 wakeAt(vec2 x){
   float bl = best, edge = 0.36*bd;
   float arms = exp(-pow((bl - edge)/(0.5 + 0.12*bd), 2.0));
   float inside = smoothstep(edge + 0.6, edge - 0.6, bl);
-  float h = amp*exp(-bd/40.0)*(arms*sin(2.4*(0.9*bl + 0.45*bd) - uTime*1.5)*0.10 + inside*sin(1.5*bd - uTime*1.2)*0.035);
-  float foam = amp*(exp(-pow(bl/(0.8 + 0.06*bd), 2.0))*exp(-bd/16.0) + arms*exp(-bd/7.0)*0.8);
+  float h = amp*exp(-bd/55.0)*(arms*sin(2.4*(0.9*bl + 0.45*bd) - uTime*1.5)*0.19 + inside*sin(1.5*bd - uTime*1.2)*0.065);
+  float foam = amp*(exp(-pow(bl/(1.0 + 0.07*bd), 2.0))*exp(-bd/22.0)*1.4 + arms*exp(-bd/10.0)*1.1);
   return vec2(h, foam);
 }
 
@@ -890,6 +891,12 @@ void main(){
   }
 
   vec3 col = F*refl + (1.0-F)*under + spec;
+  // touch ripples (line, float, splashes): from above the surface reflects little, so the rings would only show
+  // on the bed. Their steep flanks catch the sky and the crests a little sun, so they read on the surface too.
+  {
+    float rs = length(R.yz)*exp(-dist*0.03);
+    col += (refl*0.55 + SUN*max(uSun.y, 0.05)*0.004)*smoothstep(0.015, 0.25, rs) + refl*0.12*clamp(R.x*25.0, 0.0, 1.0);
+  }
 
   // wake foam: broken white water on the track and the arms near the boat
   if (wk.y > 0.01){

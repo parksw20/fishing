@@ -32,11 +32,14 @@ function toVis(r){   // inverse (Cardano): A·v³ + v − r = 0
 }
 const fmtD = v => { const r = toReal(Math.max(0, v)); return r < 10 ? r.toFixed(1) : Math.round(r) + ''; };   // screen depth → "12" / "3.4"
 let REGION = null;
+// smooth clamp: the bed rounds off into its shallowest / deepest level instead of forming flat mesas with cliff edges
+function smin(a, b, k){ const h = Math.max(k - Math.abs(a - b), 0)/k; return Math.min(a, b) - h*h*k*0.25; }
+function sclamp(v, lo, hi, k){ return smin(-smin(-v, -lo, k), hi, k); }
 function floorDepth(x, z){
   const [base, amp, mn, mx] = REGION.depthP, [sc, sx, sz, st] = REGION.depthQ;
   const qx = x*sc, qz = z*sc;
   const n = 0.5*Math.sin(qx + sx)*Math.sin(qz*0.83 + sz) + 0.3*Math.sin((qx*0.7 - qz*0.9)*2.1 + sx*2) + 0.2*Math.sin((qx*1.3 + qz*0.4)*4.3 + sz*3);
-  const d = clamp(base + amp*n, mn, mx);
+  const d = sclamp(base + amp*n, mn, mx, 0.3*amp);
   const t = clamp((Math.hypot(x, z) - 12)/58, 0, 1);
   return toVis(lerp(st, d, t*t*(3 - 2*t)));    // the region data are real depths
 }
@@ -56,7 +59,7 @@ function applyBoatModel(){
 }
 const MODES = {
   pole: { name:'대낚시', rodLen:4.5, minCast:4.0, maxCast:9.0, lineKg:4.0, items:BAITS },
-  lure: { name:'루어',   rodLen:2.1, minCast:6.0, maxCast:36.0, lineKg:7.0, items:LURES },
+  lure: { name:'루어',   rodLen:2.1, minCast:8.0, maxCast:55.0, lineKg:7.0, items:LURES },
 };
 
 const G = {
@@ -1355,14 +1358,14 @@ function waterRings(S, dt){
   let p = null, every = 0, r = 0, k = 0, kick = false;
   if (G.state === 'hooked' && S.lineUnder){
     const t = G.fight ? G.fight.tension : 0.5, f = G.hooked;
-    p = S.lineUnder[0]; every = 0.22 - 0.1*t; r = 0.07 + 0.04*t; k = 0.010 + 0.014*t;
+    p = S.lineUnder[0]; every = 0.18 - 0.08*t; r = 0.08 + 0.05*t; k = 0.016 + 0.022*t;
     kick = f && f.run && f.run.burst && G.ringGap <= 0;            // the fish surges: an extra ring
   } else if (G.state === 'wait' && S.bobber && !S.bobber.flying){
     const rig = G.rig; p = S.bobber.pos; every = 1.4; r = 0.065; k = 0.006;
     kick = rig && Math.abs(rig.bobV || 0) > 0.12 && G.ringGap <= 0;  // the float bobs (nibble, bite, settling)
   } else if (G.state === 'wait' && S.lineUnder){
     const reel = !!(G.lure && G.lure.reeling);
-    p = S.lineUnder[0]; every = reel ? 0.4 : 1.1; r = 0.06; k = reel ? 0.006 : 0.004;
+    p = S.lineUnder[0]; every = reel ? 0.3 : 1.1; r = 0.07; k = reel ? 0.011 : 0.005;
     kick = reel !== G.ringReel && G.ringGap <= 0; G.ringReel = reel;  // start / stop reeling
   }
   if (!p) return;
@@ -1479,12 +1482,12 @@ function drawHUD(){
       else if (s && f && f.state === 'nibble') label('입질…', s[0], s[1] - 10, '#bfe9ff', 15);
     }
     if (r.baitGone){ const s = tag(0.35, 0, -10); if (s) label('미끼 없음', s[0], s[1], '#ff9a8a', 14); }
-    { const s = tag(0.12, 42, 4); if (s) label(`수심 ${fmtD(r.baitDepth)}m${r.laid ? ' · 바닥' : ''}`, s[0], s[1], 'rgba(255,255,255,.85)', 12); }
+    { const s = tag(0.12, 42, 4); if (s) label(`수심 ${fmtD(r.baitDepth)}m${r.laid ? ' · 바닥' : ''} · 거리 ${dist2(r.pos, BOAT.pos).toFixed(1)}m`, s[0], s[1], 'rgba(255,255,255,.85)', 12); }
   }
   if (G.state === 'wait' && G.lure){
     const L = G.lure, s = Rn.project(L.pos);
     if (s){ ctx.setLineDash([3, 4]); ctx.strokeStyle = 'rgba(255,230,120,.7)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(s[0], s[1], 14, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
-      label(`${fmtD(-L.pos[1])}m`, s[0] + 30, s[1] + 4, 'rgba(255,255,255,.85)', 12); }
+      label(`${fmtD(-L.pos[1])}m · 거리 ${dist2(L.pos, BOAT.pos).toFixed(1)}m`, s[0] + 30, s[1] + 4, 'rgba(255,255,255,.85)', 12); }
     if (G.strike){ const q = Rn.project([L.pos[0], 0.2, L.pos[2]]); if (q) label('바이트!', q[0], q[1] - 10, '#ffdf4a', 22); }
   }
   if (G.state === 'hooked') drawFightRing(cx, cy);
@@ -2056,9 +2059,9 @@ function updateBoat(dt){
   // wake: little splashes off the stern quarters
   G.wakeT = (G.wakeT||0) - dt*Math.abs(G.boatV);
   if (G.wakeT <= 0 && Math.abs(G.boatV) > 0.6){
-    G.wakeT = 0.9;
-    for (const sd of [-1, 1]){ const p = boatToWorld(sd*0.75, 0, 1.9); Rn.splash(p[0], p[2], 0.14, 0.012 + 0.004*Math.abs(G.boatV)); }
-    const b = boatToWorld(0, 0, -2.0); if (G.boatV > 3) Rn.splash(b[0], b[2], 0.1, 0.015);
+    G.wakeT = 0.6;
+    for (const sd of [-1, 1]){ const p = boatToWorld(sd*0.8, 0, 1.9); Rn.splash(p[0], p[2], 0.18, 0.02 + 0.007*Math.abs(G.boatV)); }
+    const b = boatToWorld(0, 0, -2.0); if (G.boatV > 2) Rn.splash(b[0], b[2], 0.14, 0.025);
   }
   G.aimYaw = BOAT.heading;
 }
@@ -2067,11 +2070,11 @@ const TRAIL = [];                                    // recent boat positions fo
 function updateWake(){
   const v = Math.abs(G.boatV);
   const last = TRAIL[0];
-  if (v > 0.4 && (!last || Math.hypot(BOAT.pos[0] - last[0], BOAT.pos[2] - last[1]) > 2.5)) TRAIL.unshift([BOAT.pos[0], BOAT.pos[2], clamp(v/7, 0, 1), G.time]);
+  if (v > 0.4 && (!last || Math.hypot(BOAT.pos[0] - last[0], BOAT.pos[2] - last[1]) > 2.5)) TRAIL.unshift([BOAT.pos[0], BOAT.pos[2], clamp(v/5, 0, 1.25), G.time]);
   while (TRAIL.length > 19) TRAIL.pop();
 }
 function wakeTrack(){
-  const out = [[BOAT.pos[0], BOAT.pos[2], clamp(Math.abs(G.boatV)/7, 0, 1), 0]];
+  const out = [[BOAT.pos[0], BOAT.pos[2], clamp(Math.abs(G.boatV)/5, 0, 1.25), 0]];
   for (const p of TRAIL) out.push([p[0], p[1], p[2]*Math.exp(-(G.time - p[3])/10), 0]);
   return out;
 }
@@ -2160,7 +2163,7 @@ function drawSonar(){
   if (hudW < 520 && !TOUCH.on) return;
   let maxD = 5; for (const c of SONAR.cols) maxD = Math.max(maxD, c.d);
   // the range eases toward the next step instead of snapping (5 → 10 → 20 …)
-  const want = [5, 10, 20, 30, 40, 60, 80, 100].find(r => r >= maxD*1.08) || 100;
+  const want = [5, 10, 20, 30, 40, 60, 80, 100, 200, 300, 500, 1000, 2000, 3000, 5000, 8000].find(r => r >= maxD*1.08) || 8000;
   SONAR.range = SONAR.range ? SONAR.range + (want - SONAR.range)*Math.min(1, (SONAR.dt || 0.016)*3) : want;
   const range = SONAR.range;
   ctx.save();
@@ -2237,8 +2240,13 @@ function computeHorizon(spot){
 function applyRegion(spot, first){
   const W = WATERS[spot.water];
   const seedA = hashf(spot.lat*3.1 + spot.lon*0.7)*6.28, seedB = hashf(spot.lon*1.7 - spot.lat)*6.28;
+  // offshore the bed drops away: shelf water out to ~100 km from land, then the open-ocean abyss (real metres)
+  let dp = W.depth.slice(), z = BIOMES[spot.biome].water === 'fresh' ? 0 : spotZone(spot);
+  const km = spot.distKm || 0;
+  if (z === 2){ const b = lerp(dp[0]*2, 180, clamp((km - 20)/80, 0, 1)); dp = [b, b*0.35, b*0.4, b*1.6]; }
+  else if (z === 3){ const b = clamp(800 + km*3, 800, 4500); dp = [b, b*0.15, b*0.6, b*1.3]; }
   REGION = { spot, biome: spot.biome, water: spot.water,
-    depthP: W.depth.slice(), depthQ: [W.scale, seedA, seedB, spot.start || Math.min(3, W.depth[0])] };
+    depthP: dp, depthQ: [W.scale, seedA, seedB, z >= 2 ? dp[0] : spot.start || Math.min(3, dp[0])] };
   const sunEl = clamp(72 - Math.abs(spot.lat)*0.72, 18, 68), sunAz = (hashf(spot.lon) - 0.5)*40;
   Rn.setEnv(computeHorizon(spot));
   Rn.setEnv({ sigA: W.sigA, sigS: W.sigS, depthP: REGION.depthP, depthQ: REGION.depthQ, bed: W.bed, land: W.land, sunEl, sunAz });
@@ -2827,8 +2835,30 @@ const DEBUG_ACT = {
     }
     say('📖 전체 도감 완료', 1.8, 'hot');
   },
+  gearReset(){
+    for (const it of SHOP) P.tier[it.id] = 0;
+    P.owned = {}; for (const it of [...BAITS, ...LURES]) if (!it.cost) P.owned[it.id] = true; G.item = { pole: 0, lure: 0 };
+    applyBoatModel(); buildToolbar(); say('⚙️ 업그레이드 초기화', 1.8);
+  },
+  dexReset(){
+    P.caught = {}; P.sightings = {}; G.best = {}; G.catches = [];
+    say('📖 도감 초기화', 1.8);
+  },
+  questDone(){
+    const open = P.quests.filter(q => q.got < q.n); if (!open.length){ say('완료할 퀘스트가 없어요', 1.6); return; }
+    weekRoll();
+    for (const q of open){ q.got = q.n; P.done++; P.week.done++; q.claim = true; q.doneAt = G.time; }
+    celebrate('🎉 퀘스트 완료!', `${open.length}개 · 퀘스트 창에서 보상 받기`); renderQuests();
+  },
+  questReset(){ P.quests = []; fillQuests(); renderQuests(); say('📜 퀘스트 초기화', 1.8); },
+  // time:<hour> and w:<weather> chips
+  time(h){ G.clock = +h; say(`⏩ ${PERIOD_NAME[period()]} (${fmtClock()})`, 1.6); },
+  w(k){ setWeather(k, true); say(`${WEATHERS[k].icon} 날씨: ${WEATHERS[k].name}`, 1.6); },
 };
-for (const b of document.querySelectorAll('#dbgm [data-d]')) b.addEventListener('click', e => { e.stopPropagation(); DEBUG_ACT[b.dataset.d](); if (!playS('claim')) sfx.win(); updateLog(); save(); pushRankSoon(); });
+for (const b of document.querySelectorAll('#dbgm [data-d]')) b.addEventListener('click', e => {
+  e.stopPropagation(); const [k, arg] = b.dataset.d.split(':');
+  DEBUG_ACT[k](arg); if (!playS('claim')) sfx.win(); updateLog(); save(); pushRankSoon();
+});
 
 /* ---------------- main loop ---------------- */
 function update(dt){
