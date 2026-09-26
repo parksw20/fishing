@@ -664,7 +664,8 @@ function hookFish(f){
   const a = Math.atan2(f.pos[2]-tip[2], f.pos[0]-tip[0]);
   f.run = { heading: a + rand(-0.6, 0.6), timer: rand(1, 2), burst: true };
   const d = dist2(f.pos, tip);
-  G.fight = { tension: 0.3, lineOut: d + 0.2, maxReach: G.mode === 'pole' ? Math.max(d + 3.0, 8) : 150, breakT: 0, slackT: 0, cq: 0, payout: 0, t: 0 };
+  G.fight = { tension: 0.3, lineOut: d + 0.2, maxReach: G.mode === 'pole' ? Math.max(d + 3.0, 8) : 150, breakT: 0, slackT: 0, cq: 0, payout: 0, t: 0,
+    qte: null, qteT: rand(1.8, 3), pop: null, hpLag: 1, hpHold: 0 };
   G.rig = null; G.lure = null;
   G.fightSide = (Math.random() < 0.5 ? -1 : 1)*2.3; G.orbit = 0;
   Rn.splash(f.pos[0], f.pos[2], 0.15, 0.06);
@@ -684,6 +685,51 @@ function rodPressure(){
   return { w: [wx/wl, wz/wl], m };
 }
 function ringRadius(){ return 0.2*Math.min(innerWidth, innerHeight); }
+/* timing taps during the fight: a white ring closes in on the dashed "pull here" circle; tap (click, Space, touch)
+   the moment it touches it. The closer the timing, the more of the fish's strength it takes and the harder the
+   camera shakes. PERFECT / GREAT / GOOD hurt the fish, BAD (or no tap) lets it recover a little. */
+const QTE_TGT = 12;   // dashed target circle radius, px
+const JUDGE = [
+  { name: 'PERFECT!!', win: 0.07, dmg: 0.13, shake: 1.7, col: '#ffe066', size: 34 },
+  { name: 'GREAT!',    win: 0.14, dmg: 0.085, shake: 1.1, col: '#6fe3ff', size: 28 },
+  { name: 'GOOD',      win: 0.24, dmg: 0.045, shake: 0.6, col: '#8ff0a8', size: 24 },
+  { name: 'BAD',       win: 9,    dmg: -0.02, shake: 0.2, col: '#ff8a7a', size: 22 },
+];
+function updateQTE(dt){
+  const F = G.fight, f = G.hooked; if (!F || !f) return;
+  if (F.pop){ F.pop.t += dt; if (F.pop.t > 0.9) F.pop = null; }
+  // HP gauge: the red front drops at once, the yellow ghost follows after a short pause
+  if (f.stamina < F.hpLag){ F.hpHold += dt; if (F.hpHold > 0.45) F.hpLag = Math.max(f.stamina, F.hpLag - dt*(0.25 + 1.5*(F.hpLag - f.stamina))); }
+  else { F.hpLag = f.stamina; F.hpHold = 0; }
+  const Q = F.qte;
+  if (!Q){
+    if (f.stamina > 0.12 && (F.qteT -= dt) <= 0) F.qte = { t: 0, T: rand(0.85, 1.25), r0: 70 + 30*Math.random() };
+    return;
+  }
+  Q.t += dt;
+  if (Q.t > Q.T + JUDGE[2].win) judgeQTE(JUDGE[3], true);   // missed it
+}
+function judgeQTE(J, missed){
+  const F = G.fight, f = G.hooked;
+  F.qte = null; F.qteT = rand(2.5, 5);
+  f.stamina = clamp(f.stamina - J.dmg/Math.sqrt(f.endur), 0, 1);
+  if (J.dmg > 0) F.hpHold = 0;
+  F.pop = { text: missed ? 'MISS' : J.name, col: J.col, size: J.size, t: 0 };
+  SHAKE.kick = Math.max(SHAKE.kick || 0, J.shake);
+  padRumble(J.shake*0.5, J.shake*0.4, 120 + J.shake*120, 30 + J.shake*50);
+  if (J === JUDGE[0]){ sfx.hit(); setTimeout(() => sfx.hit(), 90); }
+  else if (J === JUDGE[1]) sfx.hit();
+  else if (J === JUDGE[2]) sfx.click(0.08);
+  else sfx.drag();
+  if (J.dmg > 0.05 && f.pos[1] > -0.6) Rn.splash(f.pos[0], f.pos[2], 0.12 + 0.1*f.len, 0.03 + 0.04*J.shake);
+}
+function qteTap(){
+  const Q = G.fight && G.fight.qte; if (G.state !== 'hooked' || !Q) return;
+  if (Q.t < Q.T*0.45) return;                       // far too early: that press is just reeling
+  const off = Math.abs(Q.t - Q.T);
+  judgeQTE(JUDGE.find(J => off <= J.win));
+}
+window.addEventListener('pointerdown', e => { if (G.state === 'hooked' && !(e.target.closest && e.target.closest('button, .modal, #menu, #itempop'))) qteTap(); }, true);
 function updateFight(dt){
   const f = G.hooked, F = G.fight, sp = f.sp, tip = tipXZ();
   F.t += dt;
@@ -739,7 +785,8 @@ function updateFight(dt){
   pushOutOfHull(f.pos, 0.25);
   F.tension = lerp(F.tension, T, Math.min(1, dt*10));
   // stamina
-  f.stamina -= dt*(0.012 + 0.055*Math.max(cq, 0) + 0.035*F.tension)/f.endur;
+  f.stamina -= dt*(0.012 + 0.055*Math.max(cq, 0) + 0.035*F.tension)/f.endur/3;   // pulling against the run wears it down slowly;
+  updateQTE(dt);                                                                    // the timing taps do the real damage
   if (cq < -0.2) f.stamina += dt*0.025;
   f.stamina = clamp(f.stamina, 0, 1);
   // depth: tired fish come up
@@ -1143,7 +1190,7 @@ window.addEventListener('keydown', e => {
     case 'KeyT': skipTime(); break;
     case 'KeyR': retrieve(); break;
     case 'KeyH': G.help = !G.help; say(G.help ? '입질 표시 켬' : '입질 표시 끔', 1.2); break;
-    case 'Space': e.preventDefault(); if (!mouse.down){ mouse.down = true; mouse.downT = G.time; press(); } break;
+    case 'Space': e.preventDefault(); if (G.state === 'hooked') qteTap(); if (!mouse.down){ mouse.down = true; mouse.downT = G.time; press(); } break;
     case 'Enter': if (G.state === 'result') hideCard(); break;
     case 'Escape': playS('uiMenu', { gain: UI_GAIN }); escMenu(); break;
     case 'BracketRight': case 'Equal': wheel(1); break;
@@ -1383,6 +1430,7 @@ function camShake(dt){
     want = str*((f.run && f.run.burst ? 0.8 : 0.25) + clamp((F.tension - 0.55)/0.45, 0, 1)*0.8);
     if (F.t < 0.35) want = Math.max(want, 1.2*(1 - F.t/0.35));
   }
+  SHAKE.kick = Math.max(0, (SHAKE.kick || 0) - dt*3.2); want = Math.max(want, SHAKE.kick);   // timing-tap hits
   SHAKE.a += (want - SHAKE.a)*Math.min(1, dt*(want > SHAKE.a ? 12 : 4)); SHAKE.t += dt;
   const a = SHAKE.a*0.045*(CFG.shake/0.5), t = SHAKE.t;   // setting 50% = the original strength
   if (a < 1e-4) return { pos: [0, 0, 0], look: [0, 0, 0] };
@@ -1576,8 +1624,26 @@ function drawFightRing(cx, cy){
     ctx.beginPath(); ctx.moveTo(x1 + dx*14, y1 + dy*14); ctx.lineTo(x1 - dy*10, y1 + dx*10); ctx.lineTo(x1 + dy*10, y1 - dx*10); ctx.fill();
     label('물고기', x1 + dx*34, y1 + dy*34 + 5, '#ff8a70', 13);
     // ideal counter direction hint
-    ctx.setLineDash([4, 6]); ctx.strokeStyle = 'rgba(110,230,140,.6)'; ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.arc(cx - dx*R, cy - dy*R, 12, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+    const tx = cx - dx*R, ty = cy - dy*R;
+    ctx.setLineDash([4, 6]); ctx.strokeStyle = F.qte ? 'rgba(255,255,255,.95)' : 'rgba(110,230,140,.6)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(tx, ty, QTE_TGT, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+    // timing ring closing in on the target
+    const Q = F.qte;
+    if (Q){
+      const k = clamp(Q.t/Q.T, 0, 1.3), r = Math.max(2, QTE_TGT + (Q.r0 - QTE_TGT)*(1 - k));
+      const near = Math.abs(Q.t - Q.T) < JUDGE[1].win;
+      ctx.lineWidth = near ? 5 : 3.5; ctx.strokeStyle = `rgba(255,255,255,${(0.35 + 0.6*Math.min(1, k)).toFixed(2)})`;
+      ctx.beginPath(); ctx.arc(tx, ty, r, 0, TAU); ctx.stroke();
+      ctx.fillStyle = `rgba(255,255,255,${(0.06 + 0.12*Math.min(1, k)).toFixed(2)})`; ctx.beginPath(); ctx.arc(tx, ty, r, 0, TAU); ctx.fill();
+      F.qtePos = [tx, ty];
+    }
+    if (F.pop && F.qtePos){
+      const P = F.pop, sc = P.t < 0.12 ? 0.6 + 0.6*P.t/0.12 : 1.2 - 0.2*Math.min(1, (P.t - 0.12)/0.2);
+      ctx.save(); ctx.globalAlpha = P.t < 0.6 ? 1 : 1 - (P.t - 0.6)/0.3;
+      ctx.font = `900 ${Math.round(P.size*sc)}px system-ui, sans-serif`; ctx.textAlign = 'center';
+      ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.strokeText(P.text, F.qtePos[0], F.qtePos[1] - 30 - P.t*30);
+      ctx.fillStyle = P.col; ctx.fillText(P.text, F.qtePos[0], F.qtePos[1] - 30 - P.t*30); ctx.restore();
+    }
   }
   // angler's rod pressure
   let ox = mouse.x - cx, oy = mouse.y - cy; const ol = Math.hypot(ox, oy); if (ol > R){ ox *= R/ol; oy *= R/ol; }
@@ -1586,7 +1652,9 @@ function drawFightRing(cx, cy){
   // stamina
   const w = R*1.4, x = cx - w/2, y = cy + R + 26;
   ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(x-2, y-2, w+4, 10);
-  ctx.fillStyle = f.stamina < 0.4 ? '#6fe38c' : '#ffb35c'; ctx.fillRect(x, y, w*f.stamina, 6);
+  // action-game HP bar: the lost chunk shows yellow and drains after the red front
+  ctx.fillStyle = '#ffd84a'; ctx.fillRect(x, y, w*(F.hpLag ?? f.stamina), 6);
+  ctx.fillStyle = f.stamina < 0.4 ? '#6fe38c' : '#ff4a3a'; ctx.fillRect(x, y, w*f.stamina, 6);
   label(f.stamina < 0.4 ? '물고기가 지쳤다! 끌어오세요' : '물고기 힘', cx, y + 24, f.stamina < 0.4 ? '#8ff0a8' : '#fff', 13);
 }
 let gaugeCache = '';
@@ -3003,5 +3071,5 @@ buildToolbar(); updateLog();
 requestAnimationFrame(frame);
 window.__decorSolids = () => DECOR.solids || [];
 window.__mapS = (lon, lat) => m2s(nearLon(lon), lat); window.__mapZ = () => MAP.z;
-window.__game = { SND, playS, toReal, toVis, showCard, questEvent, updateLog, G, fishes, cam, mouse, hookFish, hookSet, jerkLift, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
+window.__game = { SND, playS, qteTap, toReal, toVis, showCard, questEvent, updateLog, G, fishes, cam, mouse, hookFish, hookSet, jerkLift, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
 })();
