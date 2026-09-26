@@ -1492,12 +1492,12 @@ function drawHUD(){
       else if (s && f && f.state === 'nibble') label('입질…', s[0], s[1] - 10, '#bfe9ff', 15);
     }
     if (r.baitGone){ const s = tag(0.35, 0, -10); if (s) label('미끼 없음', s[0], s[1], '#ff9a8a', 14); }
-    { const s = tag(0.12, 0, 4); if (s) sideLabels(`수심 ${fmtD(r.baitDepth)}m${r.laid ? ' · 바닥' : ''}`, `거리 ${dist2(r.pos, BOAT.pos).toFixed(1)}m`, s[0], s[1], 16, 'rgba(255,255,255,.85)', 12); }
+    { const s = tag(0.12, 0, 4); if (s) sideLabels(`수심 ${fmtD(r.baitDepth)}m${r.laid ? ' · 바닥' : ''}`, `거리 ${dist2(r.pos, BOAT.pos).toFixed(1)}m`, s[0], s[1], 28, 'rgba(255,255,255,.85)', 12); }
   }
   if (G.state === 'wait' && G.lure){
     const L = G.lure, s = Rn.project(L.pos);
-    if (s){ ctx.setLineDash([3, 4]); ctx.strokeStyle = 'rgba(255,230,120,.7)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(s[0], s[1], 14, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
-      sideLabels(`수심 ${fmtD(-L.pos[1])}m`, `거리 ${dist2(L.pos, BOAT.pos).toFixed(1)}m`, s[0], s[1] + 4, 20, 'rgba(255,255,255,.85)', 12); }
+    if (s){ ctx.setLineDash([3, 4]); ctx.strokeStyle = 'rgba(255,230,120,.7)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(s[0], s[1], 21, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+      sideLabels(`수심 ${fmtD(-L.pos[1])}m`, `거리 ${dist2(L.pos, BOAT.pos).toFixed(1)}m`, s[0], s[1] + 4, 34, 'rgba(255,255,255,.85)', 12); }
     if (G.strike){ const q = Rn.project([L.pos[0], 0.2, L.pos[2]]); if (q) label('바이트!', q[0], q[1] - 10, '#ffdf4a', 22); }
   }
   if (G.state === 'hooked') drawFightRing(cx, cy);
