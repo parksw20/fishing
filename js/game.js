@@ -1079,9 +1079,9 @@ hud.addEventListener('pointermove', e => {
   if (mouse.rdown || (mouse.down && G.state === 'boat')){
     const dx = e.clientX - mouse.lx, dy = e.clientY - mouse.ly; mouse.lx = e.clientX; mouse.ly = e.clientY;
     const lk = LOOK(), iy = INV(), ix = INVX();
-    if (G.state === 'boat'){ G.orbit -= dx*0.006*lk*ix; G.camPitch = clamp((G.camPitch ?? 0.32) + dy*0.004*lk*iy, 0.08, 1.2); }
+    if (G.state === 'boat'){ G.orbit += dx*0.006*lk*ix; G.camPitch = clamp((G.camPitch ?? 0.32) + dy*0.004*lk*iy, 0.08, 1.2); }
     else if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw += dx*0.005*lk*ix; G.aimPitch = clamp(G.aimPitch - dy*0.004*lk*iy, -0.9, 0.35); }
-    else { G.orbit -= dx*0.006*lk*ix; tiltView(dy*0.004*lk*iy); }
+    else { G.orbit += dx*0.006*lk*ix; tiltView(dy*0.004*lk*iy); }
   }
   if (e.pointerType !== 'touch' || G.state !== 'hooked') { mouse.x = e.clientX; mouse.y = e.clientY; if (e.pointerType === 'mouse') mouse.moved = true; }
 });
@@ -1157,7 +1157,7 @@ function applyJoy(dt){
   if (!JOY.active || G.state === 'boat') return;
   const lk = LOOK(), iy = INV(), ix = INVX();
   if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw += JOY.x*dt*1.3*lk*ix; G.aimPitch = clamp(G.aimPitch - JOY.y*dt*0.8*lk*iy, -0.9, 0.35); }
-  else { G.orbit -= JOY.x*dt*1.4*lk*ix; tiltView(JOY.y*dt*0.9*lk*iy); }
+  else { G.orbit += JOY.x*dt*1.4*lk*ix; tiltView(JOY.y*dt*0.9*lk*iy); }
 }
 /* action button: hold = cast charge / reel / lift, tap = hook set; the label follows the situation */
 const act = $('act');
@@ -2795,9 +2795,9 @@ function pollPad(dt){
   // right stick = look around
   if (!G.mapOpen && (rx || ry)){
     const lk = LOOK()*dt, iy = INV(), ix = INVX();
-    if (G.state === 'boat'){ G.orbit -= rx*2.2*lk*ix; G.camPitch = clamp((G.camPitch ?? 0.32) + ry*1.2*lk*iy, 0.08, 1.2); }
+    if (G.state === 'boat'){ G.orbit += rx*2.2*lk*ix; G.camPitch = clamp((G.camPitch ?? 0.32) + ry*1.2*lk*iy, 0.08, 1.2); }
     else if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw += rx*1.6*lk*ix; G.aimPitch = clamp(G.aimPitch - ry*0.9*lk*iy, -0.9, 0.35); }
-    else { G.orbit -= rx*1.6*lk*ix; tiltView(ry*1.0*lk*iy); }
+    else { G.orbit += rx*1.6*lk*ix; tiltView(ry*1.0*lk*iy); }
   }
   if (G.mapOpen){
     if (down(1) || down(9)) closeModal();
@@ -2917,8 +2917,8 @@ function update(dt){
   else {
     G.boatV *= Math.exp(-dt*1.5); G.boatSteer = 0;
     if (Math.abs(G.boatV) > 0.02) moveBoat(dt);
-    if (keys.KeyA || keys.ArrowLeft) { if (G.state === 'idle' || G.state === 'charge') G.aimYaw -= dt*1.2; else G.orbit += dt*1.2; }
-    if (keys.KeyD || keys.ArrowRight){ if (G.state === 'idle' || G.state === 'charge') G.aimYaw += dt*1.2; else G.orbit -= dt*1.2; }
+    if (keys.KeyA || keys.ArrowLeft) { if (G.state === 'idle' || G.state === 'charge') G.aimYaw -= dt*1.2; else G.orbit -= dt*1.2; }
+    if (keys.KeyD || keys.ArrowRight){ if (G.state === 'idle' || G.state === 'charge') G.aimYaw += dt*1.2; else G.orbit += dt*1.2; }
     const aiming = G.state === 'idle' || G.state === 'charge';
     if (keys.KeyW || keys.ArrowUp){ if (aiming) G.aimPitch = clamp(G.aimPitch + dt*0.8, -0.9, 0.35); else tiltView(-dt*0.9); }
     if (keys.KeyS || keys.ArrowDown){ if (aiming) G.aimPitch = clamp(G.aimPitch - dt*0.8, -0.9, 0.35); else tiltView(dt*0.9); }
