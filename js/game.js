@@ -2163,12 +2163,14 @@ function drawSonar(){
   if (hudW < 520 && !TOUCH.on) return;
   let maxD = 5; for (const c of SONAR.cols) maxD = Math.max(maxD, c.d);
   // the range eases toward the next step instead of snapping (5 → 10 → 20 …)
-  const want = [5, 10, 20, 30, 40, 60, 80, 100, 200, 300, 500, 1000, 2000, 3000, 5000, 8000].find(r => r >= maxD*1.08) || 8000;
+  // deep water: the range stops at 200m so fish near the top stay readable; the bed is then off the bottom of the screen
+  const want = [5, 10, 20, 30, 40, 60, 80, 100, 150, 200].find(r => r >= maxD*1.08) || 200;
   SONAR.range = SONAR.range ? SONAR.range + (want - SONAR.range)*Math.min(1, (SONAR.dt || 0.016)*3) : want;
   const range = SONAR.range;
   ctx.save();
   ctx.fillStyle = 'rgba(4,14,22,.82)'; ctx.fillRect(x0 - 6, y0 - 22, W + 12, H + 30);
   const top = y0, sy = H/range;
+  ctx.beginPath(); ctx.rect(x0 - 6, y0 - 22, W + 12, H + 30); ctx.clip();
   const g = ctx.createLinearGradient(0, top, 0, top + H); g.addColorStop(0, '#0b3c6e'); g.addColorStop(1, '#041a33');
   ctx.fillStyle = g; ctx.fillRect(x0, top, W, H);
   const n = Math.min(SONAR.cols.length, W), off = SONAR.cols.length - n;
@@ -2180,7 +2182,7 @@ function drawSonar(){
     for (const [ed, el] of c.echoes){ ctx.fillStyle = P.tier.sonar ? (el > 1.2 ? '#ff3bd4' : el > 0.5 ? '#ff3b3b' : el > 0.25 ? '#ffd84a' : '#8ff0a8') : '#ffd84a'; ctx.fillRect(x, top + ed*sy - 1, 1, el > 0.5 ? 3 : 2); }
   }
   ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '600 10px system-ui, sans-serif'; ctx.textAlign = 'right';
-  const step = range > 32 ? 20 : range > 16 ? 10 : range > 8 ? 5 : 2;
+  const step = [2, 5, 10, 20, 50, 100].find(s => range/s <= 5) || 100;
   for (let r = step; r <= range + 0.01; r += step){ const y = top + r*sy; if (y > top + H + 1) break;
     ctx.fillStyle = 'rgba(255,255,255,.12)'; ctx.fillRect(x0, y, W, 1); ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.fillText(r + 'm', x0 + W - 2, y - 2); }
   const d = SONAR.cols.length ? SONAR.cols[SONAR.cols.length - 1].d : 0;
