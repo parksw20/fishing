@@ -836,7 +836,7 @@ void main(){
   float D = exp(-tan2/a2)/(PI*a2*c2*c2);             // Beckmann: no long GGX tail, crisp glints
   float Vis = 0.5/(nl*sqrt(nv*nv*(1.0-a2)+a2) + nv*sqrt(nl*nl*(1.0-a2)+a2) + 1e-5);
   float Fh = fresnel(max(dot(h,v),0.0), IOR);
-  vec3 spec = SUN * min(D*Vis*Fh*nl, 12000.0) * 0.55;   // toned down for gameplay readability
+  vec3 spec = SUN * min(D*Vis*Fh*nl, 12000.0) * 0.183;   // sun glitter on the waves: toned down to a third for readability
 
   // ---- refraction / underwater ----
   vec3 tr = refract(wd, n, 1.0/IOR);
