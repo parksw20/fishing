@@ -1457,8 +1457,9 @@ function scene(dt){
   } else if (G.state === 'wait' && G.rig){
     const r = G.rig, jl = jerkLift(r), by = r.bobY + jl, bait = [r.bait[0], r.bait[1] + jl, r.bait[2]];
     S.bobber = { pos: [r.pos[0], by, r.pos[2]], tilt: r.tilt };
-    // the line is tied to the bottom of the float's stem (0.30 below its waterline mark, turned with its tilt)
-    const tl = r.tilt || 0, foot = [r.pos[0], by - 0.30*Math.cos(tl), r.pos[2] - 0.30*Math.sin(tl)];
+    // the line is tied right under the float body (0.20 below its waterline mark, turned with its tilt) — the
+    // visible bottom of the body the water shader traces
+    const tl = r.tilt || 0, foot = [r.pos[0], by - 0.20*Math.cos(tl), r.pos[2] - 0.20*Math.sin(tl)];
     S.lineTo = seenPoint(foot);   // the rod line is drawn without refraction: aim it where the stem tip is seen through the surface
     S.lineSag = 0.02*dist2(r.pos, tip)*(1 - 4*jl);   // pulled taut while the strike yanks it
     if (!r.baitGone) S.lure = { pos: bait, dir: [1, 0, 0], size: it.size, color: it.color, kind: 0, metal: it.metal };
