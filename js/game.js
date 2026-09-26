@@ -724,7 +724,7 @@ function judgeQTE(J, missed){
   else if (J === JUDGE[1]) sfx.hit();
   else if (J === JUDGE[2]) sfx.click(0.08);
   else sfx.drag();
-  if (J.dmg > 0.05 && f.pos[1] > -0.6){ Rn.splash(f.pos[0], f.pos[2], 0.12 + 0.1*f.len, 0.03 + 0.04*J.shake); sprayBurst(f.pos, f.len, 0.5 + 0.4*J.shake); }
+  if (J.dmg > 0.05){ Rn.splash(f.pos[0], f.pos[2], 0.12 + 0.1*f.len, 0.03 + 0.04*J.shake); sprayBurst(f.pos, f.len, 0.5 + 0.5*J.shake); }
 }
 function qteTap(x, y){
   const Q = G.fight && G.fight.qte; if (G.state !== 'hooked' || !Q) return;
@@ -745,6 +745,7 @@ function updateFight(dt){
     const base = Math.atan2(away[1], away[0]), r = Math.random();
     f.run.heading = base + (r < 0.45 ? rand(-0.6, 0.6) : r < 0.9 ? (Math.random() < 0.5 ? -1 : 1)*rand(1.0, 1.9) : rand(-3.1, 3.1));
     f.run.burst = Math.random() < 0.2 + 0.5*f.stamina;
+    if (f.run.burst && f.pos[1] > -2.0) sprayBurst(f.pos, f.len, 0.7 + 0.6*f.stamina);   // a surge boils the surface
     f.run.timer = f.run.burst ? rand(0.9, 2.0) : rand(1.5, 3.5);
   }
   const P = rodPressure();
@@ -796,7 +797,7 @@ function updateFight(dt){
   // depth: tired fish come up
   const fd = floorDepth(f.pos[0], f.pos[2]);
   moveY(f, -clamp(0.25 + 0.85*f.stamina, 0.25, fd - 0.2), dt);
-  if (f.pos[1] > -0.4 && Math.random() < dt*(0.6 + 2*f.stamina)){
+  if (f.pos[1] > -1.0 && Math.random() < dt*(0.8 + 2.2*f.stamina)){
     Rn.splash(f.pos[0], f.pos[2], 0.10 + 0.1*f.len, 0.02 + 0.04*f.stamina); if (Math.random() < 0.3) sfx.splash(0.15);
     sprayBurst(f.pos, f.len, 0.4 + 0.6*f.stamina);   // the fish thrashes at the surface: water flies
   }
@@ -2253,12 +2254,19 @@ function wakeTrack(){
 const PART = { list: [], data: new Float32Array(700*5), n: 0, acc: 0, mistAcc: 0 };
 // droplets thrown up where a fish breaks the surface: count and height grow with its size and strength
 function sprayBurst(pos, len, power){
-  const n = Math.round(clamp(6 + 26*len*power, 5, 40)), r = 0.08 + 0.25*len;
+  const n = Math.round(clamp(12 + 40*len*power, 10, 60)), r = 0.1 + 0.3*len;
   for (let i = 0; i < n; i++){
     const a = Math.random()*TAU, o = rand(0.2, 1)*r, out = rand(0.3, 1.1)*(0.4 + power*0.8), up = rand(0.9, 2.2)*(0.5 + power*0.7);
-    emitSpray([pos[0] + Math.cos(a)*o, 0.03, pos[2] + Math.sin(a)*o], [Math.cos(a)*out, up, Math.sin(a)*out], rand(0.025, 0.06)*(0.7 + len*0.6), rand(0.5, 0.9), rand(0.6, 0.95), false);
+    emitSpray([pos[0] + Math.cos(a)*o, 0.03, pos[2] + Math.sin(a)*o], [Math.cos(a)*out, up, Math.sin(a)*out], rand(0.05, 0.12)*(0.8 + len*0.6), rand(0.6, 1.0), rand(0.7, 1.0), false);
   }
-  if (power > 0.7) emitSpray([pos[0], 0.12, pos[2]], [0, 0.25, 0], 0.25 + 0.3*len, 1.4, 0.12, true);   // a puff of mist on big splashes
+  // the crown: a ring of bigger water sheets thrown up and out, readable from the boat
+  const m = Math.round(6 + 8*power);
+  for (let i = 0; i < m; i++){
+    const a = i/m*TAU + rand(-0.3, 0.3), out = rand(0.4, 0.9)*(0.5 + power*0.6);
+    emitSpray([pos[0] + Math.cos(a)*r*0.6, 0.05, pos[2] + Math.sin(a)*r*0.6], [Math.cos(a)*out, rand(1.2, 2.0)*(0.6 + power*0.6), Math.sin(a)*out],
+      rand(0.14, 0.26)*(0.8 + len*0.5), rand(0.45, 0.7), rand(0.75, 0.95), false);
+  }
+  if (power > 0.6) emitSpray([pos[0], 0.12, pos[2]], [0, 0.3, 0], 0.5 + 0.5*len, 1.5, 0.22, true);   // a puff of mist on big splashes
 }
 function emitSpray(p, vel, size, life, alpha, mist){ if (PART.list.length < 700) PART.list.push({ p, v: vel, s: size, life, age: 0, a: alpha, mist }); }
 function updateParticles(dt){
