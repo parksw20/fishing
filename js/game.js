@@ -2251,24 +2251,25 @@ function wakeTrack(){
   for (const p of TRAIL) out.push([p[0], p[1], p[2]*Math.exp(-(G.time - p[3])/10), 0]);
   return out;
 }
-const PART = { list: [], data: new Float32Array(700*5), n: 0, acc: 0, mistAcc: 0 };
+const PART_MAX = 3000;   // spray / mist particles alive at once
+const PART = { list: [], data: new Float32Array(PART_MAX*5), n: 0, acc: 0, mistAcc: 0 };
 // droplets thrown up where a fish breaks the surface: count and height grow with its size and strength
 function sprayBurst(pos, len, power){
-  const n = Math.round(clamp(12 + 40*len*power, 10, 60)), r = 0.1 + 0.3*len;
+  const n = Math.round(clamp(60 + 200*len*power, 50, 300)), r = 0.1 + 0.3*len;   // many fine droplets
   for (let i = 0; i < n; i++){
     const a = Math.random()*TAU, o = rand(0.2, 1)*r, out = rand(0.3, 1.1)*(0.4 + power*0.8), up = rand(0.9, 2.2)*(0.5 + power*0.7);
-    emitSpray([pos[0] + Math.cos(a)*o, 0.03, pos[2] + Math.sin(a)*o], [Math.cos(a)*out, up, Math.sin(a)*out], rand(0.035, 0.085)*(0.8 + len*0.6), rand(0.6, 1.0), rand(0.5, 0.8), false);
+    emitSpray([pos[0] + Math.cos(a)*o, 0.03, pos[2] + Math.sin(a)*o], [Math.cos(a)*out, up, Math.sin(a)*out], rand(0.0035, 0.0085)*(0.8 + len*0.6), rand(0.6, 1.0), rand(0.6, 0.9), false);
   }
   // the crown: a ring of bigger water sheets thrown up and out, readable from the boat
-  const m = Math.round(10 + 12*power);
+  const m = Math.round(40 + 50*power);
   for (let i = 0; i < m; i++){
     const a = i/m*TAU + rand(-0.3, 0.3), out = rand(0.4, 0.9)*(0.5 + power*0.6);
     emitSpray([pos[0] + Math.cos(a)*r*0.6, 0.05, pos[2] + Math.sin(a)*r*0.6], [Math.cos(a)*out, rand(1.2, 2.0)*(0.6 + power*0.6), Math.sin(a)*out],
-      rand(0.05, 0.1)*(0.8 + len*0.5), rand(0.45, 0.7), rand(0.55, 0.8), false);
+      rand(0.005, 0.01)*(0.8 + len*0.5), rand(0.45, 0.7), rand(0.6, 0.9), false);
   }
    // a puff of mist on big splashes
 }
-function emitSpray(p, vel, size, life, alpha, mist){ if (PART.list.length < 700) PART.list.push({ p, v: vel, s: size, life, age: 0, a: alpha, mist }); }
+function emitSpray(p, vel, size, life, alpha, mist){ if (PART.list.length < PART_MAX) PART.list.push({ p, v: vel, s: size, life, age: 0, a: alpha, mist }); }
 function updateParticles(dt){
   const v = G.boatV, av = Math.abs(v), f = boatF(), r = boatR();
   if (av > 1.0){
@@ -2299,7 +2300,7 @@ function updateParticles(dt){
     q.p[0] += q.v[0]*dt; q.p[1] += q.v[1]*dt; q.p[2] += q.v[2]*dt;
     if (q.age >= q.life || (!q.mist && q.p[1] < -0.02)){
       if (!q.mist && q.p[1] < 0 && Math.random() < 0.08) Rn.splash(q.p[0], q.p[2], 0.05, 0.006);
-      PART.list.splice(i, 1); continue;
+      const L = PART.list, last = L.pop(); if (i < L.length) L[i] = last; continue;   // swap-remove: O(1) with thousands of droplets
     }
     const lf = q.age/q.life, a = q.mist ? q.a*Math.sin(Math.PI*lf) : q.a*(1 - lf*lf);
     D.set([q.p[0], q.p[1], q.p[2], q.mist ? -q.s : q.s, a], n*5); n++;
