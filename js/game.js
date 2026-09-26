@@ -161,8 +161,8 @@ const SND_GROUPS = {
   catch: ['물고기잡음'], fanfare: ['물고기팡파래'],
   net: ['살림망물고기1', '살림망물고기2', '살림망물고기3', '살림망물고기4'],
   reward: ['보상획득'], lap: ['환경음'],
-  // every UI touch (buttons, tabs, pickers): one of the six touch sounds at random
-  ui: ['UI 터치음1', 'UI 터치음2', 'UI 터치음3', 'UI 터치음4', 'UI 터치음5', 'UI 터치음6'],
+  // UI touches: menu (button, items, Esc/`) 3 · everything else 2 · debug panel 1
+  ui: ['UI 터치음2'], uiMenu: ['UI 터치음3'], uiDebug: ['UI 터치음1'],
   claim: ['효과음3'], deny: ['효과음4'], buy: ['효과음5'], quest: ['효과음6'],
   engStart: ['보트이동1'], engLoop: ['보트이동1-1'], eng2: ['보트이동2'],
 };
@@ -212,9 +212,9 @@ function updateLap(dt){
 // Buttons whose action has its own sound (buy, claim, sell, cast...) stay quiet here.
 document.addEventListener('click', e => {
   const b = e.target.closest && e.target.closest('button, [data-t], .seg > *');
-  if (!b || b.disabled || b.closest('[data-up], [data-buy], [data-c], #nsell, #nrel, #sellall, #releaseall, #act, #joy, #stest, #attbtn, #dbgm [data-d]')) return;
+  if (!b || b.disabled || b.closest('[data-up], [data-buy], [data-c], #nsell, #nrel, #sellall, #releaseall, #act, #joy, #stest, #attbtn')) return;
   audioInit();
-  playS('ui', { gain: 0.55 });
+  playS(b.closest('#dbgm') ? 'uiDebug' : b.closest('#menu, #menubtn, #tmap') ? 'uiMenu' : 'ui', { gain: 0.55 });
 }, true);
 
 /* ---------------- helpers ---------------- */
@@ -1144,7 +1144,7 @@ window.addEventListener('keydown', e => {
     case 'KeyH': G.help = !G.help; say(G.help ? '입질 표시 켬' : '입질 표시 끔', 1.2); break;
     case 'Space': e.preventDefault(); if (!mouse.down){ mouse.down = true; mouse.downT = G.time; press(); } break;
     case 'Enter': if (G.state === 'result') hideCard(); break;
-    case 'Escape': escMenu(); break;
+    case 'Escape': playS('uiMenu', { gain: 0.55 }); escMenu(); break;
     case 'BracketRight': case 'Equal': wheel(1); break;
     case 'BracketLeft': case 'Minus': wheel(-1); break;
   }
@@ -1156,7 +1156,7 @@ function escMenu(){
   else if (!$('itempop').hidden) $('itempop').hidden = true;
   else $('menu').hidden = false;
 }
-function onEsc(){ if (G.mapOpen) closeModal(); else escMenu(); }
+function onEsc(){ audioInit(); playS('uiMenu', { gain: 0.55 }); if (G.mapOpen) closeModal(); else escMenu(); }
 window.addEventListener('keyup', e => {
   if (isEsc(e)){ if (!escSeen) onEsc(); escSeen = false; }
   keys[e.code] = false; if (e.code === 'Space' && mouse.down){ mouse.down = false; release(); } });
@@ -2944,7 +2944,7 @@ const DEBUG_ACT = {
 };
 for (const b of document.querySelectorAll('#dbgm [data-d]')) b.addEventListener('click', e => {
   e.stopPropagation(); const [k, arg] = b.dataset.d.split(':');
-  DEBUG_ACT[k](arg); if (!playS('claim')) sfx.win(); updateLog(); save(); pushRankSoon();
+  DEBUG_ACT[k](arg); updateLog(); save(); pushRankSoon();
 });
 
 /* ---------------- main loop ---------------- */
