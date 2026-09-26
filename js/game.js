@@ -1449,6 +1449,12 @@ function scene(dt){
 let hudW = 0, hudH = 0;
 function sizeHud(){ const d = Math.min(devicePixelRatio || 1, 2); hudW = innerWidth; hudH = innerHeight; hud.width = hudW*d; hud.height = hudH*d; ctx.setTransform(d, 0, 0, d, 0, 0); }
 addEventListener('resize', sizeHud); sizeHud();
+// depth on the left of a point, distance on the right, both clear of it by `gap` px
+function sideLabels(left, right, x, y, gap, color, size){
+  ctx.font = `700 ${size}px system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif`;
+  const wl = ctx.measureText(left).width, wr = ctx.measureText(right).width;
+  label(left, x - gap - wl/2, y, color, size); label(right, x + gap + wr/2, y, color, size);
+}
 function label(text, x, y, color, size){
   ctx.font = `700 ${size||15}px system-ui, -apple-system, "Apple SD Gothic Neo", "Malgun Gothic", sans-serif`;
   ctx.textAlign = 'center'; ctx.lineWidth = 4; ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.strokeText(text, x, y); ctx.fillStyle = color || '#fff'; ctx.fillText(text, x, y);
@@ -1482,14 +1488,12 @@ function drawHUD(){
       else if (s && f && f.state === 'nibble') label('입질…', s[0], s[1] - 10, '#bfe9ff', 15);
     }
     if (r.baitGone){ const s = tag(0.35, 0, -10); if (s) label('미끼 없음', s[0], s[1], '#ff9a8a', 14); }
-    { const s = tag(0.12, 18, 4); if (s){ const t = `수심 ${fmtD(r.baitDepth)}m${r.laid ? ' · 바닥' : ''} · 거리 ${dist2(r.pos, BOAT.pos).toFixed(1)}m`;
-      ctx.font = '700 12px system-ui, sans-serif'; label(t, s[0] + ctx.measureText(t).width/2, s[1], 'rgba(255,255,255,.85)', 12); } }   // left-aligned beside the float
+    { const s = tag(0.12, 0, 4); if (s) sideLabels(`수심 ${fmtD(r.baitDepth)}m${r.laid ? ' · 바닥' : ''}`, `거리 ${dist2(r.pos, BOAT.pos).toFixed(1)}m`, s[0], s[1], 16, 'rgba(255,255,255,.85)', 12); }
   }
   if (G.state === 'wait' && G.lure){
     const L = G.lure, s = Rn.project(L.pos);
     if (s){ ctx.setLineDash([3, 4]); ctx.strokeStyle = 'rgba(255,230,120,.7)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(s[0], s[1], 14, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
-      { const t = `${fmtD(-L.pos[1])}m · 거리 ${dist2(L.pos, BOAT.pos).toFixed(1)}m`; ctx.font = '700 12px system-ui, sans-serif';
-        label(t, s[0] + 20 + ctx.measureText(t).width/2, s[1] + 4, 'rgba(255,255,255,.85)', 12); } }   // starts right of the ring, never over the lure
+      sideLabels(`수심 ${fmtD(-L.pos[1])}m`, `거리 ${dist2(L.pos, BOAT.pos).toFixed(1)}m`, s[0], s[1] + 4, 20, 'rgba(255,255,255,.85)', 12); }
     if (G.strike){ const q = Rn.project([L.pos[0], 0.2, L.pos[2]]); if (q) label('바이트!', q[0], q[1] - 10, '#ffdf4a', 22); }
   }
   if (G.state === 'hooked') drawFightRing(cx, cy);
