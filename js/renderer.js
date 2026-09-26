@@ -329,6 +329,7 @@ uniform vec4 uFA[MAXF];   // fish: back colour, pattern id
 uniform vec4 uFB[MAXF];   // fish: belly colour, body height ratio
 uniform vec4 uFC[MAXF];   // fish shape: width/length, tail mode (0 fin, 1 fluke, 2 none, 3 sunfish), dorsal scale, tail scale
 uniform vec3 uSunC, uSkyK; uniform float uNight;   // time of day: sun (or moon) radiance, sky tint, night amount
+uniform float uWaveK;    // wave strength (debug: calm 0.45 / normal 1 / rough 1.8)
 uniform vec4 uWeather;   // cloud cover, fog, rain, wind (0..1)
 #define WAKEN 20
 uniform vec4 uWake[WAKEN]; uniform int uWakeN;       // boat track, newest first: xz, strength (speed and age)
@@ -679,7 +680,7 @@ vec3 underwaterView(vec3 rd, out float tHit){
   } else if (sS < FAR){
     // the surface from below: Snell's window (sky and sun) inside ~49°, mirror of the dark water outside it
     vec4 A = texture(uSurf, X.xz/uL); vec4 R = ripAt((X.xz - uRipCenter)/uRipSize + 0.5);
-    vec3 n = normalize(vec3(-(A.y + R.y), 1.0, -(A.z + R.z)));
+    vec3 n = normalize(vec3(-(uWaveK*A.y + R.y), 1.0, -(uWaveK*A.z + R.z)));
     vec3 tr = refract(rd, -n, IOR);
     vec3 deepC = SIG_S/SIG_T*(SUN*Ts*0.02 + skyIrr/(4.0*PI))*exp(-SIG_A*2.0);
     if (dot(tr, tr) < 0.01) L = deepC*0.8;
@@ -745,13 +746,19 @@ void main(){
     B = texture(uSurf, (M*xz)/(uL*SC) + 0.37);
     vec2 ruv = (xz - uRipCenter)/uRipSize + 0.5;
     R = ripAt(ruv);
-    hsum = A.x + WB*SC*B.x + R.x;
+    hsum = uWaveK*(A.x + WB*SC*B.x) + R.x;
     t = (hsum - uCam.y) / wd.y;
   }
   vec3 P = uCam + wd*t;
   A = texBS(uSurf, P.xz/uL);
   B = texBS(uSurf, (M*P.xz)/(uL*SC) + 0.37);
-  vec2 slope = A.yz + WB*(transpose(M)*B.yz) + R.yz;
+  // break up the 4.6 m tile: a slow noise field trades weight between the two differently rotated and scaled
+  // layers, and a third large rotated layer adds a swell that never lines up with them (one extra fetch)
+  float gm = vnoise(P.xz*0.043 + 5.7)*0.65 + vnoise(P.xz*0.11 - 2.3)*0.35;
+  float wa = mix(0.55, 1.35, gm), wb = mix(1.9, 0.6, gm);
+  const mat2 M3 = mat2(0.96, 0.28, -0.28, 0.96);
+  vec4 Dsw = texture(uSurf, (M3*P.xz)/(uL*3.7) + 0.13);
+  vec2 slope = uWaveK*(wa*A.yz + wb*WB*(transpose(M)*B.yz) + 0.4*(transpose(M3)*Dsw.yz)) + R.yz;
   // boat wake: slope by finite differences of the analytic wake height
   vec2 wk = vec2(0.0);
   if (uWakeN > 1){
@@ -761,7 +768,7 @@ void main(){
   }
   const mat2 M2 = mat2(0.28, 0.96, -0.96, 0.28);
   vec4 Cm = texture(uSurf, (M2*P.xz)/(uL*0.13) + 0.71);
-  slope += 0.13*exp(-t*0.18)*(transpose(M2)*Cm.yz);
+  slope += uWaveK*0.13*exp(-t*0.18)*(transpose(M2)*Cm.yz);
   slope *= 1.0 + 1.3*uWeather.w;                       // wind: rougher water
   if (uWeather.z > 0.01 && t < 40.0){                  // rain: expanding rings from drops
     vec2 g = vec2(0.0);
@@ -774,7 +781,7 @@ void main(){
     }
     slope += g*uWeather.z*0.22*exp(-t*0.06);
   }
-  float var = max(A.w - dot(A.yz,A.yz), 0.0) + WB*WB*max(B.w - dot(B.yz,B.yz), 0.0);
+  float var = (wa*wa*max(A.w - dot(A.yz,A.yz), 0.0) + wb*wb*WB*WB*max(B.w - dot(B.yz,B.yz), 0.0))*uWaveK*uWaveK;
   vec3 n = normalize(vec3(-slope.x, 1.0, -slope.y));
   float dist = t;
 
@@ -1204,7 +1211,7 @@ function post(t){
 
 /* ---------------- Above-water scene: boat, rod, float, line (rasterised, depth-tested against the water) ---------------- */
 let SUNV = [0,1,0];
-const ENV = { hor: new Float32Array(32).fill(0.04), horD: new Float32Array(32).fill(3), snow: 0, weather:[0,0,0,0], expo:1, sunC:[6,5.4,4.44], skyK:[1,1,1], night:0, sigA:[0.40,0.074,0.088], sigS:[0.028,0.052,0.068], depthP:[2.5,1.0,1.5,3.5], depthQ:[0.02,1.3,0.4,2.4], bed:[0,1,1,1], land:1, hull:[2.05,0.37,0.72], boat:null };
+const ENV = { hor: new Float32Array(32).fill(0.04), horD: new Float32Array(32).fill(3), snow: 0, weather:[0,0,0,0], expo:1, sunC:[6,5.4,4.44], skyK:[1,1,1], night:0, sigA:[0.40,0.074,0.088], sigS:[0.028,0.052,0.068], depthP:[2.5,1.0,1.5,3.5], depthQ:[0.02,1.3,0.4,2.4], bed:[0,1,1,1], land:1, hull:[2.05,0.37,0.72], boat:null, waveK:1 };
 function setEnv(e){
   Object.assign(ENV, e);
   const el = (e.sunEl ?? 31)*Math.PI/180, az = (e.sunAz ?? 6)*Math.PI/180;
@@ -1702,7 +1709,7 @@ function render(S){
   const u = pMain.u;
   gl.uniform1i(u.uSurf,0); gl.uniform1i(u.uCaus,1); gl.uniform1i(u.uPeb,2); gl.uniform1i(u.uRip,3);
   setCamUniforms(pMain, B); gl.uniform3fv(u.uSun, SUNV);
-  gl.uniform1f(u.uL, L); gl.uniform1f(u.uDepth, DEPTH); gl.uniform1f(u.uTime, t);
+  gl.uniform1f(u.uL, L); gl.uniform1f(u.uWaveK, ENV.waveK); gl.uniform1f(u.uDepth, DEPTH); gl.uniform1f(u.uTime, t);
   gl.uniform1f(u.uRipSize, RSIZE); gl.uniform2fv(u.uRipCenter, ripCenter); gl.uniform2fv(u.uCausShift, causShift);
   gl.uniform1f(u.uPixAng, 2*Math.tan(VFOV/2)/H);
   gl.uniform3fv(u.uSigA, ENV.sigA); gl.uniform3fv(u.uSigS, ENV.sigS); gl.uniform4fv(u.uDepthP, ENV.depthP); gl.uniform4fv(u.uDepthQ, ENV.depthQ);
@@ -1810,7 +1817,7 @@ return {
     return [(x*0.5+0.5)*innerWidth, (0.5-y*0.5)*innerHeight];
   },
   basis: () => lastBasis,
-  setEnv, setLight, setWeather(w){ ENV.weather = w; },
+  setEnv, setLight, setWeather(w){ ENV.weather = w; }, setWaves(k){ ENV.waveK = k; },
 };
 
 })();

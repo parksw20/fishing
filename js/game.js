@@ -206,6 +206,7 @@ function boatToWorld(lat, y, back){ const f = boatF(), r = boatR(); return [BOAT
 function eyeWorld(){ return boatToWorld(SEAT[0] + BOAT.roll*0.9, SEAT[1] + BOAT.pos[1], SEAT[2] + BOAT.pitch*0.4); }
 // the hull is an ellipsoid below the waterline: only something at hull depth gets pushed out, and less so
 // towards the keel, where the hull narrows; fish swimming deeper pass freely under the boat
+function hullHalfWidth(back){ const u = clamp(back/HULL.l, -1, 1); return HULL.w*Math.sqrt(1 - u*u); }
 function pushOutOfHull(p, m){
   const dy = Math.min(p[1], 0)/(HULL.d + m); if (dy <= -1) return;
   const sc = Math.sqrt(1 - dy*dy);
@@ -2097,8 +2098,9 @@ function updateBoat(dt){
   G.wakeT = (G.wakeT||0) - dt*Math.abs(G.boatV);
   if (G.wakeT <= 0 && Math.abs(G.boatV) > 0.6){
     G.wakeT = 0.6;
-    for (const sd of [-1, 1]){ const p = boatToWorld(sd*0.8, 0, 1.9); Rn.splash(p[0], p[2], 0.18, 0.02 + 0.007*Math.abs(G.boatV)); }
-    const b = boatToWorld(0, 0, -2.0); if (G.boatV > 2) Rn.splash(b[0], b[2], 0.14, 0.025);
+    // off the stern quarters, just outside the hull (no rings ahead of the bow: the boat would run into its own ripples)
+    const bk = HULL.l*0.8*Math.sign(G.boatV || 1);
+    for (const sd of [-1, 1]){ const p = boatToWorld(sd*(hullHalfWidth(bk) + 0.1), 0, bk); Rn.splash(p[0], p[2], 0.18, 0.02 + 0.007*Math.abs(G.boatV)); }
   }
   G.aimYaw = BOAT.heading;
 }
@@ -2123,18 +2125,21 @@ function updateParticles(dt){
     // bow spray: droplets thrown out and up from both sides of the bow
     PART.acc += dt*(av - 0.8)*16;
     while (PART.acc >= 1){ PART.acc -= 1;
-      const sd = Math.random() < 0.5 ? -1 : 1, p = boatToWorld(sd*rand(0.35, 0.7), 0.06, v > 0 ? rand(-1.9, -1.2) : rand(1.6, 2.0));
+      // from the waterline just outside the hull, on the bow half (the hull is an ellipse HULL.w x HULL.l)
+      const sd = Math.random() < 0.5 ? -1 : 1, bk = (v > 0 ? -1 : 1)*HULL.l*rand(0.45, 0.85);
+      const p = boatToWorld(sd*hullHalfWidth(bk)*rand(1.02, 1.12), 0.06, bk);
       const out = rand(0.5, 1.2)*(0.6 + av*0.22), upv = rand(0.8, 1.6)*(0.7 + av*0.3);
       emitSpray(p, [r[0]*sd*out + f[0]*v*0.35, upv, r[2]*sd*out + f[2]*v*0.35], rand(0.035, 0.09), rand(0.5, 0.9), rand(0.55, 0.9), false);
     }
     // mist: fine water vapour hanging over the spray and drifting behind the boat
     PART.mistAcc += dt*av*2.2;
     while (PART.mistAcc >= 1){ PART.mistAcc -= 1;
-      const sd = Math.random() < 0.5 ? -1 : 1, p = boatToWorld(sd*rand(0.4, 1.1), rand(0.1, 0.35), rand(-1.8, 2.4));
+      const sd = Math.random() < 0.5 ? -1 : 1, bk = rand(-HULL.l*0.9, HULL.l*1.2);
+      const p = boatToWorld(sd*(hullHalfWidth(bk) + rand(0.1, 0.6)), rand(0.1, 0.35), bk);
       emitSpray(p, [-f[0]*v*0.25 + rand(-0.2, 0.2), rand(0.1, 0.35), -f[2]*v*0.25 + rand(-0.2, 0.2)], rand(0.4, 0.9), rand(2.0, 3.2), 0.1 + 0.08*clamp(av/8, 0, 1), true);
     }
     // prop wash at the stern
-    if (Math.random() < dt*av*6){ const p = boatToWorld(rand(-0.2, 0.2), 0.03, 2.15); emitSpray(p, [rand(-0.4, 0.4) - f[0]*v*0.2, rand(0.4, 1.0), rand(-0.4, 0.4) - f[2]*v*0.2], rand(0.04, 0.08), 0.5, 0.6, false); }
+    if (Math.random() < dt*av*6){ const p = boatToWorld(rand(-0.2, 0.2), 0.03, HULL.l + 0.12); emitSpray(p, [rand(-0.4, 0.4) - f[0]*v*0.2, rand(0.4, 1.0), rand(-0.4, 0.4) - f[2]*v*0.2], rand(0.04, 0.08), 0.5, 0.6, false); }
   }
   let n = 0; const D = PART.data;
   for (let i = PART.list.length - 1; i >= 0; i--){
@@ -2892,6 +2897,7 @@ const DEBUG_ACT = {
   questReset(){ P.quests = []; fillQuests(); renderQuests(); say('📜 퀘스트 초기화', 1.8); },
   // time:<hour> and w:<weather> chips
   time(h){ setClockTo(+h); say(`⏩ ${fmtHour(+h)}로 이동 중`, 1.6); },
+  wave(k){ G.waveK = +k; Rn.setWaves(+k); say(`🌊 파도: ${{ '0.45': '잔잔', '1': '중간', '1.8': '강하게' }[k]}`, 1.6); },
   w(k){ setWeather(k); G.wFastT = 10; say(`${WEATHERS[k].icon} 날씨: ${WEATHERS[k].name}`, 1.6); },
 };
 for (const b of document.querySelectorAll('#dbgm [data-d]')) b.addEventListener('click', e => {
@@ -2903,9 +2909,10 @@ for (const b of document.querySelectorAll('#dbgm [data-d]')) b.addEventListener(
 function update(dt){
   G.time += dt;
   const vN = G.boatV/8;
-  BOAT.pos[1] = 0.012*Math.sin(G.time*1.1) + 0.03*Math.abs(vN);
-  BOAT.pitch = 0.010*Math.sin(G.time*0.8)*(1 + 2*Math.abs(vN)) + 0.05*vN;
-  BOAT.roll = 0.014*Math.sin(G.time*0.63 + 1) - 0.07*G.boatSteer*vN;
+  const wk = G.waveK || 1;   // debug wave strength: the boat rocks with the sea
+  BOAT.pos[1] = 0.012*wk*Math.sin(G.time*1.1) + 0.03*Math.abs(vN);
+  BOAT.pitch = 0.010*wk*Math.sin(G.time*0.8)*(1 + 2*Math.abs(vN)) + 0.05*vN;
+  BOAT.roll = 0.014*wk*Math.sin(G.time*0.63 + 1) - 0.07*G.boatSteer*vN;
   if (G.state === 'boat') updateBoat(dt);
   else {
     G.boatV *= Math.exp(-dt*1.5); G.boatSteer = 0;
