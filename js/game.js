@@ -1096,7 +1096,10 @@ const up = e => {
 hud.addEventListener('pointerup', up); hud.addEventListener('pointercancel', up);
 window.addEventListener('blur', () => { mouse.down = false; mouse.rdown = false; for (const k in keys) keys[k] = false; });
 hud.addEventListener('wheel', e => { e.preventDefault(); wheel(e.deltaY < 0 ? 1 : -1); }, { passive: false });
+const isEsc = e => e.code === 'Escape' || e.key === 'Escape' || e.key === 'Esc' || e.keyCode === 27;
+let escSeen = false;   // Esc key-down reached us (some IMEs / embedding pages swallow it: then act on key-up instead)
 window.addEventListener('keydown', e => {
+  if (isEsc(e)){ escSeen = true; if (e.code !== 'Escape') return onEsc(e); }
   if (G.mapOpen){ const own = { KeyM: 'map', KeyP: 'shop', KeyQ: 'questm', KeyK: 'rankm', KeyI: 'dexm', KeyO: 'setm' }[e.code];
     if (e.code === 'Escape' || own && !$(own).hidden) closeModal();
     else if (own && !MAP.anim && $('confirm').hidden){ closeModal(); ({ map: openMap, shop: openShop, questm: openQuests, rankm: openRank, dexm: openDex, setm: openSettings })[own](); }
@@ -1119,17 +1122,22 @@ window.addEventListener('keydown', e => {
     case 'KeyH': G.help = !G.help; say(G.help ? '입질 표시 켬' : '입질 표시 끔', 1.2); break;
     case 'Space': e.preventDefault(); if (!mouse.down){ mouse.down = true; mouse.downT = G.time; press(); } break;
     case 'Enter': if (G.state === 'result') hideCard(); break;
-    case 'Escape':   // Esc: close whatever is up (catch card, menu, tackle popup), otherwise open the menu
-      if (G.state === 'result') hideCard();
-      else if (!$('menu').hidden) $('menu').hidden = true;
-      else if (!$('itempop').hidden) $('itempop').hidden = true;
-      else $('menu').hidden = false;
-      break;
+    case 'Escape': escMenu(); break;
     case 'BracketRight': case 'Equal': wheel(1); break;
     case 'BracketLeft': case 'Minus': wheel(-1); break;
   }
 });
-window.addEventListener('keyup', e => { keys[e.code] = false; if (e.code === 'Space' && mouse.down){ mouse.down = false; release(); } });
+// Esc: close whatever is up (a window, catch card, menu, tackle popup), otherwise open the menu
+function escMenu(){
+  if (G.state === 'result') hideCard();
+  else if (!$('menu').hidden) $('menu').hidden = true;
+  else if (!$('itempop').hidden) $('itempop').hidden = true;
+  else $('menu').hidden = false;
+}
+function onEsc(){ if (G.mapOpen) closeModal(); else escMenu(); }
+window.addEventListener('keyup', e => {
+  if (isEsc(e)){ if (!escSeen) onEsc(); escSeen = false; }
+  keys[e.code] = false; if (e.code === 'Space' && mouse.down){ mouse.down = false; release(); } });
 $('card').addEventListener('pointerdown', e => { e.stopPropagation(); hideCard(); });
 $('retrieve').addEventListener('click', e => { e.stopPropagation(); retrieve(); });
 /* joystick (조그) */
