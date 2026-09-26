@@ -12,41 +12,9 @@
   canvas#hud { cursor:crosshair; }
   [hidden] { display:none !important; }
   .glass { background:var(--glass); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); border-radius:14px; }
-  #toolbar { position:fixed; left:14px; top:14px; padding:10px 12px; display:flex; flex-direction:column; gap:8px; z-index:5; max-width:min(420px, calc(100vw - 28px)); }
-  #toolbar h1 { margin:0 0 2px; font-size:15px; font-weight:800; letter-spacing:.02em; }
-  #toolbar h1 small { font-weight:500; opacity:.6; margin-left:6px; font-size:11px; }
-  .row { display:flex; gap:6px; flex-wrap:wrap; align-items:center; }
-  .row label { font-size:11px; opacity:.65; width:34px; }
   button { font:600 13px var(--font); color:#fff; background:rgba(255,255,255,.10); border:1px solid rgba(255,255,255,.18); border-radius:999px; padding:5px 12px; cursor:pointer; transition:background .15s; }
   button:hover { background:rgba(255,255,255,.2); }
   button.on { background:#ffd84a; color:#1b1b12; border-color:#ffd84a; }
-  #toolbar.locked button { opacity:.45; }
-  #itemdesc { font-size:11px; opacity:.7; }
-  #log { position:fixed; right:14px; top:14px; padding:10px 14px; width:200px; z-index:5; font-size:12px; }
-  #log .head { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px; }
-  #log .head b { font-size:18px; color:#ffd84a; }
-  #catches { list-style:none; margin:0; padding:0; }
-  #catches li { display:flex; justify-content:space-between; gap:6px; padding:3px 0; border-top:1px solid rgba(255,255,255,.08); }
-  #catches li span { opacity:.75; }
-  #dex { display:flex; flex-wrap:wrap; gap:4px; margin-top:8px; }
-  #dex span { font-size:10px; padding:2px 6px; border-radius:6px; background:rgba(255,255,255,.07); opacity:.5; }
-  #log .head2 { display:flex; justify-content:space-between; font-size:12px; margin:-2px 0 6px; font-variant-numeric:tabular-nums; }
-  #log .head2 b { color:#ffd84a; }
-  #target { position:fixed; left:14px; top:calc(14px + var(--tbh, 190px)); padding:7px 12px; font-size:12px; z-index:5; max-width:280px; line-height:1.5; }
-  #target .st { color:#ffd84a; letter-spacing:1px; }
-  #target .why { opacity:.75; }
-  #questbox { position:fixed; right:14px; top:14px; width:min(340px, calc(100vw - 28px)); max-height:calc(100vh - 28px); overflow:auto; z-index:12; padding:12px 14px; font-size:13px; background:rgba(6,22,30,.9); }
-  #questbox .qh { display:flex; justify-content:space-between; align-items:center; margin-bottom:8px; }
-  .q { padding:9px 10px; border-radius:10px; background:rgba(255,255,255,.06); margin-bottom:8px; }
-  .q.done { background:rgba(110,230,140,.2); }
-  .q .qt { display:flex; gap:8px; align-items:baseline; }
-  .q .qt b { flex:1; }
-  .q .rw { color:#ffd84a; font-weight:700; white-space:nowrap; }
-  .q .prog { opacity:.7; font-variant-numeric:tabular-nums; }
-  .q .tip { font-size:12px; opacity:.8; margin-top:4px; line-height:1.5; }
-  .q .qw { font-size:11px; opacity:.5; margin-top:3px; }
-  .qfoot { font-size:11px; opacity:.7; display:flex; justify-content:space-between; align-items:center; gap:8px; }
-  .qfoot button { font-size:11px; padding:3px 9px; }
   #shop { position:fixed; inset:0; z-index:15; background:rgba(3,12,18,.55); display:grid; place-items:center; padding:16px; box-sizing:border-box; }
   #shop .shopbox { width:min(980px, 100%); max-height:100%; overflow:auto; background:rgba(6,22,30,.94); padding-bottom:14px; }
   #shop .coins { flex:1; font-size:13px; opacity:.85; } #shop .coins b { color:#ffd84a; }
@@ -60,9 +28,6 @@
   #shopgrid button { margin-top:auto; background:#ffd84a; color:#1b1b12; border:0; font-weight:800; }
   #shopgrid button:disabled { background:rgba(255,255,255,.12); color:rgba(255,255,255,.45); cursor:not-allowed; }
   #card .tipc { font-size:12px; opacity:.8; margin-top:8px; line-height:1.5; }
-  body.touch #target { top:auto; bottom:calc(150px + env(safe-area-inset-bottom,0px)); left:14px; max-width:220px; font-size:11px; }
-  @media (max-width: 600px) { body.touch #target { display:none; } }
-  #dexcount { margin-top:8px; font-size:10px; opacity:.6; }
   #map { position:fixed; inset:0; z-index:15; background:rgba(3,12,18,.55); display:grid; place-items:center; padding:16px; box-sizing:border-box; }
   #map .mapbox { width:min(1100px, 100%); height:min(680px, 100%); display:flex; flex-direction:column; overflow:hidden; background:rgba(6,22,30,.92); }
   .maphead { display:flex; align-items:center; gap:12px; padding:10px 14px; }
@@ -86,22 +51,11 @@
   #fade { position:fixed; inset:0; background:#06141c; opacity:0; pointer-events:none; transition:opacity .6s; z-index:25; display:grid; place-items:center; font-size:15px; letter-spacing:.1em; }
   #fade.on { opacity:1; }
   @media (max-width: 760px) { .mapbody { flex-direction:column; } #mappanel { width:auto; max-height:40%; } }
-  #dex span.got { background:rgba(110,230,140,.25); opacity:1; }
-  #gauges { position:fixed; right:14px; bottom:84px; width:200px; padding:12px 14px; display:flex; gap:12px; z-index:5; }
-  #tbar { position:relative; width:18px; height:150px; border-radius:9px; background:rgba(0,0,0,.35); overflow:hidden; flex:none; }
-  #tbar::after { content:''; position:absolute; left:0; right:0; bottom:calc(100%/1.1); height:2px; background:#ff5a4a; }
-  #tfill { position:absolute; left:0; right:0; bottom:0; height:0; background:linear-gradient(#8ff0a8,#46c36d); transition:height .08s linear; }
-  #tfill.warn { background:linear-gradient(#ffe27a,#f0b53a); }
-  #tfill.danger { background:linear-gradient(#ff8a70,#e2412e); }
-  #dragmark { position:absolute; left:-2px; right:-2px; height:3px; background:#6fd3ff; box-shadow:0 0 6px #6fd3ff; }
-  #ginfo { flex:1; font-size:12px; display:flex; flex-direction:column; gap:5px; justify-content:flex-end; }
-  #ginfo div { display:flex; justify-content:space-between; }
-  #ginfo span { opacity:.65; }
   #retrieve { position:fixed; right:14px; bottom:30px; z-index:5; }
-  #help { position:fixed; left:50%; bottom:calc(22px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%); padding:9px 16px; font-size:13px; border-radius:999px; white-space:nowrap; z-index:4; pointer-events:none; max-width:calc(100vw - 260px); overflow:hidden; text-overflow:ellipsis; }
+  #help { position:relative; padding:9px 16px; font-size:13px; border-radius:999px; white-space:nowrap; z-index:4; pointer-events:none; max-width:calc(100vw - 260px); overflow:hidden; text-overflow:ellipsis; }
   #help:empty { display:none; }
   #help b { color:#ffe27a; font-weight:700; }
-  #msg { position:fixed; left:50%; top:22%; transform:translate(-50%, 10px); font-size:24px; font-weight:800; text-shadow:0 2px 12px rgba(0,0,0,.55); opacity:0; transition:opacity .25s, transform .25s; pointer-events:none; z-index:6; white-space:nowrap; }
+  #msg { position:fixed; left:50%; top:22%; transform:translate(-50%, 10px); font-size:24px; font-weight:800; text-shadow:0 2px 12px rgba(0,0,0,.55); opacity:0; transition:opacity .25s, transform .25s; pointer-events:none; z-index:16; white-space:nowrap; }
   #msg.show { opacity:1; transform:translate(-50%, 0); }
   #msg.hot { color:#ffdf4a; font-size:34px; }
   #msg.bad { color:#ff9a8a; }
@@ -121,13 +75,13 @@
   #loading.off { opacity:0; pointer-events:none; }
   #err { position:fixed; inset:auto 12px 12px 12px; max-height:45%; overflow:auto; font:12px/1.45 ui-monospace, Menlo, monospace; color:#ffd9d2; background:rgba(40,8,8,.92); border-radius:14px; padding:12px 14px; white-space:pre-wrap; z-index:30; }
   #err[hidden], #dbg[hidden] { display:none; }
-  #dbg { position:fixed; bottom:70px; left:14px; font:11px/1.4 ui-monospace, Menlo, monospace; color:#fff; background:rgba(0,0,0,.35); padding:6px 8px; border-radius:8px; z-index:8; pointer-events:none; }
+  #dbg { position:fixed; top:8px; left:50%; transform:translateX(-50%); font:11px/1.4 ui-monospace, Menlo, monospace; color:#fff; background:rgba(0,0,0,.35); padding:6px 8px; border-radius:8px; z-index:8; pointer-events:none; }
   /* ---- touch UI ---- */
-  #joy, #tctl, #tmenu { display:none; }
+  #joy, #tctl { display:none; }
   body.touch #joy { display:block; position:fixed; left:calc(18px + env(safe-area-inset-left,0px)); bottom:calc(18px + env(safe-area-inset-bottom,0px));
-    width:124px; height:124px; border-radius:50%; background:rgba(8,26,30,.38); border:2px solid rgba(255,255,255,.28);
+    width:92px; height:92px; border-radius:50%; background:rgba(8,26,30,.38); border:2px solid rgba(255,255,255,.28);
     backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); z-index:7; touch-action:none; }
-  #knob { position:absolute; left:50%; top:50%; width:54px; height:54px; margin:-27px 0 0 -27px; border-radius:50%;
+  #knob { position:absolute; left:50%; top:50%; width:40px; height:40px; margin:-20px 0 0 -20px; border-radius:50%;
     background:rgba(255,255,255,.88); box-shadow:0 2px 10px rgba(0,0,0,.4); pointer-events:none; }
   #joy.on { border-color:#ffd84a; }
   body.touch #tctl { display:flex; gap:8px; align-items:flex-end; position:fixed; right:calc(14px + env(safe-area-inset-right,0px));
@@ -142,74 +96,478 @@
   @keyframes pulse { to { transform:scale(1.08); } }
   @media (prefers-reduced-motion: reduce) { #act.hot { animation:none; } }
   body.touch #retrieve { right:calc(14px + env(safe-area-inset-right,0px)); bottom:calc(124px + env(safe-area-inset-bottom,0px)); }
-  body.touch #toolbar { padding:8px 10px; gap:6px; }
-  body.touch #tmenu { display:inline-block; margin-left:auto; padding:2px 10px; }
-  body.touch #toolbar h1 { display:flex; align-items:center; gap:4px; }
-  body.touch #toolbar:not(.open) > .row, body.touch #toolbar:not(.open) > #itemdesc { display:none; }
-  body.touch #log { padding:6px 12px; width:auto; }
-  body.touch #log #catches, body.touch #log #dex, body.touch #log #dexcount { display:none; }
-  body.touch #log .head { margin:0; gap:10px; }
-  body.touch #gauges { bottom:auto; top:calc(52px + env(safe-area-inset-top,0px)); width:150px; padding:8px 10px; gap:8px; }
-  body.touch #tbar { height:84px; width:14px; }
-  body.touch #ginfo { font-size:11px; gap:3px; }
   body.touch #help { max-width:calc(100vw - 380px); white-space:normal; text-align:center; font-size:12px; border-radius:12px; }
-  body.touch #msg { font-size:20px; top:30%; }
+  body.touch #msg { font-size:20px; top:30%; white-space:normal; width:max-content; max-width:calc(100vw - 32px); text-align:center; line-height:1.3; }
+  body.touch #itempop { left:50% !important; transform:translateX(-50%); width:230px; box-sizing:border-box; }
   body.touch #msg.hot { font-size:28px; }
-  @media (max-width: 600px) {
-    body.touch #log { display:none; }
-    body.touch #gauges { top:calc(10px + env(safe-area-inset-top,0px)); right:10px; }
-    body.touch #toolbar { left:10px; top:10px; max-width:calc(100vw - 180px); }
-    body.touch #toolbar:not(.open) .ttl { display:none; }
-    body.touch #gauges { width:136px; }
-    body.touch #toolbar.open { max-width:calc(100vw - 20px); z-index:9; }
-    body.touch #help { bottom:calc(152px + env(safe-area-inset-bottom,0px)); max-width:calc(100vw - 32px); }
-  }
   #mapzoom { display:flex; gap:6px; }
   #mapzoom button { width:34px; padding:5px 0; }
-  @media (max-width: 760px) { #log { display:none; } #help { max-width:calc(100vw - 28px); white-space:normal; border-radius:14px; } #gauges { bottom:130px; } }
+  @media (max-width: 760px) { #help { max-width:calc(100vw - 28px); white-space:normal; border-radius:14px; } }
+
+  /* ---- HUD layout ---- */
+  .seg { display:flex; gap:2px; padding:3px; border-radius:999px; background:var(--glass); backdrop-filter:blur(14px); -webkit-backdrop-filter:blur(14px); }
+  .seg button { border:0; background:transparent; }
+  .seg button.on { background:#ffd84a; color:#1b1b12; }
+  .seg button small { font-weight:500; opacity:.75; margin-left:4px; font-size:11px; }
+  #qtrack { position:fixed; left:14px; top:calc(14px + env(safe-area-inset-top,0px)); padding:8px 12px; z-index:5; font-size:12px; max-width:min(300px, calc(100vw - 260px)); cursor:pointer; }
+  #qtrack .qth { font-size:11px; opacity:.6; letter-spacing:.08em; margin-bottom:4px; }
+  #qlist div { display:flex; gap:8px; justify-content:space-between; padding:2px 0; }
+  #qlist div span { opacity:.7; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  #qlist div.done { color:#8ff0a8; }
+  #target { position:fixed; left:14px; top:120px; padding:7px 12px; font-size:12px; z-index:5; max-width:280px; line-height:1.5; }
+  #target .st { color:#ffd84a; letter-spacing:1px; }
+  #target .why { opacity:.75; }
+  #status { position:fixed; right:14px; top:calc(14px + env(safe-area-inset-top,0px)); width:220px; padding:10px 14px; z-index:5; font-size:12px; }
+  #status .srow { display:flex; justify-content:space-between; align-items:baseline; font-size:14px; font-weight:700; font-variant-numeric:tabular-nums; }
+  #status .srow b { color:#ffd84a; font-size:16px; }
+  #status .srow2 { display:flex; justify-content:space-between; margin:3px 0 8px; opacity:.75; }
+  #status .srow2 b { color:#fff; }
+  #status .neth { display:flex; justify-content:space-between; font-weight:700; padding-top:6px; border-top:1px solid rgba(255,255,255,.12); }
+  #netval { color:#ffd84a; }
+  #catches { list-style:none; margin:4px 0 0; padding:0; max-height:170px; overflow:auto; }
+  #catches li { display:flex; justify-content:space-between; gap:6px; padding:3px 0; border-top:1px solid rgba(255,255,255,.06); }
+  #catches li span { opacity:.75; }
+  .netbtns { display:flex; gap:6px; margin-top:6px; }
+  .netbtns button { flex:1; font-size:11px; padding:4px 8px; }
+  #gauges { position:fixed; left:14px; bottom:calc(14px + env(safe-area-inset-bottom,0px)); width:164px; padding:10px 12px; display:flex; flex-direction:column; gap:8px; z-index:5; }
+  #tbar { position:relative; height:10px; border-radius:5px; background:rgba(0,0,0,.35); overflow:hidden; }
+  #tbar::after { content:''; position:absolute; top:0; bottom:0; left:calc(100%/1.1); width:2px; background:#ff5a4a; }
+  #tfill { position:absolute; left:0; top:0; bottom:0; width:0; background:linear-gradient(90deg,#8ff0a8,#46c36d); transition:width .08s linear; }
+  #tfill.warn { background:linear-gradient(90deg,#ffe27a,#f0b53a); }
+  #tfill.danger { background:linear-gradient(90deg,#ff8a70,#e2412e); }
+  #dragmark { position:absolute; top:-2px; bottom:-2px; width:3px; background:#6fd3ff; box-shadow:0 0 6px #6fd3ff; }
+  #ginfo { font-size:12px; display:flex; flex-direction:column; gap:4px; }
+  #ginfo div { display:flex; justify-content:space-between; }
+  #ginfo span { opacity:.65; }
+  /* bottom dock: mode / tackle buttons, the hint line under them */
+  #dock { position:fixed; left:50%; bottom:calc(14px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%); display:flex; flex-direction:column; align-items:center; gap:10px; z-index:6; pointer-events:none; }
+  #dock > * { pointer-events:auto; }
+  #dock > #help { pointer-events:none; }
+  #bottombar { position:relative; display:flex; gap:10px; align-items:center; }
+  body.casting #bottombar { display:none; }
+  #bottombar.locked #modes, #bottombar.locked #navtoggle { opacity:.5; }
+  #itempop { position:absolute; bottom:calc(100% + 6px); left:0; width:max-content; max-width:240px; padding:5px; display:flex; flex-direction:column; background:rgba(8,26,30,.9); border-radius:12px; }
+  #items { display:flex; flex-direction:column; align-items:stretch; gap:2px; }
+  #items button { display:flex; flex-direction:column; align-items:flex-start; gap:1px; text-align:left; border:0; border-radius:8px; background:transparent; padding:6px 10px; white-space:normal; }
+  #items button:hover { background:rgba(255,255,255,.1); }
+  #items button.on { background:rgba(255,216,74,.16); color:#ffd84a; }
+  #items button small { font-weight:500; font-size:10.5px; opacity:.65; color:#fff; line-height:1.35; }
+  #itemdesc { display:none; }
+  /* bottom controls 1.5x on desktop */
+  body:not(.touch) #bottombar { transform:scale(1.5); transform-origin:50% 100%; margin-top:22px; }
+  body:not(.touch) #menubtn { transform:scale(1.5); transform-origin:100% 100%; }
+  body:not(.touch) #menu { bottom:calc(76px + env(safe-area-inset-bottom,0px)); transform:scale(1.5); transform-origin:100% 100%; }
+  body:not(.touch) #retrieve { bottom:calc(80px + env(safe-area-inset-bottom,0px)); transform:scale(1.25); transform-origin:100% 100%; }
+  /* quests 1.5x on desktop: tracker and quest window */
+  body:not(.touch) #qtrack { font-size:18px; padding:12px 18px; max-width:min(460px, calc(100vw - 420px)); }
+  body:not(.touch) #qtrack .qth { font-size:15px; }
+  body:not(.touch) #questm .mbox { zoom:1.5; width:min(900px, calc(100vw/1.5 - 24px)); max-height:calc(100vh/1.5 - 24px); }
+  #menubtn { position:fixed; right:14px; bottom:calc(14px + env(safe-area-inset-bottom,0px)); z-index:6; padding:9px 16px; border-radius:14px; font-size:14px; }
+  #menu { position:fixed; right:14px; bottom:calc(62px + env(safe-area-inset-bottom,0px)); z-index:7; padding:8px; display:flex; flex-direction:column; gap:4px; min-width:190px; background:rgba(8,26,30,.85); }
+  #menu button { text-align:left; border-radius:10px; border:0; background:transparent; padding:8px 12px; display:flex; justify-content:space-between; }
+  #menu button:hover { background:rgba(255,255,255,.1); }
+  #menu kbd { font:600 10px var(--font); opacity:.5; }
+  #retrieve { right:14px; bottom:calc(62px + env(safe-area-inset-bottom,0px)); }
+  .modal { position:fixed; inset:0; z-index:15; background:rgba(3,12,18,.55); display:grid; place-items:center; padding:16px; box-sizing:border-box; }
+  .mbox { width:min(900px, 100%); max-height:100%; overflow:auto; background:rgba(6,22,30,.94); padding-bottom:14px; }
+  .maphead .sub { flex:1; font-size:12px; opacity:.65; }
+  .qtop { display:grid; grid-template-columns:1fr 1fr; gap:10px; padding:0 14px 10px; }
+  .attend, .weekly { padding:12px; border-radius:12px; background:rgba(255,255,255,.06); display:flex; flex-direction:column; gap:8px; font-size:12px; }
+  .ah { display:flex; justify-content:space-between; align-items:baseline; }
+  .ah span { color:#ffd84a; font-weight:700; }
+  #attdays { display:flex; gap:4px; }
+  #attdays i { flex:1; text-align:center; font-style:normal; padding:6px 0; border-radius:8px; background:rgba(255,255,255,.06); font-size:11px; }
+  #attdays i.got { background:rgba(110,230,140,.3); }
+  #attdays i.today { outline:1px solid #ffd84a; }
+  #attbtn:disabled { opacity:.45; cursor:default; }
+  .wbar { height:10px; border-radius:5px; background:rgba(0,0,0,.35); overflow:hidden; }
+  #wkfill { height:100%; width:0; background:linear-gradient(90deg,#6fd3ff,#8ff0a8); }
+  #quests { padding:0 14px; display:grid; gap:8px; }
+  .q { padding:12px; border-radius:12px; background:rgba(255,255,255,.06); display:grid; grid-template-columns:1fr auto; gap:4px 12px; align-items:center; }
+  .q.done { background:rgba(110,230,140,.2); }
+  .q .qt { font-weight:700; font-size:14px; }
+  .q .rw { color:#ffd84a; font-weight:800; white-space:nowrap; text-align:right; }
+  .q .prog { opacity:.7; font-variant-numeric:tabular-nums; margin-left:6px; font-weight:500; }
+  .q .tip { font-size:12px; opacity:.8; line-height:1.5; grid-column:1 / -1; }
+  .q .qw { font-size:11px; opacity:.6; }
+  .q .go { justify-self:end; font-size:12px; padding:4px 12px; }
+  .qfoot { padding:10px 14px 0; font-size:11px; opacity:.7; display:flex; justify-content:space-between; align-items:center; gap:8px; }
+  .rtabs { display:flex; gap:6px; padding:0 14px 10px; flex-wrap:wrap; align-items:center; }
+  .rtabs select { margin-left:auto; font:600 13px var(--font); background:rgba(255,255,255,.1); color:#fff; border:1px solid rgba(255,255,255,.2); border-radius:999px; padding:5px 10px; }
+  .rtabs select option { color:#111; }
+  #rlist { padding:0 14px; }
+  #rlist table { width:100%; border-collapse:collapse; font-size:13px; font-variant-numeric:tabular-nums; }
+  #rlist th { text-align:left; font-size:11px; opacity:.6; font-weight:600; padding:6px 8px; }
+  #rlist td { padding:8px; border-top:1px solid rgba(255,255,255,.07); }
+  #rlist tr.me td { background:rgba(255,216,74,.12); }
+  #rlist .rk { width:36px; font-weight:800; color:#ffd84a; }
+  #rlist .empty { opacity:.6; padding:20px 8px; font-size:13px; }
+  #dexgrid { padding:0 14px; display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px; }
+  .dx { border-radius:12px; background:rgba(255,255,255,.06); overflow:hidden; font-size:12px; }
+  .dx .ph { aspect-ratio:4/3; background:#0b2230; display:grid; place-items:center; overflow:hidden; position:relative; }
+  .dx .qm { position:absolute; inset:0; display:grid; place-items:center; font-size:40px; color:rgba(255,255,255,.55); text-shadow:0 2px 10px #000; }
+  .dx img { width:100%; height:100%; object-fit:cover; display:block; }
+  .dx.locked img { filter:blur(12px) grayscale(1) brightness(.35); transform:scale(1.15); }
+  .dx .nm { padding:6px 8px 0; font-weight:800; font-size:13px; }
+  .dx .dd { padding:2px 8px 8px; opacity:.7; line-height:1.5; }
+  .dx .tag { font-size:10px; padding:1px 6px; border-radius:6px; background:rgba(79,209,255,.15); color:#bfeeff; margin-left:4px; font-weight:600; }
+  .cbox { width:min(360px, 100%); padding:18px; display:flex; flex-direction:column; gap:14px; background:rgba(6,22,30,.94); text-align:center; font-size:14px; line-height:1.6; }
+  .cbtns { display:flex; gap:8px; justify-content:center; }
+  .cbtns button { min-width:100px; }
+  @media (max-width: 700px) { .qtop { grid-template-columns:1fr; } }
+  /* touch layout */
+  body.touch #navtoggle, body.touch #menubtn { display:none; }
+  /* touch: tackle buttons at the bottom between the joystick and the action button (above them in portrait), hints above */
+  body.touch #dock { bottom:calc(16px + env(safe-area-inset-bottom,0px)); gap:8px; }
+  body.touch #help { max-width:calc(100vw - 460px); }
+  @media (max-width: 640px) {
+    body.touch #dock { bottom:calc(146px + env(safe-area-inset-bottom,0px)); }
+    body.touch #help { max-width:calc(100vw - 32px); }
+  }
+  body.touch #menu { bottom:calc(130px + env(safe-area-inset-bottom,0px)); }
+  /* the page blocks touch gestures for the game; windows with lists must still scroll with a finger */
+  .mbox, .shopbox, #mappanel, #catches { touch-action:pan-y; -webkit-overflow-scrolling:touch; overscroll-behavior:contain; }
+  .seg button { white-space:nowrap; }
+  body.touch #menu kbd { display:none; }
+  /* touch: quests (left) and time/weather/coins (right) at the very top */
+  body.touch #qtrack { top:calc(10px + env(safe-area-inset-top,0px)); left:10px; max-width:calc(100vw - 200px); box-sizing:border-box; font-size:11px; padding:7px 10px; }
+  body.touch #qlist b { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
+  body.touch #qlist div span { display:none; }
+  body.touch #status .srow { flex-wrap:wrap; font-size:13px; }
+  body.touch #status { right:10px; top:calc(10px + env(safe-area-inset-top,0px)); width:170px; padding:8px 10px; }
+  body.touch #status .net ul { display:none; }
+  body.touch #status .net.open ul { display:block; max-height:120px; }
+  body.touch #status .neth { cursor:pointer; }
+  body.touch #status .netbtns button { font-size:10.5px; padding:4px 6px; }
+  /* touch: tension / float depth … as plain text under the quests (no box); placed by JS */
+  body.touch #gauges { left:10px; bottom:auto; top:calc(96px + env(safe-area-inset-top,0px)); width:140px; padding:0 2px; gap:4px;
+    background:none; backdrop-filter:none; -webkit-backdrop-filter:none; text-shadow:0 1px 3px rgba(0,0,0,.9), 0 0 8px rgba(0,0,0,.5); }
+  body.touch #ginfo { font-size:11px; gap:1px; }
+  body.touch #tbar { height:7px; }
+  body.touch #target { display:none; }
+  /* settings */
+  .sbox { width:min(620px, 100%); }
+  #setbody { padding:0 14px 6px; display:flex; flex-direction:column; gap:2px; }
+  #setbody h4 { margin:12px 0 4px; font-size:12px; opacity:.6; letter-spacing:.08em; }
+  #setbody .srow2 { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:9px 4px; border-bottom:1px solid rgba(255,255,255,.07); font-size:13px; }
+  #setbody .srow2 small { display:block; font-size:11px; opacity:.6; margin-top:2px; font-weight:400; }
+  #setbody .sctl { display:flex; align-items:center; gap:8px; flex-shrink:0; }
+  #setbody .sseg button { padding:4px 10px; font-size:12px; }
+  #setbody input[type=range] { width:140px; accent-color:#ffd84a; touch-action:pan-x; }
+  #setbody .sval { min-width:44px; text-align:right; font-variant-numeric:tabular-nums; font-size:12px; opacity:.85; }
+  #setbody .tog { min-width:58px; }
+  #setbody .snote { font-size:11px; opacity:.7; padding:10px 4px 0; line-height:1.6; }
+  #setbody .snote.warn { color:#ffd84a; opacity:1; }
+  @media (max-width: 560px) { #setbody .srow2 { flex-direction:column; align-items:stretch; } #setbody .sctl { justify-content:flex-end; } }
+  /* touch joystick size and left-handed layout */
+  body.touch[data-joy="s"] #joy { width:76px; height:76px; } body.touch[data-joy="s"] #knob { width:34px; height:34px; margin:-17px 0 0 -17px; }
+  body.touch[data-joy="l"] #joy { width:120px; height:120px; } body.touch[data-joy="l"] #knob { width:52px; height:52px; margin:-26px 0 0 -26px; }
+  body.touch.lefty #joy { left:auto; right:calc(18px + env(safe-area-inset-right,0px)); }
+  body.touch.lefty #tctl { right:auto; left:calc(14px + env(safe-area-inset-left,0px)); flex-direction:row-reverse; }
+  body.touch.lefty #retrieve { right:auto; left:calc(14px + env(safe-area-inset-left,0px)); }
+  /* ---- touch controls: one centre control, +/- on its left, menu bottom-left, boat/fishing bottom-right ---- */
+  body.touch #tctl, body.touch #tctl .tcol:first-child { display:contents; }
+  body.touch #act { position:fixed; left:50%; bottom:calc(18px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%); z-index:7; }
+  body.touch #act.down { transform:translateX(-50%) scale(.93); }
+  @keyframes pulseC { from { transform:translateX(-50%); } to { transform:translateX(-50%) scale(1.08); } }
+  body.touch #act.hot { animation-name:pulseC; }
+  body.touch #joy { display:none; left:50%; right:auto; bottom:calc(18px + env(safe-area-inset-bottom,0px)); transform:translateX(-50%); width:92px; height:92px; }
+  body.touch.tc-joy #joy { display:block; }
+  body.touch.tc-joy #act { display:none; }
+  body.touch #tctl .tcol:nth-child(2) { position:fixed; z-index:7; bottom:calc(18px + env(safe-area-inset-bottom,0px)); right:calc(50% + 58px); left:auto; }
+  body.touch #tmap { position:fixed; z-index:7; left:calc(16px + env(safe-area-inset-left,0px)); right:auto; bottom:calc(22px + env(safe-area-inset-bottom,0px)); width:52px; height:52px; }
+  body.touch #tnav { position:fixed; z-index:7; right:calc(16px + env(safe-area-inset-right,0px)); left:auto; bottom:calc(22px + env(safe-area-inset-bottom,0px)); width:52px; height:52px; }
+  body.touch #retrieve { right:calc(14px + env(safe-area-inset-right,0px)); left:auto; bottom:calc(88px + env(safe-area-inset-bottom,0px)); }
+  body.touch #menu { left:calc(14px + env(safe-area-inset-left,0px)); right:auto; bottom:calc(84px + env(safe-area-inset-bottom,0px)); }
+  body.touch #dock { bottom:calc(150px + env(safe-area-inset-bottom,0px)); }
+  body.touch #help { max-width:calc(100vw - 32px); }
+  @media (min-width: 641px) { body.touch #help { max-width:calc(100vw - 360px); } }
+  /* left-handed: mirror the corners and put +/- on the right of the centre control */
+  body.touch.lefty #tmap { left:auto; right:calc(16px + env(safe-area-inset-right,0px)); }
+  body.touch.lefty #tnav { right:auto; left:calc(16px + env(safe-area-inset-left,0px)); }
+  body.touch.lefty #tctl .tcol:nth-child(2) { right:auto; left:calc(50% + 58px); }
+  body.touch.lefty #joy { left:50%; right:auto; }
+  body.touch.lefty #retrieve { right:auto; left:calc(14px + env(safe-area-inset-left,0px)); }
+  body.touch.lefty #menu { left:auto; right:calc(14px + env(safe-area-inset-right,0px)); }
+  /* hint line: plain shadowed text, no box; can be switched off in settings */
+  #help { background:none; backdrop-filter:none; -webkit-backdrop-filter:none; text-shadow:0 1px 3px rgba(0,0,0,.95), 0 0 10px rgba(0,0,0,.6); padding:2px 8px; }
+  body.notips #help { display:none; }
+  /* top line (time · weather · buff · coins); quests and keep net under it */
+  #topline { position:fixed; left:50%; top:calc(10px + env(safe-area-inset-top,0px)); transform:translateX(-50%); z-index:5; display:flex; align-items:center; gap:12px; padding:6px 16px; border-radius:999px; font-weight:700; font-size:15px; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  #topline #coins { color:#ffd84a; }
+  #topline #luck { color:#8ff0a8; font-size:13px; }
+  body:not(.touch) #topline { font-size:18px; padding:8px 20px; }
+  #qtrack { top:calc(60px + env(safe-area-inset-top,0px)) !important; }
+  #status { top:calc(60px + env(safe-area-inset-top,0px)) !important; }
+  body.touch #qtrack, body.touch #status { top:calc(50px + env(safe-area-inset-top,0px)) !important; }
+  #status .neth { border-top:0; padding-top:0; }
+  /* menu popup above the other controls */
+  #menu { z-index:14 !important; }
+  #menu button.dis { opacity:.38; }
+  /* map: zoom buttons in the map's top-right corner; the info panel keeps a fixed size */
+  #mapzoom { position:absolute; top:10px; right:10px; z-index:2; }
+  #mapzoom button { width:40px; height:40px; padding:0; font-size:20px; background:rgba(6,22,30,.85); }
+  #mappanel #go { padding:12px 16px; font-size:16px; font-weight:800; border-radius:12px; width:100%; }
+  @media (max-width: 760px) { #mappanel { height:34%; max-height:none; flex:none; box-sizing:border-box; } }
+  /* top line: plain shadowed text, no box */
+  #topline { background:none; backdrop-filter:none; -webkit-backdrop-filter:none; text-shadow:0 1px 3px rgba(0,0,0,.95), 0 0 10px rgba(0,0,0,.55); padding:4px 8px; }
+  #topline #place { font-weight:800; }
+  body.touch #topline { gap:9px; font-size:14px; max-width:calc(100vw - 20px); }
+  body.touch #topline #place { overflow:hidden; text-overflow:ellipsis; max-width:34vw; }
+  /* top line: place · time · weather · buff on the left, coins on the right */
+  #topline { left:calc(14px + env(safe-area-inset-left,0px)) !important; right:calc(14px + env(safe-area-inset-right,0px)); transform:none !important; justify-content:space-between; }
+  #topline .tl-l { display:flex; align-items:center; gap:12px; min-width:0; overflow:hidden; }
+  body.touch #topline { left:10px !important; right:10px; max-width:none; }
+  body.touch #topline .tl-l { gap:8px; }
+  body.touch #topline #place { max-width:28vw; }
+  /* touch: tension / boat readout top-right (fish finder above it while driving); keep net behind a button */
+  body.touch #gauges { left:auto !important; right:10px; top:calc(66px + env(safe-area-inset-top,0px)); width:140px; }
+  body.touch #status { display:none !important; }
+  #tnet { display:none; }
+  body.touch #tnet { display:grid; place-items:center; position:fixed; z-index:7; right:calc(78px + env(safe-area-inset-right,0px)); bottom:calc(22px + env(safe-area-inset-bottom,0px)); width:52px; height:52px; padding:0; border-radius:50%; font-size:20px; background:rgba(8,26,30,.5); backdrop-filter:blur(8px); -webkit-backdrop-filter:blur(8px); }
+  body.touch #tnet small { position:absolute; top:-4px; right:-4px; min-width:18px; height:18px; border-radius:9px; background:#ffd84a; color:#1b1b12; font:800 11px/18px var(--font); }
+  body.touch #tnet small:empty { display:none; }
+  body.touch.lefty #tnet { right:auto; left:calc(78px + env(safe-area-inset-left,0px)); }
+  body.touch #retrieve { bottom:calc(88px + env(safe-area-inset-bottom,0px)); }
+  .nbox { width:min(520px, 100%); }
+  #netlist { padding:0 14px; display:flex; flex-direction:column; gap:6px; touch-action:pan-y; }
+  #netlist .nrow { display:grid; grid-template-columns:1fr auto auto; gap:10px; align-items:center; padding:10px 12px; border-radius:10px; background:rgba(255,255,255,.06); font-size:13px; }
+  #netlist .nrow b { font-size:14px; }
+  #netlist .nrow span { opacity:.7; font-variant-numeric:tabular-nums; }
+  #netlist .nrow button { font-size:12px; padding:5px 10px; }
+  #netlist .empty { opacity:.6; padding:20px 4px; text-align:center; }
+  .nbtns { display:flex; gap:8px; padding:12px 14px 0; }
+  .nbtns button { flex:1; padding:10px; font-size:14px; }
+  .nbtns button small { opacity:.7; font-weight:500; }
+  /* while fighting the centre joystick sits on top of the (still held) cast button */
+  body.touch.tc-joy #act { display:block !important; opacity:0; }
+  body.touch.tc-joy #act:not(.down) { pointer-events:none; }
+  body.touch #joy { z-index:8; }
+  /* casting power gauge (replaces the tackle buttons while charging) */
+  #power { display:flex; flex-direction:column; align-items:center; gap:6px; font-size:13px; font-weight:700; text-shadow:0 1px 3px rgba(0,0,0,.9); }
+  #power .pwbar { width:min(420px, 70vw); height:16px; border-radius:8px; display:flex; overflow:hidden; box-shadow:0 0 0 2px rgba(255,255,255,.25);
+    background:linear-gradient(90deg, #6fd3ff, #ffe27a 70%, #ff7a59); }
+  #pwfill { height:100%; width:100%; margin-left:auto; background:rgba(8,18,24,.82); }   /* covers the part not yet charged */
+  body:not(.touch) #power { transform:scale(1.25); transform-origin:50% 100%; margin-top:10px; }
+  body.touch #power .pwbar { width:min(280px, 70vw); }
+  /* the dock spans the screen width so the hint line can run long instead of wrapping in half the screen */
+  #dock { left:0 !important; right:0; transform:none !important; }
+  #help { max-width:calc(100vw - 24px) !important; }
+  body.touch #help { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:12px; }
+  /* celebration effects */
+  #fx { position:fixed; inset:0; pointer-events:none; z-index:40; overflow:hidden; }
+  #fx .cf { position:absolute; width:9px; height:14px; border-radius:2px; }
+  #fx .cbanner { position:absolute; left:50%; top:34%; display:flex; flex-direction:column; align-items:center; gap:6px; padding:16px 26px; border-radius:18px;
+    background:radial-gradient(circle at 50% 0%, rgba(255,216,74,.35), rgba(8,26,30,.88) 70%); box-shadow:0 0 0 2px rgba(255,216,74,.7), 0 12px 40px rgba(0,0,0,.45), 0 0 60px rgba(255,216,74,.35); text-align:center; max-width:86vw; }
+  #fx .cbanner b { font-size:30px; font-weight:900; color:#ffe27a; text-shadow:0 2px 10px rgba(0,0,0,.5); }
+  #fx .cbanner span { font-size:14px; opacity:.9; }
+  #fx .cplus { position:absolute; font-size:26px; font-weight:900; color:#ffd84a; text-shadow:0 2px 8px rgba(0,0,0,.7); white-space:nowrap; }
+  #fx .coin { position:absolute; font-size:22px; font-style:normal; }
+  .q .go.claim { background:#ffd84a; color:#1b1b12; border:0; font-weight:800; animation:claimGlow 1s ease-in-out infinite alternate; }
+  @keyframes claimGlow { to { box-shadow:0 0 16px rgba(255,216,74,.8); } }
+  #qlist div.done b { color:#8ff0a8; }
+  #qlist div.done span { color:#ffd84a; opacity:1; }
+  /* fish guide: detail page */
+  .dx { cursor:pointer; transition:transform .12s; } .dx:hover { transform:translateY(-2px); }
+  #dexdet { padding:0 14px 6px; font-size:13px; }
+  #dexdet .dback { margin-bottom:10px; }
+  #dexdet .dtop { display:grid; grid-template-columns:minmax(0, 1.1fr) 1fr; gap:14px; align-items:start; }
+  #dexdet .dph { position:relative; aspect-ratio:4/3; border-radius:12px; overflow:hidden; background:#0b2230; display:grid; place-items:center; font-size:60px; }
+  #dexdet .dph img { width:100%; height:100%; object-fit:cover; }
+  #dexdet .dph.locked img { filter:blur(14px) grayscale(1) brightness(.35); transform:scale(1.15); }
+  #dexdet .dph .qm { position:absolute; inset:0; display:grid; place-items:center; font-size:54px; color:rgba(255,255,255,.55); }
+  #dexdet h3 { margin:0; font-size:24px; }
+  #dexdet .latin { font-style:italic; opacity:.6; font-size:12px; margin:2px 0 8px; }
+  #dexdet .tags { display:flex; gap:4px; flex-wrap:wrap; margin-bottom:10px; }
+  #dexdet .tag { font-size:11px; padding:2px 8px; border-radius:6px; background:rgba(79,209,255,.15); color:#bfeeff; }
+  #dexdet .drec { padding:10px 12px; border-radius:10px; background:rgba(255,216,74,.1); line-height:1.6; }
+  #dexdet .drec b { color:#ffd84a; }
+  #dexdet .dcred { font-size:10px; opacity:.5; margin-top:8px; }
+  #dexdet .dgrid { display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:10px; margin-top:14px; }
+  #dexdet .dgrid > div { padding:10px 12px; border-radius:10px; background:rgba(255,255,255,.05); }
+  #dexdet .dgrid .wide { grid-column:1 / -1; }
+  #dexdet h4 { margin:0 0 6px; font-size:11px; opacity:.6; letter-spacing:.06em; }
+  #dexdet p { margin:0; line-height:1.6; }
+  #dexdet .abars { display:flex; gap:6px; align-items:flex-end; height:60px; }
+  #dexdet .ab { flex:1; height:100%; display:flex; flex-direction:column; justify-content:flex-end; align-items:center; gap:3px; font-size:10px; opacity:.85; }
+  #dexdet .ab i { width:100%; background:linear-gradient(0deg, #6fd3ff, #8ff0a8); border-radius:4px 4px 0 0; min-height:2px; }
+  #dexdet .pfs { display:flex; flex-wrap:wrap; gap:6px; }
+  #dexdet .pf { padding:3px 9px; border-radius:999px; background:rgba(255,255,255,.08); }
+  #dexdet .pf em { font-style:normal; color:#ffd84a; font-size:10px; }
+  @media (max-width: 600px) { #dexdet .dtop { grid-template-columns:1fr; } #dexdet .dgrid { grid-template-columns:1fr 1fr; } }
+  /* catch card reveal */
+  #card { width:320px; overflow:hidden; }
+  #card .stats { gap:26px; margin-top:8px; }
+  #card .stats .st { display:flex; flex-direction:column; align-items:center; min-width:96px; }
+  #card .stats small { font-size:11px; opacity:.55; font-weight:600; }
+  #card .stats span { font-size:26px; font-weight:900; font-variant-numeric:tabular-nums; }
+  #card .pts { font-size:22px; }
+  #card.record { box-shadow:0 0 0 2px #ffd84a, 0 0 50px rgba(255,216,74,.55), 0 20px 60px rgba(0,0,0,.4); }
+  #card.record .badge { color:#ffd84a; font-size:18px; font-weight:900; text-shadow:0 0 12px rgba(255,216,74,.7); }
+  #card .rays { position:absolute; inset:-60%; background:conic-gradient(from 0deg, transparent 0 10deg, rgba(255,216,74,.09) 10deg 20deg, transparent 20deg 40deg, rgba(255,216,74,.09) 40deg 50deg, transparent 50deg 70deg, rgba(255,216,74,.09) 70deg 80deg, transparent 80deg 100deg, rgba(255,216,74,.09) 100deg 110deg, transparent 110deg 130deg, rgba(255,216,74,.09) 130deg 140deg, transparent 140deg 160deg, rgba(255,216,74,.09) 160deg 170deg, transparent 170deg 190deg, rgba(255,216,74,.09) 190deg 200deg, transparent 200deg 220deg, rgba(255,216,74,.09) 220deg 230deg, transparent 230deg 250deg, rgba(255,216,74,.09) 250deg 260deg, transparent 260deg 280deg, rgba(255,216,74,.09) 280deg 290deg, transparent 290deg 310deg, rgba(255,216,74,.09) 310deg 320deg, transparent 320deg 340deg, rgba(255,216,74,.09) 340deg 350deg, transparent 350deg); z-index:-1; pointer-events:none; animation:spin 9s linear infinite; }
+  @keyframes spin { to { transform:rotate(360deg); } }
+  /* catch card keeps one size: fixed picture box (before and after the photo loads) and a fixed tip area */
+  #card .photo, #card canvas { width:100% !important; height:180px !important; max-height:none; margin:10px 0 2px; display:block; border-radius:10px; }
+  #card .photo { object-fit:cover; background:#0b2230; }
+  #card canvas { object-fit:contain; }
+  #card .credit { height:14px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; margin-bottom:4px; }
+  #card .credit[hidden] { display:block !important; visibility:hidden; }
+  #card .sp { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  #card .badge { min-height:24px; }
+  #card .tipc { height:3.2em; line-height:1.6; overflow:hidden; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; }
+  /* window close: icon-only ✕ (all windows); back arrow beside it in the fish guide detail */
+  .xbtn { width:36px; height:36px; padding:0; border-radius:50%; display:grid; place-items:center; font-size:16px; line-height:1; flex:none; margin-left:auto; }
+  .xbtn + .xbtn { margin-left:6px; }
+  #dexback { margin-left:auto; } #dexback:not([hidden]) + .mclose { margin-left:6px; }
+  #dcount { font-weight:600; opacity:.8; }
+  .dx .tag.fresh, #dexdet .tag.fresh { color:#ffd84a; background:rgba(255,216,74,.14); }   /* freshwater tags in yellow */
+  /* window headers (title … ✕) stay pinned while the list scrolls */
+  .mbox > .maphead, .shopbox > .maphead { position:sticky; top:0; z-index:3; background:#08161d; border-radius:14px 14px 0 0; box-shadow:0 6px 12px -8px rgba(0,0,0,.6); }
+  .mbox > .rtabs { position:sticky; top:56px; z-index:2; background:#08161d; padding-top:2px; }   /* tab rows stay under the pinned header */
+  .shopbox > .rtabs { position:sticky; top:56px; z-index:2; background:#08161d; padding-top:2px; }
+  #shopgrid .grid { margin-top:4px; }
+  #card canvas.mosaic { width:100% !important; height:180px !important; margin:10px 0 2px; border-radius:10px; display:block; }
+  #card .photo:has(+ canvas.mosaic:not([hidden])) { display:none; }
+  #card .credit { display:none !important; }   /* no photo credit line on the catch card (credits stay in the fish guide) */
+  #shop .shopbox { height:min(760px, 100%); box-sizing:border-box; }   /* same size on every tab */
+  #dbgm { place-items:center end; background:rgba(3,12,18,.25); }   /* debug panel on the right, the game stays visible */
+  #shop .ct .lv { float:right; font-size:11px; font-weight:700; color:#ffd84a; opacity:.85; }
+  .dbgbtns { display:flex; flex-direction:column; gap:8px; padding:4px 14px 6px; }
+  .dbgbtns button { padding:12px; font-size:14px; border-radius:12px; text-align:left; }
+  .dbgbtns .dbgrow { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+  .dbgbtns h4 { margin:6px 2px 0; font-size:12px; opacity:.7; font-weight:600; }
+  .dbgbtns .dbgchips { display:flex; flex-wrap:wrap; gap:6px; }
+  .dbgbtns .dbgchips button { padding:8px 12px; text-align:center; flex:1 1 auto; }
+  .dx .tag.obs, #dexdet .tag.obs { color:#8ff0a8; background:rgba(143,240,168,.15); }   /* observation-only species: green */
+  .dx .tag { white-space:nowrap; }
+  .dx .nm { display:flex; flex-wrap:wrap; align-items:center; gap:4px 0; }
+  body:not(.touch) #dexm .mbox { width:min(900px, 100%); }
+  body:not(.touch) #dexgrid { grid-template-columns:repeat(4, minmax(0, 1fr)); }
 </style>
 </head>
 <body>
 <canvas id="c"></canvas>
 <canvas id="hud"></canvas>
 
-<div id="toolbar" class="glass">
-  <h1><span class="ttl">🎣 보트 낚시</span><small id="place"></small><button id="tmenu">메뉴 ▾</button></h1>
-  <div class="row"><label>모드</label><div class="row"><button id="navfish" class="on">🎣 낚시</button><button id="navboat">⛵ 보트</button><button id="navmap">🗺 지도</button></div></div>
-  <div class="row"><label>메뉴</label><div class="row"><button id="navquest">📜 퀘스트</button><button id="navshop">🛒 상점</button><button id="navtime" title="다음 시간대로">⏩ 시간</button></div></div>
-  <div class="row"><label>채비</label><div id="modes" class="row"></div></div>
-  <div class="row"><label>미끼</label><div id="items" class="row"></div></div>
-  <div id="itemdesc"></div>
+<!-- top left: active quests (titles) + target match -->
+<div id="qtrack" class="glass"><div class="qth">📜 퀘스트</div><div id="qlist"></div></div>
+
+<!-- top right: time · weather · coins, place, keep net -->
+<!-- very top: time · weather · buff · coins on one line -->
+<div id="topline"><div class="tl-l"><span id="place"></span><span id="clock">06:00 새벽</span><span id="wicon">☀️ 맑음</span><span id="luck" hidden></span></div><b id="coins">🪙 0</b><b id="score" hidden>0</b></div>
+
+<!-- under it, right: keep net (only while it holds fish) -->
+<div id="status" class="glass">
+  <div class="net">
+    <div class="neth"><span>🧺 살림망 <b id="count">0</b>/<span id="cap">12</span></span><span id="netval"></span></div>
+    <ul id="catches"></ul>
+    <div class="netbtns"><button id="sellall">모두 판매</button><button id="releaseall">모두 방생</button></div>
+  </div>
 </div>
 
-<div id="log" class="glass">
-  <div class="head"><span>살림망 <span id="count">0</span>마리</span><b id="score">0</b></div>
-  <div class="head2"><span id="clock">06:00 새벽</span><b id="coins">0🪙</b></div>
-  <ul id="catches"></ul>
-  <div id="dexcount"></div>
-  <div id="dex"></div>
-</div>
-
+<!-- bottom left (under the fish finder): tension / boat info -->
 <div id="gauges" class="glass">
-  <div id="tbar"><div id="tfill"></div><div id="dragmark"></div></div>
   <div id="ginfo"></div>
+  <div id="tbar"><div id="tfill"></div><div id="dragmark"></div></div>
+</div>
+
+<!-- bottom centre: fishing / boat toggle, tackle (2-level), and the hint line under them -->
+<div id="dock">
+<div id="bottombar">
+  <div id="navtoggle" class="seg"><button id="navfish" class="on">🎣 낚시</button><button id="navboat">⛵ 보트</button></div>
+  <div id="modes" class="seg"></div>
+  <div id="itempop" class="glass" hidden><div id="items"></div><div id="itemdesc"></div></div>
+</div>
+<div id="power" hidden><div class="pwbar"><div id="pwfill"></div></div><span>캐스팅 파워</span></div>
+<div id="help"></div>
+</div>
+
+<!-- bottom right: menu -->
+<button id="menubtn" class="glass">☰ 메뉴 <kbd id="menukey" style="font:600 10px var(--font);opacity:.55">Esc</kbd></button>
+<div id="menu" class="glass" hidden>
+  <button data-m="shop">🛒 상점 <kbd>P</kbd></button>
+  <button data-m="quest">📜 퀘스트 <kbd>Q</kbd></button>
+  <button data-m="map">🗺 지도 <kbd>M</kbd></button>
+  <button data-m="rank">🏆 랭킹 <kbd>K</kbd></button>
+  <button data-m="dex">📖 도감 <kbd>I</kbd></button>
+  <button data-m="time">⏩ 다음 시간대 <kbd>T</kbd></button>
+  <button data-m="set">⚙️ 환경설정 <kbd>O</kbd></button>
+  <button data-m="dbg">🛠 디버그</button>
 </div>
 <button id="retrieve" hidden>회수 (R)</button>
 
 <!-- touch controls: joystick (조그) + context action cluster -->
 <div id="joy"><div id="knob"></div></div>
 <div id="tctl">
-  <div class="tcol"><button id="tnav" aria-label="보트/낚시 전환">⛵</button><button id="tmap" aria-label="지도">🗺</button></div>
+  <div class="tcol"><button id="tnav" aria-label="보트/낚시 전환">⛵</button><button id="tnet" aria-label="살림망">🧺<small id="tnetn"></small></button><button id="tmap" aria-label="메뉴">☰</button></div>
   <div class="tcol"><span id="tadj">수심</span><button id="tplus" aria-label="올리기">+</button><button id="tminus" aria-label="내리기">−</button></div>
   <button id="act">던지기</button>
 </div>
 
-<div id="help" class="glass"></div>
 <div id="target" class="glass" hidden></div>
-<div id="questbox" class="glass" hidden><div class="qh"><b>📜 퀘스트</b><button id="questclose">닫기</button></div><div id="quests"></div></div>
+<div id="questm" class="modal" hidden>
+  <div class="mbox glass">
+    <div class="maphead"><b>📜 퀘스트</b><span class="sub" id="qsub"></span><button class="mclose xbtn" aria-label="닫기 (Esc)" title="닫기 (Esc)">✕</button></div>
+    <div class="qtop">
+      <div class="attend"><div class="ah"><b>출석 체크</b><span id="streak"></span></div><div id="attdays"></div><button id="attbtn">출석하기</button></div>
+      <div class="weekly"><div class="ah"><b>이번 주 퀘스트</b><span id="wkpct"></span></div><div class="wbar"><div id="wkfill"></div></div><div id="wkstat"></div></div>
+    </div>
+    <div id="quests"></div>
+  </div>
+</div>
+<div id="rankm" class="modal" hidden>
+  <div class="mbox glass">
+    <div class="maphead"><b>🏆 랭킹</b><span class="sub" id="rsub"></span><button class="mclose xbtn" aria-label="닫기 (Esc)" title="닫기 (Esc)">✕</button></div>
+    <div class="rtabs"><button data-t="len" class="on">어종별 크기</button><button data-t="kg">어종별 무게</button><button data-t="day">하루 최다</button><select id="rsp"></select></div>
+    <div id="rlist"></div>
+  </div>
+</div>
+<div id="dexm" class="modal" hidden>
+  <div class="mbox glass">
+    <div class="maphead"><b>📖 도감 <span id="dcount"></span></b><span class="sub" id="dsub"></span><button id="dexback" class="xbtn" aria-label="뒤로" hidden>←</button><button class="mclose xbtn" aria-label="닫기 (Esc)" title="닫기 (Esc)">✕</button></div>
+    <div id="dexgrid"></div>
+    <div id="dexdet" hidden></div>
+  </div>
+</div>
+<div id="setm" class="modal" hidden>
+  <div class="mbox glass sbox">
+    <div class="maphead"><b>⚙️ 환경설정</b><span class="sub">자동 저장돼요</span><button class="mclose xbtn" aria-label="닫기 (Esc)" title="닫기 (Esc)">✕</button></div>
+    <div class="rtabs stabs"><button data-st="gfx" class="on">🖥 그래픽</button><button data-st="snd">🔊 사운드</button><button data-st="pad">🎮 패드</button></div>
+    <div id="setbody"></div>
+  </div>
+</div>
+<div id="netm" class="modal" hidden>
+  <div class="mbox glass nbox">
+    <div class="maphead"><b>🧺 살림망</b><span class="sub" id="netsub"></span><button class="mclose xbtn" aria-label="닫기 (Esc)" title="닫기 (Esc)">✕</button></div>
+    <div id="netlist"></div>
+    <div class="nbtns"><button id="nsell">모두 판매</button><button id="nrel">방생 <small>+25% · 🍀</small></button></div>
+  </div>
+</div>
+<div id="dbgm" class="modal" hidden>
+  <div class="mbox glass" style="width:min(380px,100%)">
+    <div class="maphead"><b>🛠 디버그</b><span class="sub"></span><button class="mclose xbtn" aria-label="닫기 (Esc)" title="닫기 (Esc)">✕</button></div>
+    <div class="dbgbtns">
+      <button data-d="coins">🪙 코인 +1,000,000</button>
+      <div class="dbgrow"><button data-d="gear">⚙️ 업그레이드 완료</button><button data-d="gearReset">⚙️ 업그레이드 초기화</button></div>
+      <div class="dbgrow"><button data-d="dex">📖 도감 완료</button><button data-d="dexReset">📖 도감 초기화</button></div>
+      <button data-d="bite">🎣 바로 입질 (캐스팅 후)</button>
+      <div class="dbgrow"><button data-d="questDone">📜 현재 퀘스트 완료</button><button data-d="questReset">📜 퀘스트 초기화</button></div>
+      <h4>시간</h4>
+      <div class="dbgchips"><button data-d="time:5">새벽</button><button data-d="time:10">낮</button><button data-d="time:17.5">해질녘</button><button data-d="time:21">밤</button></div>
+      <h4>파도</h4>
+      <div class="dbgchips"><button data-d="wave:0.45">잔잔</button><button data-d="wave:1">중간</button><button data-d="wave:1.8">강하게</button><button data-d="wave:2.8">매우 강하게</button><button data-d="wave:4">폭풍</button></div>
+      <h4>날씨</h4>
+      <div class="dbgchips"><button data-d="w:clear">☀️ 맑음</button><button data-d="w:cloudy">☁️ 흐림</button><button data-d="w:rain">🌧️ 비</button><button data-d="w:fog">🌫️ 안개</button><button data-d="w:windy">💨 강풍</button></div>
+    </div>
+  </div>
+</div>
+<div id="confirm" class="modal" hidden>
+  <div class="cbox glass"><div id="ctext"></div><div class="cbtns"><button id="cno">취소</button><button id="cyes" class="on">이동</button></div></div>
+</div>
 <div id="shop" hidden>
   <div class="shopbox glass">
-    <div class="maphead"><b>🛒 낚시 용품점</b><span class="coins">보유 <b id="coins2">0</b>🪙</span><button id="shopclose">닫기 (Esc)</button></div>
+    <div class="maphead"><b>🛒 낚시 용품점</b><span class="coins">보유 <b id="coins2">0</b>🪙</span><button id="shopclose" class="xbtn" aria-label="닫기 (Esc)" title="닫기 (Esc)">✕</button></div>
+    <div id="shoptabs" class="rtabs"><button data-t="all" class="on">전체</button><button data-t="gear">⚙️ 장비</button><button data-t="bait">🪱 미끼</button><button data-t="lure">🎣 루어</button></div>
     <div id="shopgrid"></div>
   </div>
 </div>
@@ -217,12 +575,12 @@
 
 <div id="card" class="glass" hidden>
   <div class="t">CATCH</div>
-  <div class="sp"></div>
-  <div class="latin"></div>
   <canvas width="480" height="200"></canvas>
   <img class="photo" alt="" hidden>
   <div class="credit" hidden></div>
-  <div class="stats"><span class="len"></span><span class="wt"></span></div>
+  <div class="sp"></div>
+  <div class="latin"></div>
+  <div class="stats"><div class="st"><small>길이</small><span class="len"></span></div><div class="st"><small>무게</small><span class="wt"></span></div></div>
   <div class="pts"></div>
   <div class="badge"></div>
   <div class="tipc"></div>
@@ -231,8 +589,8 @@
 
 <div id="map" hidden>
   <div class="mapbox glass">
-    <div class="maphead"><b>🗺 세계 낚시 지도</b><span id="mapinfo"></span><span id="mapzoom"><button id="mapout" aria-label="축소">−</button><button id="mapin" aria-label="확대">+</button></span><button id="mapclose">닫기 (Esc)</button></div>
-    <div class="mapbody"><div class="mapwrap"><canvas id="mapcv"></canvas></div><div id="mappanel"></div></div>
+    <div class="maphead"><b>🗺 세계 낚시 지도</b><span id="mapinfo" hidden></span><span class="sub"></span><button id="mapclose" class="xbtn" aria-label="닫기 (Esc)" title="닫기 (Esc)">✕</button></div>
+    <div class="mapbody"><div class="mapwrap"><canvas id="mapcv"></canvas><span id="mapzoom"><button id="mapout" aria-label="축소">−</button><button id="mapin" aria-label="확대">+</button></span></div><div id="mappanel"></div></div>
   </div>
 </div>
 <div id="fade">⛵ 이동 중…</div>
@@ -243,6 +601,7 @@
 <script src="js/portal.js"></script>
 <script src="js/ranking.js"></script>
 <script src="js/pebbles.js"></script>
+<script src="js/boat_b1.js"></script>
 <script src="js/renderer.js"></script>
 <script src="js/world.js"></script>
 <script src="img/fish/credits.js"></script>

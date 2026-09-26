@@ -227,22 +227,61 @@ window.GameData = (function(){
   };
 
   // preset spots on the world map (lat, lon)
+  // start: real depth at the boat · floor: [min, max real depth around it, bed shape]
+  //   basin (deepens away from the spot) · valley (drowned valley, steep) · river (a channel beside the boat)
+  //   reef (shallow patches, drops off ~100 m out) · bank (flat, falls away far out) · dropoff (a wall to one side) · abyss
   const SPOTS = [
-    { id:'soyang',   name:'소양호',            country:'대한민국', lat:37.95, lon:127.85, biome:'kr_fresh',  water:'lake_clear', start:2.6 , relief:650, shore:1.6 },
-    { id:'jeju',     name:'제주 서귀포 앞바다', country:'대한민국', lat:33.20, lon:126.55, biome:'temp_sea',  water:'sea_temp',   start:4 , relief:900 },
-    { id:'ulleung',  name:'울릉도',            country:'대한민국', lat:37.50, lon:130.90, biome:'temp_sea',  water:'sea_temp',   start:6 , relief:900 },
-    { id:'biwa',     name:'비와호',            country:'일본',     lat:35.25, lon:136.10, biome:'kr_fresh',  water:'lake_green', start:3 , relief:800, shore:7 },
-    { id:'corsica',  name:'코르시카',          country:'프랑스',   lat:41.85, lon:8.62,   biome:'temp_sea',  water:'sea_temp',   start:2.4 , relief:1500 },
-    { id:'lofoten',  name:'로포텐 제도',       country:'노르웨이', lat:68.20, lon:14.50,  biome:'cold_sea',  water:'sea_cold',   start:6 , relief:900 },
-    { id:'kenai',    name:'케나이 호',         country:'미국 알래스카', lat:60.45, lon:-150.2, biome:'cold_fresh', water:'cold_lake', start:3 , relief:1300, shore:4 },
-    { id:'ontario',  name:'온타리오 호',       country:'캐나다',   lat:43.70, lon:-77.90, biome:'na_fresh',  water:'lake_clear', start:3 , relief:90, shore:25 },
-    { id:'okeechobee', name:'오키초비 호',     country:'미국 플로리다', lat:26.95, lon:-80.80, biome:'na_fresh', water:'lake_green', start:2.2 , relief:15, shore:12 },
-    { id:'kona',     name:'코나 앞바다',       country:'미국 하와이', lat:19.60, lon:-156.10, biome:'trop_sea', water:'sea_trop', start:5 , relief:1800 },
-    { id:'maldives', name:'몰디브 환초',       country:'몰디브',   lat:4.20,  lon:73.50,  biome:'trop_sea',  water:'sea_trop',   start:2 , relief:4 },
-    { id:'gbr',      name:'그레이트배리어리프', country:'호주',    lat:-18.30, lon:147.70, biome:'trop_sea', water:'sea_trop',  start:2.5 , relief:60 },
-    { id:'amazon',   name:'아마존 강',         country:'브라질',   lat:-3.10, lon:-60.00, biome:'trop_fresh', water:'river_brown', start:3 , relief:35, shore:1.2 },
-    { id:'victoria', name:'빅토리아 호',       country:'우간다',   lat:-0.50, lon:33.00,  biome:'trop_fresh', water:'lake_green', start:3 , relief:150, shore:20 },
-    { id:'patagonia', name:'나우엘우아피 호',  country:'아르헨티나', lat:-41.10, lon:-71.40, biome:'cold_fresh', water:'cold_lake', start:3 , relief:1600, shore:5 },
+    { id:'soyang',   name:'소양호',            country:'대한민국', lat:37.95, lon:127.85, biome:'kr_fresh',  water:'lake_clear', start:5, floor:[3,60,'valley'], relief:650, shore:1.6 },
+    { id:'jeju',     name:'제주 서귀포 앞바다', country:'대한민국', lat:33.20, lon:126.55, biome:'temp_sea',  water:'sea_temp',   start:5, floor:[3,40,'basin'], relief:900 },
+    { id:'ulleung',  name:'울릉도',            country:'대한민국', lat:37.50, lon:130.90, biome:'temp_sea',  water:'sea_temp',   start:10, floor:[5,80,'dropoff'], relief:900 },
+    { id:'biwa',     name:'비와호',            country:'일본',     lat:35.25, lon:136.10, biome:'kr_fresh',  water:'lake_green', start:4, floor:[2,40,'basin'], relief:800, shore:7 },
+    { id:'corsica',  name:'코르시카',          country:'프랑스',   lat:41.85, lon:8.62,   biome:'temp_sea',  water:'sea_temp',   start:4, floor:[2,40,'basin'], relief:1500 },
+    { id:'lofoten',  name:'로포텐 제도',       country:'노르웨이', lat:68.20, lon:14.50,  biome:'cold_sea',  water:'sea_cold',   start:10, floor:[5,80,'valley'], relief:900 },
+    { id:'kenai',    name:'케나이 호',         country:'미국 알래스카', lat:60.45, lon:-150.2, biome:'cold_fresh', water:'cold_lake', start:5, floor:[3,80,'valley'], relief:1300, shore:4 },
+    { id:'ontario',  name:'온타리오 호',       country:'캐나다',   lat:43.70, lon:-77.90, biome:'na_fresh',  water:'lake_clear', start:6, floor:[3,60,'basin'], relief:90, shore:25 },
+    { id:'okeechobee', name:'오키초비 호',     country:'미국 플로리다', lat:26.95, lon:-80.80, biome:'na_fresh', water:'lake_green', start:1.5, floor:[1,4,'bank'], relief:15, shore:12 },
+    { id:'kona',     name:'코나 앞바다',       country:'미국 하와이', lat:19.60, lon:-156.10, biome:'trop_sea', water:'sea_trop', start:10, floor:[5,300,'dropoff'], relief:1800 },
+    { id:'maldives', name:'몰디브 환초',       country:'몰디브',   lat:4.20,  lon:73.50,  biome:'trop_sea',  water:'sea_trop',   start:15, floor:[5,200,'reef'], relief:4 },
+    { id:'gbr',      name:'그레이트배리어리프', country:'호주',    lat:-18.30, lon:147.70, biome:'trop_sea', water:'sea_trop',  start:10, floor:[3,200,'reef'], relief:60 },
+    { id:'amazon',   name:'아마존 강',         country:'브라질',   lat:-3.10, lon:-60.00, biome:'trop_fresh', water:'river_brown', start:6, floor:[3,40,'river'], relief:35, shore:1.2 },
+    { id:'victoria', name:'빅토리아 호',       country:'우간다',   lat:-0.50, lon:33.00,  biome:'trop_fresh', water:'lake_green', start:4, floor:[2,40,'basin'], relief:150, shore:20 },
+    { id:'patagonia', name:'나우엘우아피 호',  country:'아르헨티나', lat:-41.10, lon:-71.40, biome:'cold_fresh', water:'cold_lake', start:6, floor:[3,150,'valley'], relief:1600, shore:5 },
+    // more places around the world
+    { id:'chungju',   name:'충주호',          country:'대한민국', lat:36.98, lon:128.05, biome:'kr_fresh', water:'lake_green', start:4, floor:[2,40,'valley'], relief:700, shore:2 },
+    { id:'andong',    name:'안동호',          country:'대한민국', lat:36.60, lon:128.85, biome:'kr_fresh', water:'lake_clear', start:4, floor:[2,35,'valley'], relief:600, shore:2 },
+    { id:'nakdong',   name:'낙동강 하류',     country:'대한민국', lat:35.30, lon:128.95, biome:'kr_fresh', water:'lake_green', start:2, floor:[1,8,'river'], relief:300, shore:1.5 },
+    { id:'geoje',     name:'거제 앞바다',     country:'대한민국', lat:34.75, lon:128.70, biome:'temp_sea', water:'sea_temp', start:5, floor:[3,40,'basin'], relief:600 },
+    { id:'taean',     name:'태안 앞바다',     country:'대한민국', lat:36.70, lon:126.05, biome:'temp_sea', water:'sea_temp', start:3, floor:[2,20,'bank'], relief:200 },
+    { id:'dokdo',     name:'독도 근해',       country:'대한민국', lat:37.24, lon:131.87, biome:'temp_sea', water:'sea_temp', start:30, floor:[10,200,'dropoff'], relief:170 },
+    { id:'kasumi',    name:'가스미가우라',     country:'일본', lat:36.05, lon:140.40, biome:'kr_fresh', water:'lake_green', start:2, floor:[1,6,'bank'], relief:80, shore:8 },
+    { id:'okinawa',   name:'오키나와 앞바다',  country:'일본', lat:26.30, lon:127.60, biome:'trop_sea', water:'sea_trop', start:3, floor:[1,30,'reef'], relief:400 },
+    { id:'baikal',    name:'바이칼 호',       country:'러시아', lat:53.50, lon:108.00, biome:'cold_fresh', water:'cold_lake', start:8, floor:[4,300,'dropoff'], relief:1800, shore:30 },
+    { id:'mekong',    name:'메콩 강',         country:'캄보디아', lat:12.50, lon:105.95, biome:'trop_fresh', water:'river_brown', start:5, floor:[2,30,'river'], relief:60, shore:1.5 },
+    { id:'andaman',   name:'안다만 해',       country:'태국', lat:7.80, lon:98.30, biome:'trop_sea', water:'sea_trop', start:4, floor:[1,30,'reef'], relief:500 },
+    { id:'bali',      name:'발리 앞바다',     country:'인도네시아', lat:-8.80, lon:115.20, biome:'trop_sea', water:'sea_trop', start:5, floor:[2,40,'basin'], relief:2500 },
+    { id:'redsea',    name:'홍해',            country:'이집트', lat:27.20, lon:34.00, biome:'trop_sea', water:'sea_trop', start:5, floor:[2,60,'reef'], relief:1200 },
+    { id:'seychelles',name:'세이셸 제도',     country:'세이셸', lat:-4.60, lon:55.50, biome:'trop_sea', water:'sea_trop', start:3, floor:[1,25,'reef'], relief:500 },
+    { id:'mozambique',name:'모잠비크 해협',   country:'모잠비크', lat:-21.50, lon:40.00, biome:'trop_sea', water:'sea_trop', start:2000, floor:[1800,3000,'abyss'], relief:20 },
+    { id:'capetown',  name:'희망봉 앞바다',   country:'남아프리카', lat:-34.40, lon:18.30, biome:'temp_sea', water:'sea_temp', start:10, floor:[5,60,'basin'], relief:1000 },
+    { id:'nile',      name:'나세르 호',       country:'이집트', lat:22.80, lon:32.40, biome:'trop_fresh', water:'lake_green', start:5, floor:[3,60,'valley'], relief:300, shore:6 },
+    { id:'scotland',  name:'네스 호',         country:'영국', lat:57.30, lon:-4.45, biome:'cold_fresh', water:'cold_lake', start:10, floor:[5,200,'valley'], relief:700, shore:1.5 },
+    { id:'ireland',   name:'아일랜드 서해',   country:'아일랜드', lat:53.20, lon:-10.20, biome:'temp_sea', water:'sea_temp', start:60, floor:[40,200,'basin'], relief:600 },
+    { id:'iceland',   name:'아이슬란드 근해', country:'아이슬란드', lat:63.30, lon:-21.50, biome:'cold_sea', water:'sea_cold', start:150, floor:[100,300,'basin'], relief:1400 },
+    { id:'azores',    name:'아조레스 제도',   country:'포르투갈', lat:38.60, lon:-28.70, biome:'temp_sea', water:'sea_temp', start:15, floor:[5,300,'dropoff'], relief:2300 },
+    { id:'grandbanks',name:'그랜드뱅크스',    country:'캐나다 (원양)', lat:45.00, lon:-50.50, biome:'cold_sea', water:'sea_cold', start:50, floor:[30,200,'bank'], relief:5 },
+    { id:'bahamas',   name:'바하마',          country:'바하마', lat:24.60, lon:-77.40, biome:'trop_sea', water:'sea_trop', start:5, floor:[2,200,'reef'], relief:20 },
+    { id:'cabo',      name:'카보산루카스',    country:'멕시코', lat:22.85, lon:-109.90, biome:'trop_sea', water:'sea_trop', start:10, floor:[5,300,'dropoff'], relief:1500 },
+    { id:'tahoe',     name:'타호 호',         country:'미국', lat:39.10, lon:-120.05, biome:'na_fresh', water:'lake_clear', start:8, floor:[3,300,'dropoff'], relief:2800, shore:5 },
+    { id:'mississippi',name:'미시시피 강',    country:'미국', lat:35.10, lon:-90.10, biome:'na_fresh', water:'river_brown', start:4, floor:[2,15,'river'], relief:60, shore:1.5 },
+    { id:'yukon',     name:'유콘 강',         country:'캐나다', lat:62.00, lon:-136.50, biome:'cold_fresh', water:'cold_lake', start:2, floor:[1,6,'river'], relief:1200, shore:1.5 },
+    { id:'bering',    name:'베링 해',         country:'미국 (원양)', lat:57.50, lon:-172.00, biome:'cold_sea', water:'sea_cold', start:70, floor:[50,200,'bank'], relief:5 },
+    { id:'galapagos', name:'갈라파고스',      country:'에콰도르', lat:-0.70, lon:-90.50, biome:'trop_sea', water:'sea_trop', start:8, floor:[3,60,'dropoff'], relief:1300 },
+    { id:'titicaca',  name:'티티카카 호',     country:'페루', lat:-15.80, lon:-69.40, biome:'cold_fresh', water:'cold_lake', start:5, floor:[3,100,'basin'], relief:2500, shore:8 },
+    { id:'pantanal',  name:'판타나우',        country:'브라질', lat:-18.00, lon:-57.50, biome:'trop_fresh', water:'river_brown', start:1.5, floor:[1,4,'river'], relief:40, shore:1.2 },
+    { id:'fiji',      name:'피지 앞바다',     country:'피지', lat:-17.80, lon:178.00, biome:'trop_sea', water:'sea_trop', start:4, floor:[2,30,'reef'], relief:900 },
+    { id:'nz',        name:'뉴질랜드 베이오브아일랜즈', country:'뉴질랜드', lat:-35.20, lon:174.20, biome:'temp_sea', water:'sea_temp', start:6, floor:[3,40,'basin'], relief:500 },
+    { id:'tasmania',  name:'태즈메이니아',    country:'호주', lat:-43.10, lon:147.90, biome:'temp_sea', water:'sea_temp', start:8, floor:[4,50,'basin'], relief:900 },
+    { id:'midpacific',name:'태평양 한가운데', country:'공해 (원양)', lat:10.00, lon:-140.00, biome:'trop_sea', water:'sea_trop', start:4300, floor:[4000,5000,'abyss'], relief:0 },
   ];
 
   // 대낚시 (float fishing with a long pole, no reel); sea names in nameSea
@@ -269,37 +308,42 @@ window.GameData = (function(){
       reel:1.6, diveDepth:2.5, idle:'float', cost:1200 },
   ];
   // equipment upgrades
+  // gear upgrades: 10 levels each. Stats climb evenly from level 1 to 10; prices grow ~1.5× a level.
+  const COST = [0, 200, 450, 800, 1300, 2000, 3000, 4500, 6500, 9500];
+  const tiers = (names, k, stat) => names.map((name, i) => Object.assign({ name, cost: Math.round(COST[i]*k/10)*10, lv: i + 1 }, stat(i/9, i)));
+  const pct = x => Math.round(x*100);
+  const POLE_CAST = [10, 12, 14, 16, 18, 20, 23, 26, 28, 30];
   const SHOP = [
-    { id:'rod', name:'낚싯대', icon:'🎣', tiers:[
-      { name:'기본 낚싯대', cost:0, cast:1, absorb:1, desc:'기본 캐스팅 거리' },
-      { name:'카본 로드', cost:600, cast:1.2, absorb:0.9, desc:'캐스팅 +20% · 파이팅 장력 -10%' },
-      { name:'빅게임 로드', cost:2400, cast:1.4, absorb:0.8, desc:'캐스팅 +40% · 파이팅 장력 -20%' } ] },
-    { id:'reel', name:'릴', icon:'🌀', tiers:[
-      { name:'기본 스피닝 릴', cost:0, speed:1, desc:'기본 감기 속도' },
-      { name:'고기어 릴', cost:500, speed:1.3, desc:'감기 속도 +30%' },
-      { name:'전동 릴', cost:1800, speed:1.6, desc:'감기 속도 +60%' } ] },
-    { id:'line', name:'원줄', icon:'🧵', tiers:[
-      { name:'나일론', cost:0, mult:1, desc:'기본 강도' },
-      { name:'카본', cost:400, mult:1.5, desc:'강도 ×1.5 (예민한 어종은 입질이 조금 줄어듦)' },
-      { name:'PE 합사', cost:1200, mult:2.2, desc:'강도 ×2.2 (예민한 어종 입질 감소)' },
-      { name:'빅게임 PE', cost:3500, mult:3.2, desc:'강도 ×3.2 — 상어·다랑어용' } ] },
-    { id:'hook', name:'바늘', icon:'🪝', tiers:[
-      { name:'기본 바늘', cost:0, hold:1, window:1, desc:'기본 걸림' },
-      { name:'예리한 바늘', cost:300, hold:0.6, window:1.3, desc:'챔질 여유 +30% · 바늘 빠짐 -40%' },
-      { name:'서클훅', cost:1000, hold:0.3, window:1.6, desc:'챔질 여유 +60% · 바늘 빠짐 -70%' } ] },
-    { id:'sonar', name:'어탐기', icon:'📡', tiers:[
-      { name:'기본 어탐기', cost:0, desc:'수심과 어군 표시' },
-      { name:'컬러 어탐기', cost:500, desc:'물고기 크기별 색 구분' },
-      { name:'스캔 어탐기', cost:1500, desc:'발밑 가장 큰 물고기의 어종 표시' } ] },
-    { id:'boat', name:'보트', icon:'🚤', tiers:[
-      { name:'소형 보트', cost:0, zone:0, desc:'내륙 호수·강만 갈 수 있음' },
-      { name:'연안 보트', cost:800, zone:1, desc:'해안에서 20km 이내 연안 바다까지' },
-      { name:'근해 낚싯배', cost:2500, zone:2, desc:'해안에서 100km 이내 근해까지' },
-      { name:'원양 어선', cost:6000, zone:3, desc:'먼바다 어디든 (제한 없음)' } ] },
-    { id:'engine', name:'엔진', icon:'⚙️', tiers:[
-      { name:'5마력 선외기', cost:0, speed:8, desc:'최고 15노트' },
-      { name:'15마력 선외기', cost:700, speed:11, desc:'최고 21노트' },
-      { name:'40마력 선외기', cost:2200, speed:15, desc:'최고 29노트' } ] },
+    { id:'rod', name:'낚싯대', icon:'🎣', tiers: tiers(
+      ['기본 낚싯대', '입문 글라스 로드', '카본 로드', '고탄성 카본 로드', '라이트 게임 로드', '프로 카본 로드', '티타늄 가이드 로드', '토너먼트 로드', '빅게임 로드', '마스터 빅게임 로드'], 1,
+      (u, i) => { const cast = 1 + 0.5*u, absorb = 1 - 0.28*u;
+        return { cast, absorb, poleCast: POLE_CAST[i], desc: i ? `대낚시 ${POLE_CAST[i]}m · 루어 +${pct(cast - 1)}% · 파이팅 장력 -${pct(1 - absorb)}%` : '기본 캐스팅 거리 (대낚시 10m · 루어 30m)' }; }) },
+    { id:'reel', name:'릴', icon:'🌀', tiers: tiers(
+      ['기본 스피닝 릴', '경량 스피닝 릴', '고기어 릴', '실버 스피닝 릴', '베이트 릴', '하이기어 베이트 릴', '대형 스피닝 릴', '지깅 릴', '소형 전동 릴', '대형 전동 릴'], 0.8,
+      (u, i) => { const speed = 1 + 0.8*u; return { speed, desc: i ? `감기 속도 +${pct(speed - 1)}%` : '기본 감기 속도' }; }) },
+    { id:'line', name:'원줄', icon:'🧵', tiers: tiers(
+      ['나일론', '고강도 나일론', '카본', '고강도 카본', 'PE 합사 0.8호', 'PE 합사 1.5호', 'PE 합사 3호', '빅게임 PE 5호', '빅게임 PE 8호', '다이니마 극강 PE'], 0.75,
+      (u, i) => { const mult = 1 + 2.6*u; return { mult, desc: i ? `강도 ×${mult.toFixed(1)}${i >= 2 ? ' (예민한 어종은 입질이 조금 줄어듦)' : ''}` : '기본 강도' }; }) },
+    { id:'hook', name:'바늘', icon:'🪝', tiers: tiers(
+      ['기본 바늘', '가는 바늘', '예리한 바늘', '미늘 강화 바늘', '감성돔 바늘', '트레블 훅', '싱글 헤비 훅', '서클훅', '티타늄 서클훅', '마스터 서클훅'], 0.5,
+      (u, i) => { const hold = 1 - 0.75*u, window = 1 + 0.8*u; return { hold, window, desc: i ? `챔질 여유 +${pct(window - 1)}% · 바늘 빠짐 -${pct(1 - hold)}%` : '기본 걸림' }; }) },
+    { id:'sonar', name:'어탐기', icon:'📡', tiers: tiers(
+      ['기본 어탐기', '흑백 어탐기 II', '고감도 어탐기', '컬러 어탐기', '컬러 어탐기 HD', '듀얼 빔 어탐기', '스캔 어탐기', '사이드 스캔', '라이브 스캔', '3D 라이브 스캔'], 0.6,
+      (u, i) => ({ desc: i < 3 ? `수심과 어군 표시${i ? ` · 감도 +${i*10}%` : ''}` : i < 6 ? '물고기 크기별 색 구분' : '크기별 색 + 발밑 가장 큰 물고기의 어종 표시' })) },
+    { id:'boat', name:'보트', icon:'🚤', tiers: tiers(
+      ['소형 보트', '알루미늄 보트', '고무보트 RIB', '연안 보트', '연안 낚싯배', '센터콘솔 보트', '근해 낚싯배', '근해 크루저', '스포츠 피셔', '원양 어선'], 2,
+      (u, i) => { const zone = i < 3 ? 0 : i < 6 ? 1 : i < 9 ? 2 : 3;
+        return { zone, desc: ['내륙 호수·강만 갈 수 있음', '해안에서 20km 이내 연안 바다까지', '해안에서 100km 이내 근해까지', '먼바다 어디든 (제한 없음)'][zone] }; }) },
+    { id:'net', name:'살림망', icon:'🧺', tiers: tiers(
+      ['기본 살림망', '중형 살림망', '대형 살림망', '접이식 살림망', '고급 살림망', '소형 활어통', '중형 활어통', '대형 활어통', '산소 활어통', '대형 산소 활어통'], 0.5,
+      (u, i) => { const cap = Math.round(12 + 38*u); return { cap, desc: `물고기 ${cap}마리 보관` }; }) },
+    // one-off gear: 2 "levels" (none / owned)
+    { id:'goggles', name:'수경', icon:'🤿', tiers: [
+      { name:'없음', cost:0, lv:1, desc:'물 위만 볼 수 있어요' },
+      { name:'수경', cost:3000, lv:2, desc:'캐스팅 후 시점을 내려 물속을 볼 수 있어요' } ] },
+    { id:'engine', name:'엔진', icon:'⚙️', tiers: tiers(
+      ['5마력 선외기', '8마력 선외기', '10마력 선외기', '15마력 선외기', '20마력 선외기', '30마력 선외기', '40마력 선외기', '60마력 선외기', '90마력 선외기', '150마력 선외기'], 0.9,
+      (u, i) => { const speed = 8 + 10*u; return { speed, desc: `최고 ${Math.round(speed*1.9)}노트` }; }) },
   ];
 
   return { SPECIES, BY_ID, BIOMES, WATERS, SPOTS, BAITS, LURES, SHOP };
