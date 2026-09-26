@@ -429,6 +429,9 @@ vec4 texBS(sampler2D t, vec2 uv){ // cubic B-spline filtering in 4 bilinear taps
 // real depth → screen depth (inverse of game.js toReal: v·(1 + 0.078·v²)); the scene is drawn in screen metres
 float cbrt1(float x){ return sign(x)*pow(abs(x), 1.0/3.0); }
 float toVis(float r){ const float A = 0.078; float p = 1.0/A, q = -r/A, D = sqrt(q*q*0.25 + p*p*p/27.0); return cbrt1(-q*0.5 + D) + cbrt1(-q*0.5 - D); }
+// touch-ripple simulation: a small window that follows the action; fades out at its border so the clamped
+// edge texels never smear into straight streaks across the water outside it
+vec4 ripAt(vec2 uv){ vec2 d = abs(uv - 0.5); return texture(uRip, uv)*smoothstep(0.5, 0.42, max(d.x, d.y)); }
 float smin1(float a, float b, float k){ float h = max(k - abs(a - b), 0.0)/k; return min(a, b) - h*h*k*0.25; }
 float floorDepth(vec2 xz){
   // region depth profile (same formula as game.js), plus fine shader-only noise
@@ -621,9 +624,9 @@ vec2 wakeAt(vec2 x){
   }
   if (amp < 0.01) return vec2(0.0);
   float bl = best, edge = 0.36*bd;
-  float arms = exp(-pow((bl - edge)/(0.5 + 0.12*bd), 2.0));
+  float arms = exp(-pow((bl - edge)/(0.9 + 0.16*bd), 2.0));
   float inside = smoothstep(edge + 0.6, edge - 0.6, bl);
-  float h = amp*exp(-bd/55.0)*(arms*sin(2.4*(0.9*bl + 0.45*bd) - uTime*1.5)*0.19 + inside*sin(1.5*bd - uTime*1.2)*0.065);
+  float h = amp*exp(-bd/55.0)*(arms*sin(1.6*(0.9*bl + 0.45*bd) - uTime*1.5)*0.13 + inside*sin(1.5*bd - uTime*1.2)*0.065);
   float foam = amp*(exp(-pow(bl/(1.0 + 0.07*bd), 2.0))*exp(-bd/22.0)*1.4 + arms*exp(-bd/10.0)*1.1);
   return vec2(h, foam);
 }
@@ -675,7 +678,7 @@ vec3 underwaterView(vec3 rd, out float tHit){
     L = alb/PI*(SUN*Ts*exp(-SIG_T*dep/(-sunT.y))*caus*(-sunT.y)*shd + skyIrr*exp(-(SIG_A + 0.4*SIG_S)*dep*1.25));
   } else if (sS < FAR){
     // the surface from below: Snell's window (sky and sun) inside ~49°, mirror of the dark water outside it
-    vec4 A = texture(uSurf, X.xz/uL); vec4 R = texture(uRip, (X.xz - uRipCenter)/uRipSize + 0.5);
+    vec4 A = texture(uSurf, X.xz/uL); vec4 R = ripAt((X.xz - uRipCenter)/uRipSize + 0.5);
     vec3 n = normalize(vec3(-(A.y + R.y), 1.0, -(A.z + R.z)));
     vec3 tr = refract(rd, -n, IOR);
     vec3 deepC = SIG_S/SIG_T*(SUN*Ts*0.02 + skyIrr/(4.0*PI))*exp(-SIG_A*2.0);
@@ -741,7 +744,7 @@ void main(){
     A = texture(uSurf, xz/uL);
     B = texture(uSurf, (M*xz)/(uL*SC) + 0.37);
     vec2 ruv = (xz - uRipCenter)/uRipSize + 0.5;
-    R = texture(uRip, ruv);
+    R = ripAt(ruv);
     hsum = A.x + WB*SC*B.x + R.x;
     t = (hsum - uCam.y) / wd.y;
   }
@@ -852,7 +855,7 @@ void main(){
     vec3 caus = texture(uCaus, cuv, 1.0).rgb;
     // touch ripples focus light too: first-order lensing from the local curvature where the sun ray entered
     vec2 S = FP.xz - sunT.xz*depthHere/(-sunT.y);
-    float lap = texture(uRip, (S - uRipCenter)/uRipSize + 0.5).a;
+    float lap = ripAt((S - uRipCenter)/uRipSize + 0.5).a;
     caus *= clamp(1.0/(1.0 + 0.12*depthHere*lap), 0.45, 3.0);
     float ao = mix(0.55, 1.0, smoothstep(0.08, 0.42, hgt));
     float shd = dist < 60.0 ? shadowAt(FP, -sunT) : 1.0;
@@ -877,9 +880,9 @@ void main(){
     float r = hash12(id + float(k)*13.1);
     vec2 of = vec2(hash12(id+3.1), hash12(id+7.7)) - 0.5;
     float fw = fwidth(q.x) + fwidth(q.y);
-    float dot_ = smoothstep(0.10 + fw, 0.0, length(f - of*0.6)) * step(0.988, r) * step(tt, sHit);
+    float dot_ = smoothstep(0.10 + fw, 0.0, length(f - of*0.6)) * step(0.996, r) * step(tt, sHit);
     float fade = exp(-SIG_T.g*tt*2.0) * smoothstep(1.2, 0.3, fw);
-    under += dot_ * fade * SUN * Ts * 0.022 * mix(vec3(0.9,1.0,0.95), vec3(0.4,0.35,0.3), step(0.992, r));
+    under += dot_ * fade * SUN * Ts * 0.016 * mix(vec3(0.9,1.0,0.95), vec3(0.4,0.35,0.3), step(0.998, r));
   }
   // fishing line below the surface: thin, faintly sunlit nylon
   if (uLnA.w > 0.5){
