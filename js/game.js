@@ -161,7 +161,9 @@ const SND_GROUPS = {
   catch: ['물고기잡음'], fanfare: ['물고기팡파래'],
   net: ['살림망물고기1', '살림망물고기2', '살림망물고기3', '살림망물고기4'],
   reward: ['보상획득'], lap: ['환경음'],
-  ui: ['효과음1'], select: ['효과음2'], claim: ['효과음3'], deny: ['효과음4'], buy: ['효과음5'], quest: ['효과음6'],
+  // every UI touch (buttons, tabs, pickers): one of the six touch sounds at random
+  ui: ['UI 터치음1', 'UI 터치음2', 'UI 터치음3', 'UI 터치음4', 'UI 터치음5', 'UI 터치음6'],
+  claim: ['효과음3'], deny: ['효과음4'], buy: ['효과음5'], quest: ['효과음6'],
   engStart: ['보트이동1'], engLoop: ['보트이동1-1'], eng2: ['보트이동2'],
 };
 const SND = { buf: {}, k: {}, last: {} };
@@ -206,13 +208,13 @@ function updateLap(dt){
   const onBoat = G.state === 'boat' || G.state === 'idle' || G.state === 'charge';
   if (onBoat && Math.abs(G.boatV) < 1.5 && cam.pos[1] > -0.03) playS('lap', { bus: AU.amb, gain: rand(0.11, 0.22), rate: rand(0.85, 1.15) });
 }
-// every button gets a soft click; tabs, segmented choices and tackle pickers a "select" tick.
+// every button, tab and picker gets a touch sound.
 // Buttons whose action has its own sound (buy, claim, sell, cast...) stay quiet here.
 document.addEventListener('click', e => {
   const b = e.target.closest && e.target.closest('button, [data-t], .seg > *');
   if (!b || b.disabled || b.closest('[data-up], [data-buy], [data-c], #nsell, #nrel, #sellall, #releaseall, #act, #joy, #stest, #attbtn, #dbgm [data-d]')) return;
   audioInit();
-  playS(b.closest('#modes, #itempop, .rtabs, #shoptabs, .seg, [data-t]') ? 'select' : 'ui', { gain: 0.55 });
+  playS('ui', { gain: 0.55 });
 }, true);
 
 /* ---------------- helpers ---------------- */
