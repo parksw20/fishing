@@ -75,7 +75,7 @@ function applyBoatModel(){
   HULL.l = m.hull[0]; HULL.d = m.hull[1]; HULL.w = m.hull[2]; SEAT.splice(0, 3, ...m.seat);
 }
 const MODES = {
-  pole: { name:'대낚시', rodLen:4.5, minCast:4.0, maxCast:9.0, lineKg:4.0, items:BAITS },
+  pole: { name:'대낚시', rodLen:4.5, minCast:4.0, maxCast:10.0, lineKg:4.0, items:BAITS },
   lure: { name:'루어',   rodLen:2.1, minCast:6.0, maxCast:30.0, lineKg:7.0, items:LURES },
 };
 
