@@ -185,7 +185,9 @@ function updateLap(dt){
   if (!AU.ctx || !hasS('lap')) return;
   AU.lapT = (AU.lapT ?? 2) - dt; if (AU.lapT > 0) return;
   AU.lapT = rand(2.5, 7);
-  if (Math.abs(G.boatV) < 1.5 && cam.pos[1] > -0.03) playS('lap', { bus: AU.amb, gain: rand(0.22, 0.45), rate: rand(0.85, 1.15) });
+  // not once the line is out (casting, waiting, fighting); on the boat itself it stays quiet
+  const onBoat = G.state === 'boat' || G.state === 'idle' || G.state === 'charge';
+  if (onBoat && Math.abs(G.boatV) < 1.5 && cam.pos[1] > -0.03) playS('lap', { bus: AU.amb, gain: rand(0.11, 0.22), rate: rand(0.85, 1.15) });
 }
 // every button gets a soft click; tabs, segmented choices and tackle pickers a "select" tick.
 // Buttons whose action has its own sound (buy, claim, sell, cast...) stay quiet here.
