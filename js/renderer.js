@@ -1615,14 +1615,17 @@ const pPart = prog(`#version 300 es
 layout(location=0) in vec4 aP;   // xyz, size (m)
 layout(location=1) in float aA;  // alpha
 uniform vec3 uCam, uR, uU, uF; uniform float uTanF, uAspect, uPxH;
-out float vA;
-void main(){ vec3 v = aP.xyz - uCam; float dz = dot(v, uF);
+out float vA, vMist;
+void main(){ vec3 v = aP.xyz - uCam; float dz = dot(v, uF); vMist = aP.w < 0.0 ? 1.0 : 0.0;
   gl_Position = vec4(dot(v,uR)/(uAspect*uTanF), dot(v,uU)/uTanF, ${ZA.toFixed(8)}*dz + (${ZB.toFixed(8)}), dz);
-  gl_PointSize = clamp(aP.w*uPxH/(max(dz, 0.1)*uTanF), 1.0, 256.0); vA = aA; }`,
+  gl_PointSize = clamp(abs(aP.w)*uPxH/(max(dz, 0.1)*uTanF), 1.0, 256.0); vA = aA; }`,
 `#version 300 es
-precision highp float; in float vA; out vec4 o; uniform vec3 uCol;
+precision highp float; in float vA, vMist; out vec4 o; uniform vec3 uCol;
 void main(){ vec2 q = gl_PointCoord*2.0 - 1.0; float r = dot(q, q); if (r > 1.0) discard;
-  o = vec4(uCol, vA*(1.0 - r)*(1.0 - r)); }`, 'particles');
+  if (vMist > 0.5){ o = vec4(uCol, vA*(1.0 - r)*(1.0 - r)); return; }   // mist: soft puff
+  // droplet: a crisp bead of water, bright glint up-left, darker rim
+  float edge = smoothstep(1.0, 0.72, r), glint = smoothstep(0.22, 0.0, dot(q - vec2(-0.3, -0.3), q - vec2(-0.3, -0.3)));
+  o = vec4(uCol*(0.75 + 0.35*(1.0 - r)) + uCol*glint*0.8, vA*edge); }`, 'particles');
 const partVAO = gl.createVertexArray(), partVB = gl.createBuffer();
 gl.bindVertexArray(partVAO); gl.bindBuffer(gl.ARRAY_BUFFER, partVB);
 gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,4,gl.FLOAT,false,20,0);

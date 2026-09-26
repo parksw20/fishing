@@ -2257,16 +2257,16 @@ function sprayBurst(pos, len, power){
   const n = Math.round(clamp(12 + 40*len*power, 10, 60)), r = 0.1 + 0.3*len;
   for (let i = 0; i < n; i++){
     const a = Math.random()*TAU, o = rand(0.2, 1)*r, out = rand(0.3, 1.1)*(0.4 + power*0.8), up = rand(0.9, 2.2)*(0.5 + power*0.7);
-    emitSpray([pos[0] + Math.cos(a)*o, 0.03, pos[2] + Math.sin(a)*o], [Math.cos(a)*out, up, Math.sin(a)*out], rand(0.05, 0.12)*(0.8 + len*0.6), rand(0.6, 1.0), rand(0.7, 1.0), false);
+    emitSpray([pos[0] + Math.cos(a)*o, 0.03, pos[2] + Math.sin(a)*o], [Math.cos(a)*out, up, Math.sin(a)*out], rand(0.035, 0.085)*(0.8 + len*0.6), rand(0.6, 1.0), rand(0.5, 0.8), false);
   }
   // the crown: a ring of bigger water sheets thrown up and out, readable from the boat
-  const m = Math.round(6 + 8*power);
+  const m = Math.round(10 + 12*power);
   for (let i = 0; i < m; i++){
     const a = i/m*TAU + rand(-0.3, 0.3), out = rand(0.4, 0.9)*(0.5 + power*0.6);
     emitSpray([pos[0] + Math.cos(a)*r*0.6, 0.05, pos[2] + Math.sin(a)*r*0.6], [Math.cos(a)*out, rand(1.2, 2.0)*(0.6 + power*0.6), Math.sin(a)*out],
-      rand(0.14, 0.26)*(0.8 + len*0.5), rand(0.45, 0.7), rand(0.75, 0.95), false);
+      rand(0.05, 0.1)*(0.8 + len*0.5), rand(0.45, 0.7), rand(0.55, 0.8), false);
   }
-  if (power > 0.6) emitSpray([pos[0], 0.12, pos[2]], [0, 0.3, 0], 0.5 + 0.5*len, 1.5, 0.22, true);   // a puff of mist on big splashes
+   // a puff of mist on big splashes
 }
 function emitSpray(p, vel, size, life, alpha, mist){ if (PART.list.length < 700) PART.list.push({ p, v: vel, s: size, life, age: 0, a: alpha, mist }); }
 function updateParticles(dt){
@@ -2302,7 +2302,7 @@ function updateParticles(dt){
       PART.list.splice(i, 1); continue;
     }
     const lf = q.age/q.life, a = q.mist ? q.a*Math.sin(Math.PI*lf) : q.a*(1 - lf*lf);
-    D.set([q.p[0], q.p[1], q.p[2], q.s, a], n*5); n++;
+    D.set([q.p[0], q.p[1], q.p[2], q.mist ? -q.s : q.s, a], n*5); n++;
   }
   PART.n = n;
 }
