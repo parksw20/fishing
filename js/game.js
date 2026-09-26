@@ -59,7 +59,7 @@ function applyBoatModel(){
 }
 const MODES = {
   pole: { name:'대낚시', rodLen:4.5, minCast:4.0, maxCast:9.0, lineKg:4.0, items:BAITS },
-  lure: { name:'루어',   rodLen:2.1, minCast:8.0, maxCast:55.0, lineKg:7.0, items:LURES },
+  lure: { name:'루어',   rodLen:2.1, minCast:6.0, maxCast:30.0, lineKg:7.0, items:LURES },
 };
 
 const G = {
@@ -1411,7 +1411,7 @@ function scene(dt){
   const byDist = fishes.slice().sort((a, b) => dist3(a.pos, cam.pos) - (a.visitor ? 25 : 0) - dist3(b.pos, cam.pos) + (b.visitor ? 25 : 0));
   S.fish = byDist.slice(0, 12).map(f => ({ pos: f.pos, len: f.len, dir: fishDir(f), tail: f.tail, back: f.sp.back, belly: f.sp.belly, pattern: f.sp.pattern, hr: f.sp.hr, shape: f.sp.shape }));
   const rod = rodSpec(); S.rod = G.state === 'boat' ? null : rod;
-  S.hideRod = dist3(cam.pos, eyeWorld()) > 2.0;
+  S.hideRod = false;   // the rod is always drawn (only hidden with the camera under the water)
   S.wake = wakeTrack(); S.particles = PART; S.rain = RAIN;
   if (G.state === 'boat') return S;
   const it = curItem();
@@ -1429,7 +1429,7 @@ function scene(dt){
     S.bobber = { pos: [r.pos[0], by, r.pos[2]], tilt: r.tilt };
     // the line is tied to the bottom of the float's stem (0.30 below its waterline mark, turned with its tilt)
     const tl = r.tilt || 0, foot = [r.pos[0], by - 0.30*Math.cos(tl), r.pos[2] - 0.30*Math.sin(tl)];
-    S.lineTo = foot;
+    S.lineTo = seenPoint(foot);   // the rod line is drawn without refraction: aim it where the stem tip is seen through the surface
     S.lineSag = 0.02*dist2(r.pos, tip)*(1 - 4*jl);   // pulled taut while the strike yanks it
     if (!r.baitGone) S.lure = { pos: bait, dir: [1, 0, 0], size: it.size, color: it.color, kind: 0, metal: it.metal };
     S.lineUnder = [foot, bait];
@@ -1470,18 +1470,21 @@ function label(text, x, y, color, size){
 // where something under the water appears on screen from a camera above it: the view ray bends at the surface
 // (Snell, same IOR as the water shader), so find the surface point S whose refracted ray reaches p and project S
 const IOR_W = 1.3335;
-function projectSeen(p){
+function projectSeen(p){ return Rn.project(seenPoint(p)); }
+// the same, as a 3D point: on the eye→S ray at the distance of p (projects to where p is seen)
+function seenPoint(p){
   const e = cam.pos;
-  if (e[1] <= 0.02 || p[1] >= 0) return Rn.project(p);
+  if (e[1] <= 0.02 || p[1] >= 0) return p;
   const dx = p[0] - e[0], dz = p[2] - e[2], D = Math.hypot(dx, dz), h1 = e[1], h2 = -p[1];
-  if (D < 1e-4) return Rn.project([p[0], 0, p[2]]);
+  if (D < 1e-4) return p;
   let lo = 0, hi = D;
   for (let i = 0; i < 30; i++){
     const x = 0.5*(lo + hi), s1 = x/Math.hypot(x, h1), s2 = (D - x)/Math.hypot(D - x, h2);
     if (s1 > IOR_W*s2) hi = x; else lo = x;
   }
-  const x = 0.5*(lo + hi);
-  return Rn.project([e[0] + dx/D*x, 0, e[2] + dz/D*x]);
+  const x = 0.5*(lo + hi), S = [e[0] + dx/D*x, 0, e[2] + dz/D*x];
+  const v = sub(S, e), k = dist3(p, e)/Math.hypot(v[0], v[1], v[2]);
+  return [e[0] + v[0]*k, e[1] + v[1]*k, e[2] + v[2]*k];
 }
 function ringAt(p, r, color, w){ const s = Rn.project(p); if (!s) return null; ctx.strokeStyle = color; ctx.lineWidth = w||2; ctx.beginPath(); ctx.arc(s[0], s[1], r, 0, TAU); ctx.stroke(); return s; }
 function drawHUD(){
@@ -1516,7 +1519,7 @@ function drawHUD(){
   }
   if (G.state === 'wait' && G.lure){
     const L = G.lure, s = projectSeen(L.pos);
-    if (s){ ctx.setLineDash([3, 4]); ctx.strokeStyle = 'rgba(255,230,120,.7)'; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.arc(s[0], s[1], 21, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+    if (s){
       sideLabels(`수심 ${fmtD(-L.pos[1])}m`, `거리 ${dist2(L.pos, BOAT.pos).toFixed(1)}m`, s[0], s[1] + 4, 34, 'rgba(255,255,255,.85)', 12); }
     if (G.strike){ const q = Rn.project([L.pos[0], 0.2, L.pos[2]]); if (q) label('바이트!', q[0], q[1] - 10, '#ffdf4a', 22); }
   }

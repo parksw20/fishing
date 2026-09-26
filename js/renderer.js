@@ -337,7 +337,7 @@ uniform vec4 uLure;       // lure/bait centre xyz, visible
 uniform vec4 uLureD;      // lure forward xyz, kind
 uniform vec3 uLureS;      // lure semi-axes
 uniform vec4 uLureC;      // lure colour, metallic
-uniform vec4 uBob;        // float body centre xyz, visible
+uniform vec4 uBob;        // float body centre xyz; w = 1 + tilt when shown (0 = hidden)
 uniform vec4 uLnA, uLnB;  // underwater line segment (w of A = visible)
 uniform vec4 uBoat;       // hull centre xyz, heading
 
@@ -585,7 +585,8 @@ float traceObjects(vec3 ro, vec3 rd, float tMax, out vec3 N, out vec3 alb, out f
   }
   float lureT = bt;
   if (uBob.w > 0.5){
-    mat3 Bb = mat3(vec3(0,1,0), vec3(1,0,0), vec3(0,0,1)); vec3 brad = vec3(0.10, 0.017, 0.017);
+    float tl = uBob.w - 1.0; vec3 up = vec3(0.0, cos(tl), sin(tl));   // tilted about x like the raster float
+    mat3 Bb = mat3(up, vec3(1,0,0), vec3(0.0, sin(tl), -cos(tl))); vec3 brad = vec3(0.10, 0.017, 0.017);
     t = iEll(ro, rd, uBob.xyz, Bb, brad, lp);
     if (t > 0.0 && t < bt){ bt = t; N = normalize(Bb*(lp/brad)); alb = mix(vec3(0.9,0.25,0.03), vec3(0.9), step(0.55, lp.x)); spec = 0.3; }
   }
@@ -1733,7 +1734,8 @@ function render(S){
     gl.uniform3fv(u.uLureS, lu.size); gl.uniform4f(u.uLureC, lu.color[0], lu.color[1], lu.color[2], lu.metal);
   } else gl.uniform4f(u.uLure, 0,0,0,0);
   const bo = S.bobber;
-  if (bo && !bo.flying && (bo.tilt||0) < 0.06) gl.uniform4f(u.uBob, bo.pos[0], bo.pos[1]-0.10, bo.pos[2], 1); else gl.uniform4f(u.uBob, 0,0,0,0);
+  if (bo && !bo.flying){ const tl = bo.tilt || 0; gl.uniform4f(u.uBob, bo.pos[0], bo.pos[1] - 0.10*Math.cos(tl), bo.pos[2] - 0.10*Math.sin(tl), 1 + tl); }
+  else gl.uniform4f(u.uBob, 0,0,0,0);
   if (S.lineUnder){ gl.uniform4f(u.uLnA, ...S.lineUnder[0], 1); gl.uniform4f(u.uLnB, ...S.lineUnder[1], 1); } else gl.uniform4f(u.uLnA, 0,0,0,0);
   const wk = S.wake || [];
   wakeBuf.fill(0); for (let i = 0; i < Math.min(20, wk.length); i++) wakeBuf.set(wk[i], i*4);
