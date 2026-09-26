@@ -724,7 +724,7 @@ function judgeQTE(J, missed){
   else if (J === JUDGE[1]) sfx.hit();
   else if (J === JUDGE[2]) sfx.click(0.08);
   else sfx.drag();
-  if (J.dmg > 0.05 && f.pos[1] > -0.6) Rn.splash(f.pos[0], f.pos[2], 0.12 + 0.1*f.len, 0.03 + 0.04*J.shake);
+  if (J.dmg > 0.05 && f.pos[1] > -0.6){ Rn.splash(f.pos[0], f.pos[2], 0.12 + 0.1*f.len, 0.03 + 0.04*J.shake); sprayBurst(f.pos, f.len, 0.5 + 0.4*J.shake); }
 }
 function qteTap(x, y){
   const Q = G.fight && G.fight.qte; if (G.state !== 'hooked' || !Q) return;
@@ -796,7 +796,10 @@ function updateFight(dt){
   // depth: tired fish come up
   const fd = floorDepth(f.pos[0], f.pos[2]);
   moveY(f, -clamp(0.25 + 0.85*f.stamina, 0.25, fd - 0.2), dt);
-  if (f.pos[1] > -0.4 && Math.random() < dt*(0.6 + 2*f.stamina)){ Rn.splash(f.pos[0], f.pos[2], 0.10 + 0.1*f.len, 0.02 + 0.04*f.stamina); if (Math.random() < 0.3) sfx.splash(0.15); }
+  if (f.pos[1] > -0.4 && Math.random() < dt*(0.6 + 2*f.stamina)){
+    Rn.splash(f.pos[0], f.pos[2], 0.10 + 0.1*f.len, 0.02 + 0.04*f.stamina); if (Math.random() < 0.3) sfx.splash(0.15);
+    sprayBurst(f.pos, f.len, 0.4 + 0.6*f.stamina);   // the fish thrashes at the surface: water flies
+  }
   const beat = 2.0 + 3.0*f.speed/Math.max(f.len, 0.1);
   f.tailPh += dt*TAU*beat; f.tail = Math.sin(f.tailPh)*(0.25 + 0.35*f.stamina);
   // outcomes
@@ -831,7 +834,7 @@ function landFish(){
   else netMsg = '살림망이 가득 차 방생했어요 — 판매하세요';
   fishes.splice(fishes.indexOf(f), 1);
   G.hooked = null; G.fight = null; G.state = 'result';
-  Rn.splash(f.pos[0], f.pos[2], 0.2, 0.05); sfx.splash(0.6); if (!playS('catch')) sfx.win();
+  Rn.splash(f.pos[0], f.pos[2], 0.2, 0.05); sprayBurst(f.pos, f.len, 1.3); sfx.splash(0.6); if (!playS('catch')) sfx.win();
   showCard(rec, isBest && !!prev, !prev);
   if (netMsg) setTimeout(() => say(netMsg, 3, 'bad'), 400);
   questEvent({ type: 'catch', rec });
@@ -2241,6 +2244,15 @@ function wakeTrack(){
   return out;
 }
 const PART = { list: [], data: new Float32Array(700*5), n: 0, acc: 0, mistAcc: 0 };
+// droplets thrown up where a fish breaks the surface: count and height grow with its size and strength
+function sprayBurst(pos, len, power){
+  const n = Math.round(clamp(6 + 26*len*power, 5, 40)), r = 0.08 + 0.25*len;
+  for (let i = 0; i < n; i++){
+    const a = Math.random()*TAU, o = rand(0.2, 1)*r, out = rand(0.3, 1.1)*(0.4 + power*0.8), up = rand(0.9, 2.2)*(0.5 + power*0.7);
+    emitSpray([pos[0] + Math.cos(a)*o, 0.03, pos[2] + Math.sin(a)*o], [Math.cos(a)*out, up, Math.sin(a)*out], rand(0.025, 0.06)*(0.7 + len*0.6), rand(0.5, 0.9), rand(0.6, 0.95), false);
+  }
+  if (power > 0.7) emitSpray([pos[0], 0.12, pos[2]], [0, 0.25, 0], 0.25 + 0.3*len, 1.4, 0.12, true);   // a puff of mist on big splashes
+}
 function emitSpray(p, vel, size, life, alpha, mist){ if (PART.list.length < 700) PART.list.push({ p, v: vel, s: size, life, age: 0, a: alpha, mist }); }
 function updateParticles(dt){
   const v = G.boatV, av = Math.abs(v), f = boatF(), r = boatR();
@@ -3101,5 +3113,5 @@ buildToolbar(); updateLog();
 requestAnimationFrame(frame);
 window.__decorSolids = () => DECOR.solids || [];
 window.__mapS = (lon, lat) => m2s(nearLon(lon), lat); window.__mapZ = () => MAP.z;
-window.__game = { SND, playS, qteTap, toReal, toVis, showCard, questEvent, updateLog, G, fishes, cam, mouse, hookFish, hookSet, jerkLift, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
+window.__game = { SND, playS, qteTap, sprayBurst, toReal, toVis, showCard, questEvent, updateLog, G, fishes, cam, mouse, hookFish, hookSet, jerkLift, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
 })();
