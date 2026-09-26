@@ -2421,7 +2421,7 @@ function drawMap(){
       c.fillStyle = locked ? '#5b6770' : salt ? '#4fd1ff' : '#8ff0a8'; c.strokeStyle = '#08202a'; c.lineWidth = 2;
       c.beginPath(); c.arc(x, y, 5, 0, TAU); c.fill(); c.stroke();
       const lbl = (locked ? '🔒' : '') + s.name;
-      if (MAP.z > MAP.minZ*1.6 || s === MAP.sel){ c.lineWidth = 3; c.strokeStyle = 'rgba(0,0,0,.6)'; c.strokeText(lbl, x + 8, y + 4); c.fillStyle = locked ? '#b8c2c8' : '#fff'; c.fillText(lbl, x + 8, y + 4); }
+      if ((MAP.z > MAP.minZ*1.6 || s === MAP.sel) && !(MAP.anim && s === MAP.anim.to)){ c.lineWidth = 3;   /* the voyage label names the destination */ c.strokeStyle = 'rgba(0,0,0,.6)'; c.strokeText(lbl, x + 8, y + 4); c.fillStyle = locked ? '#b8c2c8' : '#fff'; c.fillText(lbl, x + 8, y + 4); }
     }
   }
   // current location
