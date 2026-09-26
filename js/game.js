@@ -685,6 +685,7 @@ function rodPressure(){
   const wl = Math.hypot(wx, wz) || 1;
   return { w: [wx/wl, wz/wl], m };
 }
+const LAND_ST = 0.4;   // fish strength below which it can be landed (marked on the gauge)
 function ringRadius(){ return 0.2*Math.min(innerWidth, innerHeight); }
 /* timing taps during the fight: a white ring closes in on the dashed "pull here" circle; tap (click, Space, touch)
    the moment it touches it. The closer the timing, the more of the fish's strength it takes and the harder the
@@ -803,7 +804,7 @@ function updateFight(dt){
   if (G.mode === 'lure' && F.lineOut > 120) return lose('spool');
   if (F.tension < 0.05 && f.stamina > 0.15){ F.slackT += dt; if (F.slackT > 1.8 && Math.random() < dt*0.6*hookHold()) return lose('slack'); } else F.slackT = Math.max(0, F.slackT - dt);
   if (F.lineOut <= 2.4 && d <= 2.9){
-    if (f.stamina < 0.4) return landFish();
+    if (f.stamina < LAND_ST) return landFish();
     f.run.heading = Math.atan2(away[1], away[0]) + rand(-0.5, 0.5); f.run.burst = true; f.run.timer = 1.5; F.lineOut = 2.4;
   }
 }
@@ -1661,8 +1662,13 @@ function drawFightRing(cx, cy){
   ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(x-2, y-2, w+4, 10);
   // action-game HP bar: the lost chunk shows yellow and drains after the red front
   ctx.fillStyle = '#ffd84a'; ctx.fillRect(x, y, w*(F.hpLag ?? f.stamina), 6);
-  ctx.fillStyle = f.stamina < 0.4 ? '#6fe38c' : '#ff4a3a'; ctx.fillRect(x, y, w*f.stamina, 6);
-  label(f.stamina < 0.4 ? '물고기가 지쳤다! 끌어오세요' : '물고기 힘', cx, y + 24, f.stamina < 0.4 ? '#8ff0a8' : '#fff', 13);
+  ctx.fillStyle = f.stamina < LAND_ST ? '#6fe38c' : '#ff4a3a'; ctx.fillRect(x, y, w*f.stamina, 6);
+  // below this line the fish is tired enough to be brought in
+  const lx = Math.round(x + w*LAND_ST) + 0.5;
+  ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(lx, y - 5); ctx.lineTo(lx, y + 11); ctx.stroke();
+  // distance to the fish, in the middle of the ring
+  label(`${dist2(f.pos, BOAT.pos).toFixed(1)}m`, cx, cy + R*0.12 + 18, '#fff', 15);
+  label(f.stamina < LAND_ST ? '물고기가 지쳤다! 끌어오세요' : '물고기 힘', cx, y + 24, f.stamina < LAND_ST ? '#8ff0a8' : '#fff', 13);
 }
 let gaugeCache = '';
 function updateGauges(){
