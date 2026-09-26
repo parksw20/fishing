@@ -2897,7 +2897,7 @@ const DEBUG_ACT = {
   questReset(){ P.quests = []; fillQuests(); renderQuests(); say('📜 퀘스트 초기화', 1.8); },
   // time:<hour> and w:<weather> chips
   time(h){ setClockTo(+h); say(`⏩ ${fmtHour(+h)}로 이동 중`, 1.6); },
-  wave(k){ G.waveK = +k; Rn.setWaves(+k); say(`🌊 파도: ${{ '0.45': '잔잔', '1': '중간', '1.8': '강하게' }[k]}`, 1.6); },
+  wave(k){ G.waveK = +k; Rn.setWaves(+k); say(`🌊 파도: ${{ '0.45': '잔잔', '1': '중간', '1.8': '강하게', '2.8': '매우 강하게', '4': '폭풍' }[k]}`, 1.6); },
   w(k){ setWeather(k); G.wFastT = 10; say(`${WEATHERS[k].icon} 날씨: ${WEATHERS[k].name}`, 1.6); },
 };
 for (const b of document.querySelectorAll('#dbgm [data-d]')) b.addEventListener('click', e => {

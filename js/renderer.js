@@ -329,7 +329,7 @@ uniform vec4 uFA[MAXF];   // fish: back colour, pattern id
 uniform vec4 uFB[MAXF];   // fish: belly colour, body height ratio
 uniform vec4 uFC[MAXF];   // fish shape: width/length, tail mode (0 fin, 1 fluke, 2 none, 3 sunfish), dorsal scale, tail scale
 uniform vec3 uSunC, uSkyK; uniform float uNight;   // time of day: sun (or moon) radiance, sky tint, night amount
-uniform float uWaveK;    // wave strength (debug: calm 0.45 / normal 1 / rough 1.8)
+uniform float uWaveK;    // wave strength (debug: calm 0.45 / normal 1 / rough 1.8 / very rough 2.8 / storm 4)
 uniform vec4 uWeather;   // cloud cover, fog, rain, wind (0..1)
 #define WAKEN 20
 uniform vec4 uWake[WAKEN]; uniform int uWakeN;       // boat track, newest first: xz, strength (speed and age)
