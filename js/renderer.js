@@ -2112,18 +2112,18 @@ void main(){
   vec3 rr = reflect(-v, n); col += vec3(0.55,0.66,0.8)*uSkyK*vS*(0.08 + 0.5*fr)*(0.4 + 0.6*max(rr.y, 0.0));
   o = vec4(col, 1);
 }`, 'rod');
-// boat lamps (night): red / green side lights at the bow, white lights on the stern fitting and the starboard tube fitting.
+// boat lamps (night): red / green side lights at the bow, white stern light on the transom fitting.
 // Positions in the boat's model frame (bow toward -z, starboard +x).
 const BOAT_LAMPS = [
   { p: [-0.92, 0.55, -1.0], c: [1.0, 0.07, 0.04], i: 0.35, s: 0.09 },
   { p: [0.92, 0.55, -1.0],  c: [0.05, 1.0, 0.3],  i: 0.35, s: 0.09 },
   { p: [0.02, 0.86, 1.05],  c: [1.0, 0.95, 0.85], i: 0.8,  s: 0.11 },   // stern light on the white fitting at the transom
-  { p: [1.07, 0.74, -0.21], c: [1.0, 0.95, 0.85], i: 0.5,  s: 0.09 },   // white light on the starboard tube fitting
 ];
 const LAMP = { P: new Float32Array(16), C: new Float32Array(12), on: 0, spr: new Float32Array(4*8) };
 function updateLamps(M){
   LAMP.on = Math.max(0, Math.min(1, (ENV.night - 0.25)/0.35));
-  for (let k = 0; k < 4; k++){
+  LAMP.P.fill(0); LAMP.spr.fill(0);   // unused slots stay dark
+  for (let k = 0; k < BOAT_LAMPS.length; k++){
     const L = BOAT_LAMPS[k], x = L.p[0], y = L.p[1], z = L.p[2];
     const w = [M[0]*x + M[4]*y + M[8]*z + M[12], M[1]*x + M[5]*y + M[9]*z + M[13], M[2]*x + M[6]*y + M[10]*z + M[14]];
     LAMP.P.set([w[0], w[1], w[2], L.i*LAMP.on], k*4); LAMP.C.set(L.c, k*3);
@@ -2153,7 +2153,7 @@ function drawLampGlows(B){
   gl.useProgram(pGlow.p); setCamUniforms(pGlow, B); gl.uniform1f(pGlow.u.uPxH, H);
   gl.bindVertexArray(glowVAO); gl.bindBuffer(gl.ARRAY_BUFFER, glowVB); gl.bufferData(gl.ARRAY_BUFFER, LAMP.spr, gl.DYNAMIC_DRAW);
   gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE); gl.depthMask(false);
-  gl.drawArrays(gl.POINTS, 0, 4);
+  gl.drawArrays(gl.POINTS, 0, BOAT_LAMPS.length);
   gl.depthMask(true); gl.disable(gl.BLEND); gl.useProgram(pMesh.p);
 }
 const RODS = {};
