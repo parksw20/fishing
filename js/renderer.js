@@ -1722,23 +1722,43 @@ const ballMesh = makeMesh(false);
 // spray droplets and mist: soft round point sprites, depth-tested against the water and boat
 const pPart = prog(`#version 300 es
 layout(location=0) in vec4 aP;   // xyz, size (m)
-layout(location=1) in float aA;  // alpha
+layout(location=1) in vec4 aV;   // velocity, alpha
+layout(location=2) in float aK;  // kind: 0 drop, 1 mist, 3 spray
 uniform vec3 uCam, uR, uU, uF; uniform float uTanF, uAspect, uPxH;
-out float vA, vMist;
-void main(){ vec3 v = aP.xyz - uCam; float dz = dot(v, uF); vMist = aP.w < 0.0 ? 1.0 : 0.0;
+out float vA, vK, vHalf, vR; out vec2 vDir;
+vec2 ndc(vec3 p){ vec3 v = p - uCam; float dz = max(dot(v, uF), 0.05); return vec2(dot(v,uR)/(uAspect*uTanF), dot(v,uU)/uTanF)/dz; }
+void main(){ vec3 v = aP.xyz - uCam; float dz = dot(v, uF);
   gl_Position = vec4(dot(v,uR)/(uAspect*uTanF), dot(v,uU)/uTanF, ${ZA.toFixed(8)}*dz + (${ZB.toFixed(8)}), dz);
-  gl_PointSize = clamp(abs(aP.w)*uPxH/(max(dz, 0.1)*uTanF), 1.0, 256.0); vA = aA; }`,
+  vK = aK;
+  float rPx = aP.w*uPxH/(max(dz, 0.1)*uTanF)*0.5;                     // drop radius in pixels
+  // motion blur (Tidewater): the streak a drop draws in 1/40 s (spray 1/30 s); mist is never stretched
+  vec2 d = (ndc(aP.xyz + aV.xyz*(aK > 2.5 ? 1.0/30.0 : 1.0/40.0)) - ndc(aP.xyz))*vec2(uPxH*uAspect, uPxH);
+  float hl = aK > 0.5 && aK < 1.5 ? 0.0 : min(length(d)*0.5, 60.0);
+  vDir = hl > 1e-3 ? normalize(vec2(d.x, -d.y)) : vec2(1.0, 0.0);
+  float ext = max(rPx, 0.8);
+  float S = clamp(2.0*(hl + ext*2.2), 2.0, 256.0);
+  gl_PointSize = S; vHalf = hl/(S*0.5); vR = ext/(S*0.5);
+  // sub-pixel drops: opacity follows the water they carry (cross-section spread over the streak)
+  float cov = min(1.0, rPx*rPx/(0.8*0.8));
+  vA = aV.w*(aK < 0.5 ? cov/(1.0 + hl/max(ext, 0.8)*0.6) : 1.0); }`,
 `#version 300 es
-precision highp float; in float vA, vMist; out vec4 o; uniform vec3 uCol;
+precision highp float; in float vA, vK, vHalf, vR; in vec2 vDir; out vec4 o; uniform vec3 uCol;
+float h21(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233)))*43758.5453); }
 void main(){ vec2 q = gl_PointCoord*2.0 - 1.0; float r = dot(q, q); if (r > 1.0) discard;
-  if (vMist > 0.5){ o = vec4(uCol, vA*(1.0 - r)*(1.0 - r)); return; }   // mist: soft puff
-  // droplet: a crisp bead of water, bright glint up-left, darker rim
-  float edge = smoothstep(1.0, 0.72, r), glint = smoothstep(0.22, 0.0, dot(q - vec2(-0.3, -0.3), q - vec2(-0.3, -0.3)));
-  o = vec4(uCol*(0.75 + 0.35*(1.0 - r)) + uCol*glint*0.8, vA*edge); }`, 'particles');
+  if (vK > 0.5 && vK < 1.5){ o = vec4(uCol, vA*(1.0 - r)*(1.0 - r)); return; }   // mist: soft veil
+  float t = clamp(dot(q, vDir), -vHalf, vHalf), dd = length(q - vDir*t)/vR;
+  if (vK < 0.5){   // drop: a gaussian streak of clear water, bright with the sky it refracts
+    o = vec4(uCol*1.15, vA*exp(-dd*dd*1.6)); return;
+  }
+  // spray: a see-through white cloud, fibrous along its motion
+  float along = dot(q, vDir), across = dot(q, vec2(-vDir.y, vDir.x));
+  float fib = 0.55 + 0.45*h21(floor(vec2(across*9.0, along*2.0) + 3.7));
+  o = vec4(uCol, vA*exp(-dd*dd*0.9)*fib*0.8); }`, 'particles');
 const partVAO = gl.createVertexArray(), partVB = gl.createBuffer();
 gl.bindVertexArray(partVAO); gl.bindBuffer(gl.ARRAY_BUFFER, partVB);
-gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,4,gl.FLOAT,false,20,0);
-gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1,1,gl.FLOAT,false,20,16);
+gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,4,gl.FLOAT,false,36,0);
+gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1,4,gl.FLOAT,false,36,16);
+gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2,1,gl.FLOAT,false,36,32);
 gl.bindVertexArray(null);
 const wakeBuf = new Float32Array(20*4);
 const lineVAO = gl.createVertexArray(), lineVB = gl.createBuffer();
@@ -1824,13 +1844,13 @@ void main(){
   vec3 rr = reflect(-v, n); col += vec3(0.55,0.66,0.8)*uSkyK*vS*(0.08 + 0.5*fr)*(0.4 + 0.6*max(rr.y, 0.0));
   o = vec4(col, 1);
 }`, 'rod');
-// boat lamps (night): red / green side lights at the bow, a white stern light, a warm deck lamp.
+// boat lamps (night): red / green side lights at the bow, white lights on the stern fitting and the starboard tube fitting.
 // Positions in the boat's model frame (bow toward -z, starboard +x).
 const BOAT_LAMPS = [
   { p: [-0.92, 0.55, -1.0], c: [1.0, 0.07, 0.04], i: 0.35, s: 0.09 },
   { p: [0.92, 0.55, -1.0],  c: [0.05, 1.0, 0.3],  i: 0.35, s: 0.09 },
-  { p: [0.0, 0.85, 1.4],    c: [1.0, 0.95, 0.85], i: 0.8,  s: 0.11 },
-  { p: [0.0, 1.3, 0.35],    c: [1.0, 0.8, 0.52],  i: 2.4,  s: 0.15 },
+  { p: [0.02, 0.86, 1.05],  c: [1.0, 0.95, 0.85], i: 0.8,  s: 0.11 },   // stern light on the white fitting at the transom
+  { p: [1.07, 0.74, -0.21], c: [1.0, 0.95, 0.85], i: 0.5,  s: 0.09 },   // white light on the starboard tube fitting
 ];
 const LAMP = { P: new Float32Array(16), C: new Float32Array(12), on: 0, spr: new Float32Array(4*8) };
 function updateLamps(M){
@@ -2045,7 +2065,7 @@ function render(S){
     const lum = [ENV.sunC[0]*0.12 + ENV.skyK[0]*0.75, ENV.sunC[1]*0.12 + ENV.skyK[1]*0.78, ENV.sunC[2]*0.12 + ENV.skyK[2]*0.82];
     gl.uniform3fv(pPart.u.uCol, lum);
     gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
-    gl.bindVertexArray(partVAO); gl.bindBuffer(gl.ARRAY_BUFFER, partVB); gl.bufferData(gl.ARRAY_BUFFER, S.particles.data.subarray(0, S.particles.n*5), gl.DYNAMIC_DRAW);
+    gl.bindVertexArray(partVAO); gl.bindBuffer(gl.ARRAY_BUFFER, partVB); gl.bufferData(gl.ARRAY_BUFFER, S.particles.data.subarray(0, S.particles.n*9), gl.DYNAMIC_DRAW);
     gl.drawArrays(gl.POINTS, 0, S.particles.n);
     gl.depthMask(true); gl.disable(gl.BLEND);
   }
