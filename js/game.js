@@ -2211,7 +2211,7 @@ function esc(s){ return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': 
 // top-left tracker: titles only, always visible
 function renderQuests(){
   const list = P.quests.filter(questReachable);
-  $('qlist').innerHTML = list.map(q => `<div class="${q.got >= q.n ? 'done' : ''}"><b>${q.got >= q.n ? '✅ ' : ''}${esc(q.text)}</b><span${questHere(q) || q.got >= q.n ? '' : ` title="${esc(q.where)}"`}>${q.got >= q.n ? '🎁 보상' : questHere(q) ? '📍' + (q.n > 1 ? ` ${q.got}/${q.n}` : '') : '⛵'}</span></div>`).join('')   // 📍 = can be done here, ⛵ = sail to another spot
+  $('qlist').innerHTML = list.map(q => `<div class="${q.got >= q.n ? 'done' : ''}"><i class="qi"${questHere(q) || q.got >= q.n ? '' : ` title="${esc(q.where)}"`}>${q.got >= q.n ? '✅' : questHere(q) ? '📍' : '⛵'}</i><b>${esc(q.text)}</b><span>${q.got >= q.n ? '🎁 보상' : questHere(q) && q.n > 1 ? `${q.got}/${q.n}` : ''}</span></div>`).join('')   // 📍 = can be done here, ⛵ = sail to another spot
     || '<div><span>새 퀘스트를 준비 중…</span></div>';
   if (!$('questm').hidden) renderQuestModal();
 }
