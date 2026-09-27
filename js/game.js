@@ -306,7 +306,7 @@ function swim(f, tx, ty, tz, spd, dt, turn){
   const want = Math.atan2(tz - f.pos[2], tx - f.pos[0]);
   const da = wrapA(want - f.heading);
   turnToward(f, want, (turn||2.2)*dt);
-  f.speed += (spd - f.speed)*Math.min(1, dt*2.5);
+  f.speed += (spd - f.speed)*Math.min(1, dt*(spd > f.speed ? 3.0 : 0.9));   // strokes speed it up quickly, drag slows a glide gently
   const mv = f.speed*dt*(Math.abs(da) > 1.6 ? 0.45 : 1);
   f.pos[0] += Math.cos(f.heading)*mv; f.pos[2] += Math.sin(f.heading)*mv;
   moveY(f, ty, dt);
@@ -365,7 +365,10 @@ function updateFish(f, dt){
   switch (f.state){
   case 'wander': {
     if (!f.target || f.timer <= 0 || dist2(f.pos, f.target) < 0.8) wanderTarget(f);
-    swim(f, f.target[0], f.ty, f.target[2], f.cruise, dt, 1.4);
+    // burst and coast: a few strong strokes, then a glide (how most fish cruise to save energy)
+    f.gaitT = (f.gaitT || 0) - dt;
+    if (f.gaitT <= 0){ f.burst = !f.burst; f.gaitT = f.burst ? rand(0.5, 1.1) : rand(0.8, 2.2); }
+    swim(f, f.target[0], f.ty, f.target[2], f.cruise*(f.burst ? 1.5 : 0.45), dt, 1.4);
     if (f.think <= 0){ f.think = 1; interest(f); }
     break; }
   case 'cruise':      // passing visitor (whale, shark, sunfish …): swims through and leaves
@@ -451,11 +454,21 @@ function updateFish(f, dt){
   }
   if (f.state !== 'hooked'){
     avoidBoat(f);
-    // animation
-    const beat = 1.0 + 2.2*f.speed/Math.max(f.len, 0.1);
-    f.tailPh += dt*TAU*beat;
-    f.tail = Math.sin(f.tailPh)*(0.12 + 0.4*clamp(f.speed/(sp.speed*1.5), 0, 1));
+    animFish(f, dt, clamp(f.speed/(sp.speed*1.5), 0, 1)*(f.state === 'wander' && !f.burst ? 0.4 : 1), 1);
   }
+}
+// Swimming animation. Tail beat frequency follows speed in body lengths per second (Bainbridge: U ≈ 0.7·L·f);
+// the stroke is big while the fish accelerates and nearly still while it glides; the body bends into turns.
+function animFish(f, dt, effort, fmul){
+  const L = Math.max(f.len, 0.1);
+  const acc = (f.speed - (f.prevSpeed ?? f.speed))/Math.max(dt, 1e-3); f.prevSpeed = f.speed;
+  const drive = clamp(effort + 0.8*Math.max(0, acc)/(f.sp.speed + 0.2), 0, 1.3);
+  f.tailAmp = lerp(f.tailAmp || 0, 0.05 + 0.45*drive, Math.min(1, dt*5));
+  const beat = Math.min(8, 0.5 + f.speed/(0.7*L)*fmul + 1.5*Math.max(0, acc)/(f.sp.speed + 0.2));
+  f.tailPh += dt*TAU*beat;
+  f.tail = Math.sin(f.tailPh)*f.tailAmp;
+  const dh = wrapA(f.heading - (f.prevHeading ?? f.heading))/Math.max(dt, 1e-3); f.prevHeading = f.heading;
+  f.bend = lerp(f.bend || 0, clamp(-dh*0.16, -0.4, 0.4), Math.min(1, dt*6));
 }
 function interest(f){
   if (f.cooldown > 0 || f.sp.sight) return;
@@ -801,8 +814,7 @@ function updateFight(dt){
     Rn.splash(f.pos[0], f.pos[2], 0.10 + 0.1*f.len, 0.02 + 0.04*f.stamina); if (Math.random() < 0.3) sfx.splash(0.15);
     sprayBurst(f.pos, f.len, 0.4 + 0.6*f.stamina);   // the fish thrashes at the surface: water flies
   }
-  const beat = 2.0 + 3.0*f.speed/Math.max(f.len, 0.1);
-  f.tailPh += dt*TAU*beat; f.tail = Math.sin(f.tailPh)*(0.25 + 0.35*f.stamina);
+  animFish(f, dt, 0.55 + 0.5*f.stamina, 1.6);
   // outcomes
   if (F.tension > 1.0){ F.breakT += dt; if (F.breakT > 0.6) return lose('break'); } else F.breakT = Math.max(0, F.breakT - dt*0.7);
   if (G.mode === 'lure' && F.lineOut > 120) return lose('spool');
@@ -1540,7 +1552,7 @@ function scene(dt){
   const sh = camShake(dt);
   const S = { t: G.time, dt, cam: { pos: add(cam.pos, sh.pos), look: add(cam.look, sh.look) }, boat: BOAT, fish: [], lure: null, bobber: null, lineUnder: null, lineTo: null, lineSag: 0, flyObj: null };
   const byDist = fishes.slice().sort((a, b) => dist3(a.pos, cam.pos) - (a.visitor ? 25 : 0) - dist3(b.pos, cam.pos) + (b.visitor ? 25 : 0));
-  S.fish = byDist.slice(0, 12).map(f => ({ pos: f.pos, len: f.len, dir: fishDir(f), tail: f.tail, back: f.sp.back, belly: f.sp.belly, pattern: f.sp.pattern, hr: f.sp.hr, shape: f.sp.shape }));
+  S.fish = byDist.slice(0, 12).map(f => ({ id: f.sp.id, pos: f.pos, len: f.len, dir: fishDir(f), tail: f.tail, tailPh: f.tailPh, tailAmp: f.tailAmp, bend: f.bend, back: f.sp.back, belly: f.sp.belly, pattern: f.sp.pattern, hr: f.sp.hr, shape: f.sp.shape }));
   const rod = rodSpec(); S.rod = G.state === 'boat' ? null : rod;
   S.hideRod = false;   // the rod is always drawn (only hidden with the camera under the water)
   S.wake = wakeTrack(); S.particles = PART; S.rain = RAIN;

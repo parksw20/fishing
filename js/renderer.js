@@ -310,6 +310,20 @@ let pebReady = false;
   // the texture is embedded as base64 in js/pebbles.js (works from file:// without CORS issues)
   img.src = 'data:image/jpeg;base64,' + window.PEBBLES_B64; }
 
+/* ---------------- Fish photo atlas ---------------- */
+// colour (sRGB) + body thickness; until both have loaded (or if they can't, e.g. from file://) fish are drawn procedurally
+const FA = window.FISH_ATLAS || { w:1, h:1, sp:{} };
+const fishCTex = tex(FA.w, FA.h, gl.SRGB8_ALPHA8, { mip:true, aniso:4 }), fishTTex = tex(FA.w, FA.h, gl.R8, { mip:true });
+let fishAtlasN = 0;
+function loadAtlas(src, t, fmt){
+  const img = new Image();
+  img.onload = () => { gl.bindTexture(gl.TEXTURE_2D, t); gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    try { gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, FA.w, FA.h, fmt, gl.UNSIGNED_BYTE, img); gl.generateMipmap(gl.TEXTURE_2D); fishAtlasN++; } catch (e) {}
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 4); };
+  img.src = src;
+}
+if (window.FISH_ATLAS){ loadAtlas('img/fish/atlas.jpg', fishCTex, gl.RGBA); loadAtlas('img/fish/atlas_t.png', fishTTex, gl.RED); }
+
 /* ---------------- Main water shader (+ underwater scene: fish, lure, float, hull, line) ---------------- */
 // Everything below the surface is ray-traced along the refracted view ray, so fish get the same
 // refraction, absorption, in-scatter and caustic light as the seabed.
@@ -328,6 +342,9 @@ uniform vec4 uFD[MAXF];   // fish: forward xyz, tail angle
 uniform vec4 uFA[MAXF];   // fish: back colour, pattern id
 uniform vec4 uFB[MAXF];   // fish: belly colour, body height ratio
 uniform vec4 uFC[MAXF];   // fish shape: width/length, tail mode (0 fin, 1 fluke, 2 none, 3 sunfish), dorsal scale, tail scale
+uniform vec4 uFE[MAXF];   // photo fish: atlas rect u0 v0 u1 v1 (head to the right)
+uniform vec4 uFG[MAXF];   // photo fish: height/length (0 = drawn procedurally, < 0 = flatfish lying on its side), tail phase, tail amplitude, bend into the turn
+uniform sampler2D uFishC, uFishT;   // photo atlas: colour, body thickness
 uniform vec3 uSunC, uSkyK; uniform float uNight;   // time of day: sun (or moon) radiance, sky tint, night amount
 uniform vec4 uLP[4]; uniform vec3 uLC[4];   // boat lamps at night
 uniform float uWaveK;    // wave strength (debug: calm 0.45 / normal 1 / rough 1.8 / very rough 2.8 / storm 4)
@@ -606,6 +623,47 @@ vec3 fishAlb(vec3 lp, vec4 A, vec4 Bc){
   return c;
 }
 
+// Fish from photographs: the cut-out photo (head to the right) is the side view, its thickness map (from the
+// distance to the silhouette edge, a rounded cross-section) gives the body depth, so fins come out thin and the
+// belly and back round off. The body follows a travelling wave that grows toward the tail and bends into turns.
+float fishOff(float x, float Lf, vec4 G){   // lateral offset of the midline at x (head at +Lf/2)
+  float s = clamp(0.5 - x/Lf, 0.0, 1.0);
+  return Lf*(G.z*(0.02 + 0.22*s*s)*sin(G.y - 4.8*s) + G.w*0.35*s*s);
+}
+float photoFish(vec3 ro, vec3 rd, float tMax, vec3 c, float Lf, mat3 B, vec4 E, vec4 G, float wr, out vec3 N, out vec3 alb){
+  float asp = abs(G.x), T = Lf*max(wr, 0.05)*0.55;
+  vec3 hb = vec3(Lf*0.5, Lf*asp*0.5, T + Lf*(abs(G.z)*0.24 + abs(G.w)*0.35) + 0.002);
+  vec3 o = transpose(B)*(ro - c), d = transpose(B)*rd;
+  vec3 id = 1.0/(d + vec3(1e-6)), ta = (-hb - o)*id, tb = (hb - o)*id;
+  vec3 tn = min(ta, tb), tf = max(ta, tb);
+  float t0 = max(max(tn.x, tn.y), max(tn.z, 0.0)), t1 = min(min(tf.x, tf.y), min(tf.z, tMax));
+  if (t0 >= t1) return -1.0;
+  vec2 uv0 = E.xy, duv = E.zw - E.xy;
+  float lod = log2(max(1.0, max(t0, 0.3)*uPixAng*duv.x*float(textureSize(uFishT, 0).x)/Lf));
+  #define FTH(q) (textureLod(uFishT, uv0 + duv*vec2(0.5 + (q).x/Lf, 0.5 - (q).y/(Lf*asp)), lod).r)
+  const int NS = 16;
+  float dt = (t1 - t0)/float(NS), ta0 = t0, t = -1.0;
+  for (int k=0; k<=NS; k++){
+    float tt = t0 + dt*float(k); vec3 q = o + d*tt; float th = FTH(q);
+    if (th > 0.012 && T*th > abs(q.z - fishOff(q.x, Lf, G))){ t = tt; break; }
+    ta0 = tt;
+  }
+  if (t < 0.0) return -1.0;
+  for (int j=0; j<5; j++){   // refine between the last outside and the first inside sample
+    float m = 0.5*(ta0 + t); vec3 q = o + d*m; float th = FTH(q);
+    if (th > 0.012 && T*th > abs(q.z - fishOff(q.x, Lf, G))) t = m; else ta0 = m;
+  }
+  vec3 q = o + d*t;
+  float e = Lf*0.012, off = fishOff(q.x, Lf, G), s = q.z >= off ? 1.0 : -1.0;
+  float thx = (FTH(q + vec3(e,0,0)) - FTH(q - vec3(e,0,0)))/(2.0*e);
+  float thy = (FTH(q + vec3(0,e,0)) - FTH(q - vec3(0,e,0)))/(2.0*e);
+  float ofx = (fishOff(q.x + e, Lf, G) - fishOff(q.x - e, Lf, G))/(2.0*e);
+  N = normalize(B*vec3(-T*thx - s*ofx, -T*thy, s));
+  alb = textureLod(uFishC, uv0 + duv*vec2(0.5 + q.x/Lf, 0.5 - q.y/(Lf*asp)), lod).rgb*1.6;
+  #undef FTH
+  return t;
+}
+
 // nearest underwater object along (ro, rd) before tMax; returns t or -1
 bool lureHit = false;
 float traceObjects(vec3 ro, vec3 rd, float tMax, out vec3 N, out vec3 alb, out float spec){
@@ -614,11 +672,17 @@ float traceObjects(vec3 ro, vec3 rd, float tMax, out vec3 N, out vec3 alb, out f
   for (int i=0;i<MAXF;i++){
     if (i >= uFishN) break;
     vec4 P4 = uFP[i]; float Lf = P4.w;
-    float br = Lf*max(0.71, 0.5*uFC[i].x + 0.1);   // bounding radius (wide rays need more)
+    float br = Lf*max(max(0.71, 0.5*uFC[i].x + 0.1), 0.5*sqrt(1.0 + uFG[i].x*uFG[i].x) + 0.2);   // bounding radius (wide rays need more)
     vec3 oc = ro - P4.xyz; float b = dot(oc, rd), c = dot(oc,oc) - br*br;
     if (c > 0.0 && (b > 0.0 || b*b < c)) continue;
     vec3 f = uFD[i].xyz; mat3 Bm = fishFrame(f); vec3 up = Bm[1], sd = Bm[2];
     float hr = uFB[i].w; vec4 sh = uFC[i];
+    if (uFG[i].x != 0.0){
+      vec3 pN, pA;
+      t = photoFish(ro, rd, bt, P4.xyz, Lf, uFG[i].x < 0.0 ? mat3(f, sd, -up) : Bm, uFE[i], uFG[i], sh.x, pN, pA);
+      if (t > 0.0 && t < bt){ bt = t; N = pN; alb = pA; spec = 0.35; }
+      continue;
+    }
     // body flexes with the tail beat
     float w = uFD[i].w;
     vec3 ctr = P4.xyz + sd*(sin(w)*0.035*Lf);
@@ -1962,7 +2026,7 @@ function setCamUniforms(P, B){
   gl.uniform1f(P.u.uTanF, Math.tan(VFOV/2)); gl.uniform1f(P.u.uAspect, W/H);
 }
 
-const fishBuf = { P:new Float32Array(MAXF*4), D:new Float32Array(MAXF*4), A:new Float32Array(MAXF*4), B:new Float32Array(MAXF*4), C:new Float32Array(MAXF*4) };
+const fishBuf = { P:new Float32Array(MAXF*4), D:new Float32Array(MAXF*4), A:new Float32Array(MAXF*4), B:new Float32Array(MAXF*4), C:new Float32Array(MAXF*4), E:new Float32Array(MAXF*4), G:new Float32Array(MAXF*4) };
 
 function render(S){
   const dt = S.dt, t = S.t;
@@ -1992,8 +2056,9 @@ function render(S){
   target(hdrRT);
   gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.ALWAYS); gl.depthMask(true);
   gl.disable(gl.BLEND); gl.useProgram(pMain.p);
-  bindT(0,surfRT.t); bindT(1,causRT.t); bindT(2,pebTex); bindT(3,ripN.t); bindT(4,cloudTex);
+  bindT(0,surfRT.t); bindT(1,causRT.t); bindT(2,pebTex); bindT(3,ripN.t); bindT(4,cloudTex); bindT(5,fishCTex); bindT(6,fishTTex);
   const u = pMain.u;
+  gl.uniform1i(u.uFishC,5); gl.uniform1i(u.uFishT,6);
   gl.uniform1i(u.uSurf,0); gl.uniform1i(u.uCaus,1); gl.uniform1i(u.uPeb,2); gl.uniform1i(u.uRip,3); gl.uniform1i(u.uCloud,4);
   setCamUniforms(pMain, B); gl.uniform3fv(u.uSun, SUNV);
   gl.uniform1f(u.uL, L); gl.uniform1f(u.uWaveK, ENV.waveK); gl.uniform1f(u.uDepth, DEPTH); gl.uniform1f(u.uTime, t);
@@ -2010,9 +2075,12 @@ function render(S){
     fishBuf.A.set([f.back[0],f.back[1],f.back[2],f.pattern], i*4);
     fishBuf.B.set([f.belly[0],f.belly[1],f.belly[2],f.hr], i*4);
     fishBuf.C.set(f.shape || [f.hr*0.55, 0, 1, 1], i*4);
+    const ph = fishAtlasN === 2 && FA.sp[f.id];
+    fishBuf.E.set(ph ? ph.slice(0, 4) : [0,0,0,0], i*4);
+    fishBuf.G.set(ph ? [ph[5] ? -ph[4] : ph[4], f.tailPh || 0, f.tailAmp || 0, ph[5] ? 0 : f.bend || 0] : [0,0,0,0], i*4);
   });
   gl.uniform1i(u.uFishN, fl.length);
-  gl.uniform4fv(u.uFP, fishBuf.P); gl.uniform4fv(u.uFD, fishBuf.D); gl.uniform4fv(u.uFA, fishBuf.A); gl.uniform4fv(u.uFB, fishBuf.B); gl.uniform4fv(u.uFC, fishBuf.C);
+  gl.uniform4fv(u.uFP, fishBuf.P); gl.uniform4fv(u.uFD, fishBuf.D); gl.uniform4fv(u.uFA, fishBuf.A); gl.uniform4fv(u.uFB, fishBuf.B); gl.uniform4fv(u.uFC, fishBuf.C); gl.uniform4fv(u.uFE, fishBuf.E); gl.uniform4fv(u.uFG, fishBuf.G);
   const lu = S.lure;
   if (lu && lu.pos[1] < -0.005){
     gl.uniform4f(u.uLure, lu.pos[0], lu.pos[1], lu.pos[2], 1);
