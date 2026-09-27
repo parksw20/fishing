@@ -1184,6 +1184,17 @@ hud.addEventListener('pointermove', e => {
     if (Math.hypot(e.clientX - TOUCH.x0, e.clientY - TOUCH.y0) > 10) TOUCH.moved = true;
     if (G.state === 'hooked'){ if (!JOY.active){ mouse.x = e.clientX; mouse.y = e.clientY; } return; }
   }
+  // a second button pressed while one is held arrives as a pointermove (chorded buttons), not a pointerdown:
+  // follow the right/middle button from e.buttons so a right-drag looks around even with the left button held
+  if (e.pointerType === 'mouse'){
+    const r = !!(e.buttons & 6);
+    if (r && !mouse.rdown){ mouse.rdown = true; mouse.lx = e.clientX; mouse.ly = e.clientY; }
+    else if (!r && mouse.rdown) mouse.rdown = false;
+    if (e.button === 0){   // the left button changed during a chord
+      if ((e.buttons & 1) && !mouse.down){ mouse.down = true; mouse.downT = G.time; press(); }
+      else if (!(e.buttons & 1) && mouse.down){ mouse.down = false; release(); }
+    }
+  }
   if (mouse.rdown || (mouse.down && G.state === 'boat')){
     const dx = e.clientX - mouse.lx, dy = e.clientY - mouse.ly; mouse.lx = e.clientX; mouse.ly = e.clientY;
     const lk = LOOK(), iy = INV(), ix = INVX();
@@ -1191,11 +1202,12 @@ hud.addEventListener('pointermove', e => {
     else if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw += dx*0.005*lk*ix; G.aimPitch = clamp(G.aimPitch - dy*0.004*lk*iy, -0.9, 0.35); }
     else { G.orbit += dx*0.006*lk*ix; tiltView(dy*0.004*lk*iy); }
   }
-  if (e.pointerType !== 'touch' || G.state !== 'hooked') { mouse.x = e.clientX; mouse.y = e.clientY; if (e.pointerType === 'mouse') mouse.moved = true; }
+  // while looking around with the right button in a fight, the aim (pull direction) stays where it was
+  if ((e.pointerType !== 'touch' || G.state !== 'hooked') && !(mouse.rdown && G.state === 'hooked')) { mouse.x = e.clientX; mouse.y = e.clientY; if (e.pointerType === 'mouse') mouse.moved = true; }
 });
 const up = e => {
   if (e.pointerType === 'touch'){ touchUp(e); return; }
-  if (e.button === 2 || e.button === 1){ mouse.rdown = false; return; }
+  if (e.button === 2 || e.button === 1){ mouse.rdown = false; if (!(e.buttons & 1) && mouse.down){ mouse.down = false; release(); } return; }
   if (e.button !== 0 && e.type !== 'pointercancel') return;
   if (mouse.down){ mouse.down = false; release(); }
 };
