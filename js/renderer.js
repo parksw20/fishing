@@ -735,15 +735,24 @@ float photoFish(vec3 ro, vec3 rd, float tMax, vec3 c, float Lf, mat3 B, vec4 E, 
   vec2 uv0 = E.xy, duv = E.zw - E.xy;
   float lod = log2(max(1.0, max(t0, 0.3)*uPixAng*duv.x*float(textureSize(uFishT, 0).x)/Lf));
   #define FTH(q) (textureLod(uFishT, uv0 + duv*vec2(0.5 + (q).x/Lf, 0.5 - (q).y/(Lf*asp)), lod).r)
+  // Thin parts (fins, tail) are far thinner than a march step, so besides the thickness test each step also
+  // checks whether the ray crossed the body's midline sheet; a crossing inside the silhouette is a hit.
   const int NS = 16;
   float dt = (t1 - t0)/float(NS), ta0 = t0, t = -1.0;
+  vec3 q0 = o + d*t0; float gp = q0.z - fishOff(q0.x, Lf, G);
+  bool sheet = false;
   for (int k=0; k<=NS; k++){
     float tt = t0 + dt*float(k); vec3 q = o + d*tt; float th = FTH(q);
-    if (th > 0.012 && T*th > abs(q.z - fishOff(q.x, Lf, G))){ t = tt; break; }
-    ta0 = tt;
+    float g = q.z - fishOff(q.x, Lf, G);
+    if (th > 0.012 && T*th > abs(g)){ t = tt; break; }
+    if (k > 0 && g*gp <= 0.0){
+      float tc = mix(ta0, tt, gp/(gp - g + 1e-9)); vec3 qc = o + d*tc;
+      if (FTH(qc) > 0.012){ t = tc; sheet = true; break; }
+    }
+    ta0 = tt; gp = g;
   }
   if (t < 0.0) return -1.0;
-  for (int j=0; j<5; j++){   // refine between the last outside and the first inside sample
+  if (!sheet) for (int j=0; j<5; j++){   // refine between the last outside and the first inside sample
     float m = 0.5*(ta0 + t); vec3 q = o + d*m; float th = FTH(q);
     if (th > 0.012 && T*th > abs(q.z - fishOff(q.x, Lf, G))) t = m; else ta0 = m;
   }
@@ -752,7 +761,10 @@ float photoFish(vec3 ro, vec3 rd, float tMax, vec3 c, float Lf, mat3 B, vec4 E, 
   float thx = (FTH(q + vec3(e,0,0)) - FTH(q - vec3(e,0,0)))/(2.0*e);
   float thy = (FTH(q + vec3(0,e,0)) - FTH(q - vec3(0,e,0)))/(2.0*e);
   float ofx = (fishOff(q.x + e, Lf, G) - fishOff(q.x - e, Lf, G))/(2.0*e);
-  N = normalize(B*vec3(-T*thx - s*ofx, -T*thy, s));
+  // fins: the steep thickness gradient at their thin edge would tilt the normal sideways; use the sheet's own normal
+  float thq = FTH(q);
+  s = sheet ? -sign(d.z + 1e-6) : s;
+  N = normalize(B*mix(vec3(-s*ofx, 0.0, s), vec3(-T*thx - s*ofx, -T*thy, s), smoothstep(0.05, 0.25, thq)));
   alb = textureLod(uFishC, uv0 + duv*vec2(0.5 + q.x/Lf, 0.5 - q.y/(Lf*asp)), lod).rgb*1.6;
   #undef FTH
   return t;
