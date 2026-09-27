@@ -18,10 +18,6 @@ window.GameData = (function(){
       back:[0.12,0.08,0.03], belly:[0.46,0.32,0.12], pattern:6, hr:0.33,
       pref:{ paste:0.9, worm:0.45, shrimp:0.25, minnow:0.0, spoon:0.0, softworm:0.05 },
       depth:0.85, speed:0.42, power:1.1, endurance:1.7, aggr:0.3, wary:0.75, bite:'rise', rare:1.8 }),
-    S({ id:'bluegill', name:'블루길', latin:'Lepomis macrochirus', minLen:0.10, maxLen:0.25, wk:2.6e-5,
-      back:[0.05,0.09,0.09], belly:[0.52,0.36,0.14], pattern:1, hr:0.50,
-      pref:{ paste:0.45, worm:1.0, shrimp:0.7, minnow:0.2, spoon:0.3, softworm:0.5 },
-      depth:0.45, speed:0.34, power:0.6, endurance:0.5, aggr:0.8, wary:0.2, rare:0.8 }),
     S({ id:'bass', name:'배스', latin:'Micropterus salmoides', minLen:0.22, maxLen:0.62, wk:1.56e-5,
       back:[0.06,0.10,0.035], belly:[0.62,0.62,0.52], pattern:2, hr:0.29,
       pref:{ paste:0.05, worm:0.45, shrimp:0.6, minnow:1.0, spoon:0.6, softworm:0.9 },
@@ -86,10 +82,6 @@ window.GameData = (function(){
       pref:{ paste:0.0, worm:0.3, shrimp:0.6, minnow:1.0, spoon:0.7, softworm:0.6 },
       depth:0.8, speed:0.6, power:1.35, endurance:1.8, aggr:0.8, wary:0.5, rare:2.8 }),
     // ---- temperate sea ----
-    S({ id:'ureok', name:'조피볼락(우럭)', latin:'Sebastes schlegelii', minLen:0.20, maxLen:0.55, wk:1.8e-5,
-      back:[0.10,0.09,0.07], belly:[0.40,0.38,0.34], pattern:5, hr:0.33,
-      pref:{ paste:0.3, worm:0.8, shrimp:1.0, minnow:0.6, spoon:0.4, softworm:0.9 },
-      depth:0.9, speed:0.35, power:0.95, endurance:1.0, aggr:0.8, wary:0.3, rare:1.1 }),
     S({ id:'gwangeo', name:'넙치(광어)', latin:'Paralichthys olivaceus', minLen:0.35, maxLen:0.85, wk:1.1e-5,
       back:[0.12,0.10,0.06], belly:[0.62,0.62,0.58], pattern:8, hr:0.42,
       pref:{ paste:0.1, worm:0.6, shrimp:0.8, minnow:0.8, spoon:0.5, softworm:1.0 },
@@ -160,10 +152,6 @@ window.GameData = (function(){
     S({ id:'musky', name:'머스키', latin:'Esox masquinongy', minLen:0.7, maxLen:1.3, wk:5e-6, back:[0.14,0.16,0.08], belly:[0.58,0.56,0.44], pattern:1, hr:0.17,
       speed:0.8, power:1.3, endurance:1.5, aggr:0.9, wary:0.75, rare:3.0 }),
     // ---- sea: eels, pelagics, sharks ----
-    S({ id:'conger', name:'붕장어', latin:'Conger myriaster', minLen:0.4, maxLen:0.9, wk:3e-6, back:[0.18,0.16,0.10], belly:[0.62,0.60,0.54], pattern:0, hr:0.08,
-      shape:[0.07, 2, 0.35, 1], speed:0.35, power:0.95, endurance:1.1, aggr:0.7, wary:0.3, rare:1.3, icon:'🐍' }),
-    S({ id:'moray', name:'자이언트 곰치', latin:'Gymnothorax javanicus', minLen:1.0, maxLen:2.2, wk:3e-6, back:[0.18,0.15,0.07], belly:[0.40,0.36,0.22], pattern:8, hr:0.10,
-      shape:[0.08, 2, 0.5, 1], speed:0.35, power:1.3, endurance:1.5, aggr:0.8, wary:0.3, rare:2.2, icon:'🐍' }),
     S({ id:'bangeo', name:'방어', latin:'Seriola quinqueradiata', minLen:0.5, maxLen:1.0, wk:1.2e-5, back:[0.07,0.18,0.22], belly:[0.75,0.74,0.70], pattern:7, hr:0.26,
       speed:1.0, power:1.3, endurance:1.6, aggr:0.95, wary:0.3, rare:2.0 }),
     S({ id:'tuna', name:'참다랑어', latin:'Thunnus orientalis', minLen:0.8, maxLen:1.8, wk:2e-5, back:[0.03,0.06,0.16], belly:[0.72,0.74,0.76], pattern:0, hr:0.28,
@@ -179,8 +167,6 @@ window.GameData = (function(){
     S({ id:'mola', name:'개복치', latin:'Mola mola', minLen:1.0, maxLen:2.5, wk:6e-5, back:[0.30,0.32,0.34], belly:[0.70,0.70,0.72], pattern:0, hr:1.0,
       shape:[0.22, 3, 2.2, 1], speed:0.45, power:1.5, endurance:2.5, aggr:0.1, wary:0.8, rare:6.0, icon:'🐡', sightCoins:600 }),
     // ---- observation only ----
-    V({ id:'whaleshark', name:'고래상어', latin:'Rhincodon typus', minLen:5, maxLen:10, back:[0.07,0.10,0.14], belly:[0.72,0.72,0.70], pattern:12, hr:0.22,
-      shape:[0.26, 0, 1.2, 1.3], speed:1.0, icon:'🦈', sightCoins:900 }),
     V({ id:'manta', name:'대왕쥐가오리', latin:'Mobula birostris', minLen:2.2, maxLen:3.5, back:[0.03,0.03,0.04], belly:[0.80,0.80,0.80], pattern:0, hr:0.14,
       shape:[1.9, 2, 0, 1], speed:1.0, icon:'🦅', sightCoins:800 }),
     V({ id:'turtle', name:'푸른바다거북', latin:'Chelonia mydas', minLen:0.8, maxLen:1.2, back:[0.20,0.18,0.08], belly:[0.62,0.58,0.40], pattern:6, hr:0.32,
@@ -206,12 +192,12 @@ window.GameData = (function(){
 
   // fish communities: [species id, spawn weight]
   const BIOMES = {
-    kr_fresh:   { name:'온대 민물', water:'fresh', fish:[['bungeo',30],['ingeo',6],['bluegill',26],['bass',20],['ssogari',6],['kkeuri',16],['megi',6],['songeo',8],['eel',8],['snakehead',7]], visitors:[] },
-    na_fresh:   { name:'온대 민물', water:'fresh', fish:[['bass',28],['bluegill',26],['pike',12],['walleye',12],['chcat',10],['songeo',10],['ingeo',6],['musky',2]], visitors:[['musky',0.05],['sturgeon',0.03]] },
+    kr_fresh:   { name:'온대 민물', water:'fresh', fish:[['bungeo',30],['ingeo',6],['bass',20],['ssogari',6],['kkeuri',16],['megi',6],['songeo',8],['eel',8],['snakehead',7]], visitors:[] },
+    na_fresh:   { name:'온대 민물', water:'fresh', fish:[['bass',28],['pike',12],['walleye',12],['chcat',10],['songeo',10],['ingeo',6],['musky',2]], visitors:[['musky',0.05],['sturgeon',0.03]] },
     cold_fresh: { name:'한대 민물', water:'fresh', fish:[['songeo',26],['char',16],['pike',18],['salmon',10],['walleye',12],['sturgeon',2]], visitors:[['sturgeon',0.06]] },
     trop_fresh: { name:'열대 민물', water:'fresh', fish:[['peacock',18],['piranha',26],['arowana',8],['tilapia',26],['nileperch',6],['chcat',6],['arapaima',2]], visitors:[['arapaima',0.08]] },
-    temp_sea:   { name:'온대 바다', water:'salt',  fish:[['ureok',26],['gwangeo',12],['chamdom',8],['nongeo',12],['gamseong',12],['godeungeo',30],['conger',10],['bangeo',7],['tuna',1],['mako',0.6],['mola',0.4]], visitors:[['dolphin',0.04],['mola',0.035],['mako',0.02],['humpback',0.012]] },
-    trop_sea:   { name:'열대 바다', water:'salt',  fish:[['gt',8],['barracuda',14],['grouper',14],['mahi',10],['parrot',24],['snapper',20],['moray',7],['blacktip',5],['tuna',2],['sailfish',1.5],['hammerhead',0.6]], visitors:[['turtle',0.05],['manta',0.035],['whaleshark',0.025],['dolphin',0.03],['hammerhead',0.025],['sailfish',0.02]] },
+    temp_sea:   { name:'온대 바다', water:'salt',  fish:[['gwangeo',12],['chamdom',8],['nongeo',12],['gamseong',12],['godeungeo',30],['bangeo',7],['tuna',1],['mako',0.6],['mola',0.4]], visitors:[['dolphin',0.04],['mola',0.035],['mako',0.02],['humpback',0.012]] },
+    trop_sea:   { name:'열대 바다', water:'salt',  fish:[['gt',8],['barracuda',14],['grouper',14],['mahi',10],['parrot',24],['snapper',20],['blacktip',5],['tuna',2],['sailfish',1.5],['hammerhead',0.6]], visitors:[['turtle',0.05],['manta',0.035],['dolphin',0.03],['hammerhead',0.025],['sailfish',0.02]] },
     cold_sea:   { name:'한대 바다', water:'salt',  fish:[['cod',28],['halibut',8],['pollock',30],['godeungeo',16],['salmon',8]], visitors:[['humpback',0.05],['orca',0.035],['dolphin',0.02]] },
   };
 
@@ -316,8 +302,8 @@ window.GameData = (function(){
   const SHOP = [
     { id:'rod', name:'낚싯대', icon:'🎣', tiers: tiers(
       ['기본 낚싯대', '입문 글라스 로드', '카본 로드', '고탄성 카본 로드', '라이트 게임 로드', '프로 카본 로드', '티타늄 가이드 로드', '토너먼트 로드', '빅게임 로드', '마스터 빅게임 로드'], 1,
-      (u, i) => { const cast = 1 + 0.5*u, absorb = 1 - 0.28*u;
-        return { cast, absorb, poleCast: POLE_CAST[i], desc: i ? `대낚시 ${POLE_CAST[i]}m · 루어 +${pct(cast - 1)}% · 파이팅 장력 -${pct(1 - absorb)}%` : '기본 캐스팅 거리 (대낚시 10m · 루어 30m)' }; }) },
+      (u, i) => { const cast = 1 + (60/30 - 1)*u, absorb = 1 - 0.28*u;   // lure cast: 30 m at level 1 up to 60 m at level 10
+        return { cast, absorb, poleCast: POLE_CAST[i], desc: i ? `대낚시 ${POLE_CAST[i]}m · 루어 ${Math.round(30*cast)}m · 파이팅 장력 -${pct(1 - absorb)}%` : '기본 캐스팅 거리 (대낚시 10m · 루어 30m)' }; }) },
     { id:'reel', name:'릴', icon:'🌀', tiers: tiers(
       ['기본 스피닝 릴', '경량 스피닝 릴', '고기어 릴', '실버 스피닝 릴', '베이트 릴', '하이기어 베이트 릴', '대형 스피닝 릴', '지깅 릴', '소형 전동 릴', '대형 전동 릴'], 0.8,
       (u, i) => { const speed = 1 + 0.8*u; return { speed, desc: i ? `감기 속도 +${pct(speed - 1)}%` : '기본 감기 속도' }; }) },
