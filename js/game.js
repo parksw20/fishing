@@ -254,7 +254,7 @@ function lineKg(){ return baseLineKg()*tierOf('line').mult; }
 const GAME_HOUR = 225;   // real seconds per game hour (a game day ≈ 90 minutes)
 function yawDir(y){ return [Math.sin(y), 0, -Math.cos(y)]; }
 function viewYaw(){ return G.aimYaw + (G.lookX || 0); }
-function viewPitch(){ return clamp(G.aimPitch + (G.lookY || 0), -1.0, 0.45); }
+function viewPitch(){ return clamp(G.aimPitch + (G.lookY || 0), -1.0, 1.2); }
 // desktop: the view follows the mouse (and keeps turning when the pointer sits near a screen edge)
 // the view no longer follows the mouse pointer (only right-drag / keys / joystick turn it); any leftover offset eases out
 function mouseLook(dt){
@@ -462,6 +462,13 @@ function updateFish(f, dt){
     const L = G.lure; if (!L){ f.state = 'wander'; break; }
     const tgt = sub(L.pos, mul(fishDir(f), f.len*0.5));
     f.pos = vlerp(f.pos, tgt, Math.min(1, dt*12)); turnToward(f, Math.atan2(L.pos[2]-f.pos[2], L.pos[0]-f.pos[0]), 6*dt);
+    break; }
+  case 'hunt': {        // a predator rushing the hooked fish
+    const prey = f.prey;
+    if (!prey || G.hooked !== prey || G.state !== 'hooked'){ f.state = 'wander'; f.target = null; f.prey = null; if (G.fight && G.fight.pred === f) G.fight.pred = null; break; }
+    swim(f, prey.pos[0], prey.pos[1], prey.pos[2], sp.speed*2.4, dt, 4.0);
+    if (dist3(mouthOf(f), prey.pos) < 0.25 + prey.len*0.5){ predatorStrike(f, prey); break; }
+    if (f.timer <= 0){ flee(f, prey.pos, 20); if (G.fight) G.fight.pred = null; }
     break; }
   case 'hooked': break;
   }
@@ -689,11 +696,7 @@ function hookFish(f){
   const tip = tipXZ();
   G.strike = null; G.engaged = null;
   G.hooked = f; f.state = 'hooked'; G.state = 'hooked'; padRumble(0.9, 0.7, 260);
-  f.stamina = 1;
-  f.pull = clamp((0.15 + 0.22*Math.pow(f.weight, 0.6)*f.sp.power)*7/(lineKg()*(G.mode === 'pole' ? 1.75 : 1)), 0.15, 1.3);
-  f.endur = Math.max(0.6, f.sp.endurance*(0.7 + 0.6*(f.len - f.sp.minLen)/(f.sp.maxLen - f.sp.minLen)));
-  const a = Math.atan2(f.pos[2]-tip[2], f.pos[0]-tip[0]);
-  f.run = { heading: a + rand(-0.6, 0.6), timer: rand(1, 2), burst: true };
+  fightFish(f, tip);
   const d = dist2(f.pos, tip);
   G.fight = { tension: 0.3, lineOut: d + 0.2, maxReach: G.mode === 'pole' ? Math.max(d + 3.0, 8) : 150, breakT: 0, slackT: 0, cq: 0, payout: 0, t: 0,
     qte: null, qteT: rand(1.8, 3), pop: null, hpLag: 1, hpHold: 0, dir: [0, -1] };
@@ -703,6 +706,48 @@ function hookFish(f){
   sfx.hit();
   say('히트! 물고기가 걸렸다!', 1.6, 'hot');
   scareAround(f.pos, 6, f);
+}
+// a hooked fish's fight: fresh strength, pull against the line, stamina, and a first run away from the rod
+function fightFish(f, tip){
+  f.stamina = 1;
+  f.pull = clamp((0.15 + 0.22*Math.pow(f.weight, 0.6)*f.sp.power)*7/(lineKg()*(G.mode === 'pole' ? 1.75 : 1)), 0.15, 1.3);
+  f.endur = Math.max(0.6, f.sp.endurance*(0.7 + 0.6*(f.len - f.sp.minLen)/(f.sp.maxLen - f.sp.minLen)));
+  const a = Math.atan2(f.pos[2]-tip[2], f.pos[0]-tip[0]);
+  f.run = { heading: a + rand(-0.6, 0.6), timer: rand(1, 2), burst: true };
+}
+/* ---------------- predators take the hooked fish ----------------
+   While a small fish struggles on the line, a big fish-eater nearby (or one of the local predators coming in from
+   out of sight) may, by chance, rush in and swallow it. The hook is then in the predator and the fight goes on. */
+function isPredator(sp){ return !sp.sight && sp.maxLen >= 0.8 && (sp.pref && (sp.pref.minnow || 0) >= 0.7); }
+function tryPredator(f, F, dt){
+  if (F.pred !== undefined || F.t < 2.5 || f.len > 0.5 || f.stamina < 0.15) return;
+  if (Math.random() > dt*0.035) return;                            // ≈ one fight in five with a small fish
+  const minL = Math.max(0.6, f.len*2.5);
+  let pred = fishes.filter(o => o !== f && o.state !== 'hooked' && isPredator(o.sp) && o.len >= minL && dist3(o.pos, f.pos) < 30).sort((a, b) => dist3(a.pos, f.pos) - dist3(b.pos, f.pos))[0];
+  if (!pred){
+    const pool = BIOMES[REGION.biome].fish.filter(([id]) => { const sp = BY_ID[id]; return isPredator(sp) && sp.maxLen >= minL; });
+    if (!pool.length){ F.pred = null; return; }
+    let tot = 0; for (const [, w] of pool) tot += w; let r = Math.random()*tot, sp = BY_ID[pool[0][0]];
+    for (const [id, w] of pool){ r -= w; if (r <= 0){ sp = BY_ID[id]; break; } }
+    pred = newFish(f.pos, 14, 20, sp);
+    pred.len = lerp(Math.max(sp.minLen, minL), sp.maxLen, Math.pow(Math.random(), 1.5)); pred.weight = sp.wk*Math.pow(pred.len*100, 3);
+    pred.pos[1] = clamp(f.pos[1] - rand(0.3, 1.5), -(floorDepth(pred.pos[0], pred.pos[2]) - 0.3), -0.4);
+    fishes.push(pred);
+  }
+  F.pred = pred; pred.state = 'hunt'; pred.timer = 14; pred.prey = f;
+  say(`⚠️ 커다란 그림자가 다가온다…`, 2.2, 'bad'); padRumble(0.2, 0.3, 200);
+}
+function predatorStrike(pred, prey){
+  const F = G.fight;
+  fishes.splice(fishes.indexOf(prey), 1);
+  G.hooked = pred; pred.state = 'hooked';
+  fightFish(pred, tipXZ());
+  pred.run.burst = true; pred.run.timer = rand(1.5, 2.5);
+  F.hpLag = 1; F.qte = null; F.qteT = rand(1.5, 2.5); F.tension = Math.min(1, F.tension + 0.3); F.pred = null;
+  Rn.splash(pred.pos[0], pred.pos[2], 0.3, 0.08); sprayBurst(pred.pos, pred.len, 1.2); sfx.hit(); if (!playS('splash')) sfx.splash(0.7);
+  SHAKE.kick = 1.6;
+  padRumble(1, 0.9, 400);
+  say(`🦈 ${pred.sp.name}이(가) 걸린 ${prey.sp.name}을(를) 삼켰다! 파이팅 계속!`, 3, 'hot');
 }
 function rodPressure(){
   const B = Rn.basis(); if (!B) return { w: [0, 0], m: 0 };
@@ -767,6 +812,7 @@ window.addEventListener('pointerdown', e => { if (G.state === 'hooked' && !(e.ta
 function updateFight(dt){
   const f = G.hooked, F = G.fight, sp = f.sp, tip = tipXZ();
   F.t += dt;
+  tryPredator(f, F, dt);
   let ax = f.pos[0]-tip[0], az = f.pos[2]-tip[2], d = Math.hypot(ax, az) || 0.01;
   const away = [ax/d, az/d];
   // the fish picks runs: mostly away from the boat, sometimes hard sideways
@@ -1198,8 +1244,8 @@ hud.addEventListener('pointermove', e => {
   if (mouse.rdown || (mouse.down && G.state === 'boat')){
     const dx = e.clientX - mouse.lx, dy = e.clientY - mouse.ly; mouse.lx = e.clientX; mouse.ly = e.clientY;
     const lk = LOOK(), iy = INV(), ix = INVX();
-    if (G.state === 'boat'){ G.orbit += dx*0.006*lk*ix; G.camPitch = clamp((G.camPitch ?? 0.32) + dy*0.004*lk*iy, 0.08, 1.2); }
-    else if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw += dx*0.005*lk*ix; G.aimPitch = clamp(G.aimPitch - dy*0.004*lk*iy, -0.9, 0.35); }
+    if (G.state === 'boat'){ G.orbit += dx*0.006*lk*ix; G.camPitch = clamp((G.camPitch ?? 0.32) + dy*0.004*lk*iy, -0.8, 1.2); }
+    else if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw += dx*0.005*lk*ix; G.aimPitch = clamp(G.aimPitch - dy*0.004*lk*iy, -0.9, 1.1); }
     else { G.orbit += dx*0.006*lk*ix; tiltView(dy*0.004*lk*iy); }
   }
   // while looking around with the right button in a fight, the aim (pull direction) stays where it was
@@ -1287,7 +1333,7 @@ function applyJoy(dt){
   }
   if (!JOY.active || G.state === 'boat') return;
   const lk = LOOK(), iy = INV(), ix = INVX();
-  if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw += JOY.x*dt*1.3*lk*ix; G.aimPitch = clamp(G.aimPitch - JOY.y*dt*0.8*lk*iy, -0.9, 0.35); }
+  if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw += JOY.x*dt*1.3*lk*ix; G.aimPitch = clamp(G.aimPitch - JOY.y*dt*0.8*lk*iy, -0.9, 1.1); }
   else { G.orbit += JOY.x*dt*1.4*lk*ix; tiltView(JOY.y*dt*0.9*lk*iy); }
 }
 /* action button: hold = cast charge / reel / lift, tap = hook set; the label follows the situation */
@@ -1415,7 +1461,17 @@ function baitView(focus, back, up, side){
   // after casting the view can be tilted up/down around the rig (drag, W/S, joystick), but the camera stays above the water
   // after casting the camera may tilt below the surface to watch the bait / lure / fish underwater — with goggles
   const under = (G.state === 'wait' || G.state === 'hooked') && P.tier.goggles > 0;
-  const R = Math.hypot(back, up), el = clamp(Math.atan2(up, back) + (G.viewTilt || 0), under ? -0.6 : 0.1, 1.35);
+  // tilting up brings the camera down to the water; past that the view turns up to the sky (up to ~50°), and with
+  // goggles going on past the sky phase dips the camera under the surface
+  const SKY = 0.9, raw = Math.atan2(up, back) + (G.viewTilt || 0);
+  let el = raw, sky = 0;
+  if (raw < 0.1){
+    sky = Math.min(0.1 - raw, SKY);
+    el = 0.1;
+    if (under && raw < 0.1 - SKY){ el = Math.max(-0.6, raw + SKY); sky = Math.max(0, SKY - (0.1 - el)*4); }
+  }
+  el = Math.min(el, 1.35);
+  const R = Math.hypot(back, up);
   let h = el >= 0.12 ? Math.max(0.45, R*Math.sin(el)) : R*Math.sin(el), b = R*Math.cos(el);
   // never put the camera inside the boat: come closer to the rig, and if that is not enough rise above the gunwale
   for (let i = 0; i < 8 && insideHull(focus[0] - rx*b, focus[2] - rz*b, 0.35); i++) b *= 0.75;
@@ -1423,7 +1479,10 @@ function baitView(focus, back, up, side){
   const px = focus[0] - rx*b, pz = focus[2] - rz*b;
   if (h < 0) h = Math.max(h, -(floorDepth(px, pz) - 0.35));            // stay above the bottom
   const k = clamp(-h/0.6, 0, 1), ty = underTargetY();                    // underwater: look at the bait itself
-  return { pos: [px, h, pz], look: [focus[0], lerp(-0.25 + Math.max(0, 0.35 - el)*2.5, ty, k), focus[2]] };
+  const ly = lerp(-0.25 + Math.max(0, 0.35 - el)*2.5, ty, k);
+  const fd = Math.hypot(focus[0] - px, focus[2] - pz);
+  const skyY = h + fd*Math.tan(Math.min(sky, 0.9) - 0.05);          // pitch the view up by the sky angle
+  return { pos: [px, h, pz], look: [focus[0], sky > 0 ? lerp(ly, skyY, Math.min(1, sky*3)) : ly, focus[2]] };
 }
 function underTargetY(){
   if (G.state === 'hooked' && G.hooked) return G.hooked.pos[1];
@@ -1432,7 +1491,7 @@ function underTargetY(){
   return -1;
 }
 function tiltView(d){
-  const lo = P.tier.goggles ? -1.6 : -0.6;   // without goggles the view stops at the surface (and doesn't wind up past it)
+  const lo = P.tier.goggles ? -2.5 : -1.5;   // surface, then the sky phase; with goggles on under the water (no winding up past the ends)
   G.viewTilt = clamp((G.viewTilt || 0) + d, lo, 0.8);
   if (d < 0 && G.viewTilt <= lo && !P.tier.goggles && (G.state === 'wait' || G.state === 'hooked') && !G.gogglesHint){
     G.gogglesHint = true; say('🤿 수경이 있으면 물속을 볼 수 있어요 (상점 3,000🪙)', 2.6);
@@ -1447,9 +1506,10 @@ function updateCamera(dt){
   switch (G.state){
     case 'idle': case 'charge': case 'result': T = boatView(); k = G.state === 'result' ? 3 : 10; break;
     case 'boat': {
-      const a = BOAT.heading + G.orbit + (G.lookX || 0), cp = G.camPitch ?? 0.32, D = G.camDist;
+      // below the lowest camera angle the view turns up to the sky instead
+      const a = BOAT.heading + G.orbit + (G.lookX || 0), cp0 = G.camPitch ?? 0.32, cp = Math.max(cp0, 0.08), sky = Math.max(0, 0.08 - cp0), D = G.camDist;
       const back = [-Math.sin(a)*Math.cos(cp)*D, Math.sin(cp)*D + 1.2, Math.cos(a)*Math.cos(cp)*D];
-      T = { pos: add(BOAT.pos, back), look: add(add(BOAT.pos, mul(boatF(), 4)), [0, 0.3, 0]) }; T.pos[1] = back[1]; k = 5; break; }
+      T = { pos: add(BOAT.pos, back), look: add(add(BOAT.pos, mul(boatF(), 4)), [0, 0.3 + (D + 4)*Math.tan(sky), 0]) }; T.pos[1] = back[1]; k = 5; break; }
     case 'fly': {
       const s = smooth(clamp((G.fly.t - 0.3)/Math.max(0.2, G.fly.T - 0.3), 0, 1)), a = boatView(), b = baitView(G.fly.to, 3.4, 2.3);
       T = { pos: vlerp(a.pos, b.pos, s), look: vlerp(a.look, b.look, s) }; k = 8; break; }
@@ -2151,7 +2211,7 @@ function esc(s){ return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': 
 // top-left tracker: titles only, always visible
 function renderQuests(){
   const list = P.quests.filter(questReachable);
-  $('qlist').innerHTML = list.map(q => `<div class="${q.got >= q.n ? 'done' : ''}"><b>${q.got >= q.n ? '✅ ' : ''}${esc(q.text)}</b><span>${q.got >= q.n ? '🎁 보상' : questHere(q) ? (q.n > 1 ? `${q.got}/${q.n}` : '') : '📍' + esc(q.where)}</span></div>`).join('')
+  $('qlist').innerHTML = list.map(q => `<div class="${q.got >= q.n ? 'done' : ''}"><b>${q.got >= q.n ? '✅ ' : ''}${esc(q.text)}</b><span${questHere(q) || q.got >= q.n ? '' : ` title="${esc(q.where)}"`}>${q.got >= q.n ? '🎁 보상' : questHere(q) ? '📍' + (q.n > 1 ? ` ${q.got}/${q.n}` : '') : '⛵'}</span></div>`).join('')   // 📍 = can be done here, ⛵ = sail to another spot
     || '<div><span>새 퀘스트를 준비 중…</span></div>';
   if (!$('questm').hidden) renderQuestModal();
 }
@@ -3098,8 +3158,8 @@ function pollPad(dt){
   // right stick = look around
   if (!G.mapOpen && (rx || ry)){
     const lk = LOOK()*dt, iy = INV(), ix = INVX();
-    if (G.state === 'boat'){ G.orbit += rx*2.2*lk*ix; G.camPitch = clamp((G.camPitch ?? 0.32) + ry*1.2*lk*iy, 0.08, 1.2); }
-    else if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw += rx*1.6*lk*ix; G.aimPitch = clamp(G.aimPitch - ry*0.9*lk*iy, -0.9, 0.35); }
+    if (G.state === 'boat'){ G.orbit += rx*2.2*lk*ix; G.camPitch = clamp((G.camPitch ?? 0.32) + ry*1.2*lk*iy, -0.8, 1.2); }
+    else if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw += rx*1.6*lk*ix; G.aimPitch = clamp(G.aimPitch - ry*0.9*lk*iy, -0.9, 1.1); }
     else { G.orbit += rx*1.6*lk*ix; tiltView(ry*1.0*lk*iy); }
   }
   if (G.mapOpen){
@@ -3236,8 +3296,8 @@ function update(dt){
     if (keys.KeyA || keys.ArrowLeft) { if (G.state === 'idle' || G.state === 'charge') G.aimYaw -= dt*1.2; else G.orbit -= dt*1.2; }
     if (keys.KeyD || keys.ArrowRight){ if (G.state === 'idle' || G.state === 'charge') G.aimYaw += dt*1.2; else G.orbit += dt*1.2; }
     const aiming = G.state === 'idle' || G.state === 'charge';
-    if (keys.KeyW || keys.ArrowUp){ if (aiming) G.aimPitch = clamp(G.aimPitch + dt*0.8, -0.9, 0.35); else tiltView(-dt*0.9); }
-    if (keys.KeyS || keys.ArrowDown){ if (aiming) G.aimPitch = clamp(G.aimPitch - dt*0.8, -0.9, 0.35); else tiltView(dt*0.9); }
+    if (keys.KeyW || keys.ArrowUp){ if (aiming) G.aimPitch = clamp(G.aimPitch + dt*0.8, -0.9, 1.1); else tiltView(-dt*0.9); }
+    if (keys.KeyS || keys.ArrowDown){ if (aiming) G.aimPitch = clamp(G.aimPitch - dt*0.8, -0.9, 1.1); else tiltView(dt*0.9); }
   }
   pollPad(dt); fightHaptics(dt); updateMenuState(); mouseLook(dt); updateWeather(dt); updateClock(dt); updateRain(dt); updateVisitors(dt); checkSightings(dt); updateTarget(dt);
   updateWake(); updateParticles(dt); updateDecor();
@@ -3276,5 +3336,5 @@ buildToolbar(); updateLog();
 requestAnimationFrame(frame);
 window.__decorSolids = () => DECOR.solids || [];
 window.__mapS = (lon, lat) => m2s(nearLon(lon), lat); window.__mapZ = () => MAP.z;
-window.__game = { SND, playS, qteTap, sprayBurst, toReal, toVis, showCard, questEvent, updateLog, G, fishes, cam, mouse, hookFish, hookSet, jerkLift, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
+window.__game = { tryPredator, SND, playS, qteTap, sprayBurst, toReal, toVis, showCard, questEvent, updateLog, G, fishes, cam, mouse, hookFish, hookSet, jerkLift, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
 })();
