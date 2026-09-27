@@ -4,6 +4,7 @@
 (WebGL2 필요, 로컬 파일(file://)에서도 동작).
 
 물 렌더링은 [Clearwater](https://github.com/Aureliengmz/clearwater)(MIT)를 바탕으로 합니다. FFT 파도, 굴절 코스틱,
+낚싯대·릴 모델과 캐스팅/릴 애니메이션은 [Tidewater](https://github.com/dgreenheck/tidewater)(MIT, © 2026 DRG Software Solutions LLC)의 FishingRod를 WebGL2로 옮긴 것입니다.
 프레넬 반사, 햇빛 반짝임, 인터랙티브 파문 위에 물고기·루어·찌·보트 선체·낚싯줄을 물속에서 직접 레이트레이싱해서
 굴절/흡수/코스틱 조명이 물고기에도 그대로 적용됩니다.
 
@@ -116,6 +117,7 @@
 | --- | --- |
 | `index.html` | HUD/UI 레이아웃 |
 | `js/renderer.js` | Clearwater 기반 물 렌더러 + 수중 오브젝트 레이트레이싱 + 보트/낚싯대/찌 래스터 |
+| `js/rodmodel.js` | 낚싯대·릴 모델 ([Tidewater](https://github.com/dgreenheck/tidewater) FishingRod 포팅, MIT — `LICENSE-tidewater`) |
 | `js/game.js` | 게임 상태, 캐스팅, 물고기 AI, 입질·파이팅, 카메라, HUD |
 | `js/data.js` | 어종(외형·힘), 생태권, 물 종류, 명소, 미끼·루어, 상점 장비 |
 | `js/ecology.js` | 조사한 어종별 생태·공략 데이터(수심, 시간대, 미끼·루어 순위, 감기 속도, 팁, 출처) |

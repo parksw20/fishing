@@ -57,8 +57,21 @@ function floorDepth(x, z){
   const B = REGION.depthS;
   const d = B[0] ? lerp(base, amp, clamp(bedShare(B[0], clamp(0.5 + 0.5*n, 0, 1), x, z, [B[1], B[2]]), 0, 1))   // depthP = [min, max, ...]
     : sclamp(base + amp*n, mn, mx, 0.3*amp);
-  const t = clamp((Math.hypot(x, z) - 12)/58, 0, 1);
-  return toVis(lerp(st, d, t*t*(3 - 2*t)));    // the region data are real depths
+  const t = clamp((Math.hypot(x, z) - 12)/58, 0, 1), tt = t*t*(3 - 2*t);
+  // underwater hills: ridged noise lifts the bed into knolls and ridges away from the start spot (same as the shader)
+  const rt = clamp((Math.hypot(x, z) - 4)/21, 0, 1);
+  return toVis(lerp(st, d, tt)*(1 - B[3]*rt*rt*(3 - 2*rt)*bedRelief(x, z)));    // the region data are real depths
+}
+// integer-hash value noise, bit-identical to the shader's (Math.imul = GLSL uint multiply)
+function uhash(x, y){ let h = Math.imul(x, 0x8da6b343) ^ Math.imul(y, 0xd8163841); h ^= h >>> 16; h = Math.imul(h, 0x7feb352d); h ^= h >>> 15; h = Math.imul(h, 0x846ca68b); h ^= h >>> 16; return (h >>> 0)/4294967295; }
+function inoise(px, py){
+  const ix = Math.floor(px), iy = Math.floor(py); let fx = px - ix, fy = py - iy; fx = fx*fx*(3 - 2*fx); fy = fy*fy*(3 - 2*fy);
+  const a = uhash(ix|0, iy|0), b = uhash((ix + 1)|0, iy|0), c = uhash(ix|0, (iy + 1)|0), e = uhash((ix + 1)|0, (iy + 1)|0);
+  return a + (b - a)*fx + (c - a)*fy + (a - b - c + e)*fx*fy;
+}
+function bedRelief(x, z){   // 0..1: ridged, two octaves (Tidewater's ridged fbm: each octave weighted by the one before)
+  const r1 = (1 - Math.abs(2*inoise(x/34 + 11.3, z/34 - 7.1) - 1))**2, r2 = (1 - Math.abs(2*inoise(x/13 - 3.7, z/13 + 5.9) - 1))**2;
+  return 0.7*r1 + 0.3*r1*r2;
 }
 function column(x, z){ return Math.min(floorDepth(x, z), VIS_DEPTH); }
 
@@ -306,7 +319,7 @@ function swim(f, tx, ty, tz, spd, dt, turn){
   const want = Math.atan2(tz - f.pos[2], tx - f.pos[0]);
   const da = wrapA(want - f.heading);
   turnToward(f, want, (turn||2.2)*dt);
-  f.speed += (spd - f.speed)*Math.min(1, dt*2.5);
+  f.speed += (spd - f.speed)*Math.min(1, dt*(spd > f.speed ? 3.0 : 0.9));   // strokes speed it up quickly, drag slows a glide gently
   const mv = f.speed*dt*(Math.abs(da) > 1.6 ? 0.45 : 1);
   f.pos[0] += Math.cos(f.heading)*mv; f.pos[2] += Math.sin(f.heading)*mv;
   moveY(f, ty, dt);
@@ -365,7 +378,10 @@ function updateFish(f, dt){
   switch (f.state){
   case 'wander': {
     if (!f.target || f.timer <= 0 || dist2(f.pos, f.target) < 0.8) wanderTarget(f);
-    swim(f, f.target[0], f.ty, f.target[2], f.cruise, dt, 1.4);
+    // burst and coast: a few strong strokes, then a glide (how most fish cruise to save energy)
+    f.gaitT = (f.gaitT || 0) - dt;
+    if (f.gaitT <= 0){ f.burst = !f.burst; f.gaitT = f.burst ? rand(0.5, 1.1) : rand(0.8, 2.2); }
+    swim(f, f.target[0], f.ty, f.target[2], f.cruise*(f.burst ? 1.5 : 0.45), dt, 1.4);
     if (f.think <= 0){ f.think = 1; interest(f); }
     break; }
   case 'cruise':      // passing visitor (whale, shark, sunfish …): swims through and leaves
@@ -451,11 +467,21 @@ function updateFish(f, dt){
   }
   if (f.state !== 'hooked'){
     avoidBoat(f);
-    // animation
-    const beat = 1.0 + 2.2*f.speed/Math.max(f.len, 0.1);
-    f.tailPh += dt*TAU*beat;
-    f.tail = Math.sin(f.tailPh)*(0.12 + 0.4*clamp(f.speed/(sp.speed*1.5), 0, 1));
+    animFish(f, dt, clamp(f.speed/(sp.speed*1.5), 0, 1)*(f.state === 'wander' && !f.burst ? 0.4 : 1), 1);
   }
+}
+// Swimming animation. Tail beat frequency follows speed in body lengths per second (Bainbridge: U ≈ 0.7·L·f);
+// the stroke is big while the fish accelerates and nearly still while it glides; the body bends into turns.
+function animFish(f, dt, effort, fmul){
+  const L = Math.max(f.len, 0.1);
+  const acc = (f.speed - (f.prevSpeed ?? f.speed))/Math.max(dt, 1e-3); f.prevSpeed = f.speed;
+  const drive = clamp(effort + 0.8*Math.max(0, acc)/(f.sp.speed + 0.2), 0, 1.3);
+  f.tailAmp = lerp(f.tailAmp || 0, 0.05 + 0.45*drive, Math.min(1, dt*5));
+  const beat = Math.min(8, 0.5 + f.speed/(0.7*L)*fmul + 1.5*Math.max(0, acc)/(f.sp.speed + 0.2));
+  f.tailPh += dt*TAU*beat;
+  f.tail = Math.sin(f.tailPh)*f.tailAmp;
+  const dh = wrapA(f.heading - (f.prevHeading ?? f.heading))/Math.max(dt, 1e-3); f.prevHeading = f.heading;
+  f.bend = lerp(f.bend || 0, clamp(-dh*0.16, -0.4, 0.4), Math.min(1, dt*6));
 }
 function interest(f){
   if (f.cooldown > 0 || f.sp.sight) return;
@@ -801,8 +827,7 @@ function updateFight(dt){
     Rn.splash(f.pos[0], f.pos[2], 0.10 + 0.1*f.len, 0.02 + 0.04*f.stamina); if (Math.random() < 0.3) sfx.splash(0.15);
     sprayBurst(f.pos, f.len, 0.4 + 0.6*f.stamina);   // the fish thrashes at the surface: water flies
   }
-  const beat = 2.0 + 3.0*f.speed/Math.max(f.len, 0.1);
-  f.tailPh += dt*TAU*beat; f.tail = Math.sin(f.tailPh)*(0.25 + 0.35*f.stamina);
+  animFish(f, dt, 0.55 + 0.5*f.stamina, 1.6);
   // outcomes
   if (F.tension > 1.0){ F.breakT += dt; if (F.breakT > 0.6) return lose('break'); } else F.breakT = Math.max(0, F.breakT - dt*0.7);
   if (G.mode === 'lure' && F.lineOut > 120) return lose('spool');
@@ -1476,35 +1501,73 @@ function waterRings(S, dt){
   G.ringT = every*rand(0.8, 1.2);
   Rn.splash(p[0], p[2], r, k);
 }
+/* rod pose, bend and reel — after Tidewater's FishingRod: the rod swings back over the shoulder while charging,
+   flicks through on release (the blank loads back, then whips), follows the line while waiting, and bows toward the
+   fish in a fight. The reel's bail opens for the cast; the crank and rotor turn while reeling; the spool slips back
+   when the fish takes line off the drag. */
+const ROD = { el: 0.46, side: 0, bend: 0, bendV: 0, load: 0.15, bail: 0, crank: 0, crankRate: 0, rotor: 0, spool: 0, t: 0, lastDt: 0.016 };
 function rodSpec(){
-  const e = eyeWorld(), m = modeCfg();
-  let yaw = viewYaw(), el = G.mode === 'pole' ? 0.2 : 0.5, bend = 0.04, target;
-  // wind-up: the rod swings back over the right shoulder (stays in view) and whips forward on release
-  if (G.state === 'charge'){ el += G.power*0.35; yaw += G.power*0.6; }
-  if (G.state === 'fly'){ const s = smooth(clamp(G.fly.t/0.3, 0, 1)); el = lerp(el + G.fly.power*0.35, el - 0.1, s); yaw += lerp(G.fly.power*0.6, -0.08, s); }
-  let focus = null;
+  const e = eyeWorld(), dt = ROD.lastDt, pole = G.mode === 'pole';
+  ROD.t += dt;
+  const F = G.fight;
+  // pose targets (elevation above the horizon, sideways swing)
+  let elT = pole ? 0.2 : 0.46, sideT = 0, speed = 5;
+  if (G.state === 'charge'){ elT = lerp(elT, pole ? 1.25 : 1.95, G.power); sideT = 0.12*G.power; speed = 7; }
+  else if (G.state === 'fly'){
+    const t = G.fly.t;
+    if (t < 0.06){ elT = pole ? 1.25 : 1.95; speed = 7; }                  // top of the swing
+    else if (t < 0.35){ elT = pole ? 0.1 : 0.16; sideT = 0.02; speed = 28; } // the flick
+    else { elT = pole ? 0.14 : 0.24; speed = 5; }                            // follow-through along the cast
+  } else if (G.state === 'wait') elT = pole ? -0.02 : 0.4;
+  else if (G.state === 'hooked') elT = 0.75 + 0.35*F.tension*(mouse.down ? 1.4 : 1);
+  const k = 1 - Math.exp(-speed*dt);
+  ROD.el += (elT - ROD.el)*k; ROD.side += (sideT - ROD.side)*k;
+  // yaw: along the view, toward the rig / fish once the line is out; the fight adds the rod pressure
+  let yaw = viewYaw(), focus = null;
   if (G.state === 'wait') focus = G.rig ? G.rig.pos : G.lure.pos;
   if (G.state === 'hooked') focus = G.hooked.pos;
   if (focus){
     yaw = Math.atan2(focus[0] - e[0], -(focus[2] - e[2]));
-    if (G.state === 'hooked'){
-      const P = rodPressure(); const fx = Math.sin(yaw), fz = -Math.cos(yaw);
-      const hx = fx + P.w[0]*P.m*1.3, hz = fz + P.w[1]*P.m*1.3;
-      yaw = Math.atan2(hx, -hz); el = 0.75 + 0.35*G.fight.tension*(mouse.down ? 1.4 : 1);
-      bend = G.fight.tension*0.95;
-    } else { bend = G.mode === 'lure' && G.lure && G.lure.reeling ? 0.15 : 0.06;
-      if (G.mode === 'pole') el = -0.02; }   // waiting on the float: pole held low over the water so its tip stays in view
+    if (G.state === 'hooked'){ const P = rodPressure(), fx = Math.sin(yaw), fz = -Math.cos(yaw); yaw = Math.atan2(fx + P.w[0]*P.m*1.3, -(fz + P.w[1]*P.m*1.3)); }
   }
+  // a live hand: breathing sway, the tip twitching with each crank turn
+  let el = ROD.el + Math.sin(ROD.t*1.3)*0.012 + Math.sin(ROD.crank)*0.006*Math.min(1, ROD.crankRate);
+  yaw += ROD.side + Math.sin(ROD.t*0.9 + 1.7)*0.01;
+  if (G.state === 'hooked' && G.hooked.run && G.hooked.run.burst) el -= 0.12 + 0.05*Math.sin(ROD.t*9);
+  // bend: a damped spring toward the load
+  let bendT = 0, loadT = 0.15;
+  if (G.state === 'hooked'){ bendT = 0.06 + 0.3*Math.min(F.tension, 1.1) + (G.hooked.run && G.hooked.run.burst ? 0.05 : 0); loadT = Math.min(1, F.tension*1.1); }
+  else if (G.state === 'charge') bendT = 0.02 + 0.03*G.power;
+  else if (G.state === 'fly' && G.fly.t < 0.15){ bendT = -0.2*(0.4 + G.fly.power); loadT = 0.55; }   // loaded back, then released
+  else if (G.state === 'wait'){
+    if (G.lure && G.lure.reeling) bendT = 0.035;
+    else if (G.rig) bendT = 0.012 + Math.min(0.08, Math.abs(G.rig.bobV || 0)*0.08);   // the tip nods with the float
+  }
+  if (pole) bendT *= 1.35;   // a long soft pole bows further
+  ROD.bendV += ((bendT - ROD.bend)*250 - ROD.bendV*8)*dt;
+  ROD.bend += ROD.bendV*dt;
+  ROD.load += (loadT - ROD.load)*(1 - Math.exp(-dt*6));
+  // reel (spinning rod only)
+  const bailT = !pole && (G.state === 'charge' || G.state === 'fly') ? 1 : 0;
+  ROD.bail += Math.sign(bailT - ROD.bail)*Math.min(Math.abs(bailT - ROD.bail), (bailT > ROD.bail ? 6 : 16)*dt);
+  const reeling = !pole && ((G.state === 'wait' && G.lure && G.lure.reeling) || (G.state === 'hooked' && mouse.down && !(F.payout > 0)));
+  ROD.crankRate += ((reeling ? Math.min(1.6, 1.1*reelScale()) : 0) - ROD.crankRate)*(1 - Math.exp(-dt*10));
+  const dC = ROD.crankRate*TAU*dt; ROD.crank += dC; ROD.rotor += Math.min(dC*5.2, 3.1*TAU*dt);
+  if (G.state === 'hooked' && F.payout > 0) ROD.spool -= F.payout*dt/0.023;   // the drag slips
+  const lineOut = G.state === 'hooked' ? F.lineOut : focus ? dist3(focus, e) : 0;
   const fw = yawDir(yaw), right = [Math.cos(yaw), 0, Math.sin(yaw)];
-  const base = add(add(add(e, mul(right, 0.26)), [0, -0.42, 0]), mul(fw, 0.32));
+  // the hand on the reel seat: the spinning reel sits in view below the rod (Tidewater's first-person hold); the pole is held lower
+  const hand = pole ? add(add(add(e, mul(right, 0.26)), [0, -0.42, 0]), mul(fw, 0.32)) : add(add(add(e, mul(right, 0.2)), [0, -0.24, 0]), mul(fw, 0.48));
   const dir = [fw[0]*Math.cos(el), Math.sin(el), fw[2]*Math.cos(el)];
-  return { base, dir, len: m.rodLen, bend, kind: G.mode, target: null };
+  return { kind: G.mode, hand, dir, len: modeCfg().rodLen, bend: ROD.bend, load: ROD.load, bendDir: focus ? sub(focus, hand) : null,
+    reel: { rotor: ROD.rotor, bail: ROD.bail, crank: ROD.crank, spool: ROD.spool, osc: Math.sin(ROD.crank*0.5)*0.0035, fill: 1 - Math.min(1, lineOut/220)*0.5 } };
 }
 function scene(dt){
+  ROD.lastDt = Math.min(0.05, Math.max(0.001, dt || 0.016));
   const sh = camShake(dt);
   const S = { t: G.time, dt, cam: { pos: add(cam.pos, sh.pos), look: add(cam.look, sh.look) }, boat: BOAT, fish: [], lure: null, bobber: null, lineUnder: null, lineTo: null, lineSag: 0, flyObj: null };
   const byDist = fishes.slice().sort((a, b) => dist3(a.pos, cam.pos) - (a.visitor ? 25 : 0) - dist3(b.pos, cam.pos) + (b.visitor ? 25 : 0));
-  S.fish = byDist.slice(0, 12).map(f => ({ pos: f.pos, len: f.len, dir: fishDir(f), tail: f.tail, back: f.sp.back, belly: f.sp.belly, pattern: f.sp.pattern, hr: f.sp.hr, shape: f.sp.shape }));
+  S.fish = byDist.slice(0, 12).map(f => ({ id: f.sp.id, pos: f.pos, len: f.len, dir: fishDir(f), tail: f.tail, tailPh: f.tailPh, tailAmp: f.tailAmp, bend: f.bend, back: f.sp.back, belly: f.sp.belly, pattern: f.sp.pattern, hr: f.sp.hr, shape: f.sp.shape }));
   const rod = rodSpec(); S.rod = G.state === 'boat' ? null : rod;
   S.hideRod = false;   // the rod is always drawn (only hidden with the camera under the water)
   S.wake = wakeTrack(); S.particles = PART; S.rain = RAIN;
@@ -1544,7 +1607,6 @@ function scene(dt){
     S.lineSag = Math.max(0, 0.25 - G.fight.tension*0.4)*dh*0.08;
     if (G.mode === 'pole') S.bobber = { pos: [entry[0], -0.05, entry[2]], tilt: 1.3, flying: true };
   }
-  rod.target = S.lineTo || add(rod.base, mul(rod.dir, 10));
   waterRings(S, dt);
   return S;
 }
@@ -2265,24 +2327,32 @@ function wakeTrack(){
   return out;
 }
 const PART_MAX = 3000;   // spray / mist particles alive at once
-const PART = { list: [], data: new Float32Array(PART_MAX*5), n: 0, acc: 0, mistAcc: 0 };
-// droplets thrown up where a fish breaks the surface: count and height grow with its size and strength
+const PART = { list: [], data: new Float32Array(PART_MAX*9), n: 0, acc: 0, mistAcc: 0 };   // per particle: xyz, size, velocity, alpha, kind
+// a splash where a fish breaks the surface (after Tidewater's Spray): many small drops flung up as streaks and a
+// few white clouds of spray that bloom and fall back; size and height grow with the fish and its strength
 function sprayBurst(pos, len, power){
-  const n = Math.round(clamp(60 + 200*len*power, 50, 300)), r = 0.1 + 0.3*len;   // many fine droplets
+  const n = Math.round(clamp(40 + 140*len*power, 30, 220)), r = 0.08 + 0.25*len;
   for (let i = 0; i < n; i++){
-    const a = Math.random()*TAU, o = rand(0.2, 1)*r, out = rand(0.3, 1.1)*(0.4 + power*0.8), up = rand(0.9, 2.2)*(0.5 + power*0.7);
-    emitSpray([pos[0] + Math.cos(a)*o, 0.03, pos[2] + Math.sin(a)*o], [Math.cos(a)*out, up, Math.sin(a)*out], rand(0.007, 0.017)*(0.8 + len*0.6), rand(0.6, 1.0), rand(0.6, 0.9), false);
+    const a = Math.random()*TAU, o = rand(0.1, 1)*r, out = rand(0.3, 1.2)*(0.4 + power*0.7), up = rand(1.0, 2.6)*(0.5 + power*0.7);
+    emitSpray([pos[0] + Math.cos(a)*o, 0.02, pos[2] + Math.sin(a)*o], [Math.cos(a)*out, up, Math.sin(a)*out], rand(0.009, 0.024)*(0.8 + len*0.5), rand(0.7, 1.2), rand(0.55, 0.85), 0);
   }
-  // the crown: a ring of bigger water sheets thrown up and out, readable from the boat
-  const m = Math.round(40 + 50*power);
+  const m = Math.round(3 + 6*power*(0.6 + len));
   for (let i = 0; i < m; i++){
-    const a = i/m*TAU + rand(-0.3, 0.3), out = rand(0.4, 0.9)*(0.5 + power*0.6);
-    emitSpray([pos[0] + Math.cos(a)*r*0.6, 0.05, pos[2] + Math.sin(a)*r*0.6], [Math.cos(a)*out, rand(1.2, 2.0)*(0.6 + power*0.6), Math.sin(a)*out],
-      rand(0.01, 0.02)*(0.8 + len*0.5), rand(0.45, 0.7), rand(0.6, 0.9), false);
+    const a = Math.random()*TAU, out = rand(0.2, 0.7)*(0.4 + power*0.5);
+    sprayClump([pos[0] + Math.cos(a)*r*0.4, 0.04, pos[2] + Math.sin(a)*r*0.4], [Math.cos(a)*out, rand(0.8, 1.7)*(0.5 + power*0.6), Math.sin(a)*out], 10, rand(0.6, 1.0));
   }
-   // a puff of mist on big splashes
 }
-function emitSpray(p, vel, size, life, alpha, mist){ if (PART.list.length < PART_MAX) PART.list.push({ p, v: vel, s: size, life, age: 0, a: alpha, mist }); }
+// a sheet of water breaking up: a clump of small drops thrown together (instead of a soft white puff, which read as smoke)
+function sprayClump(p, vel, n, life){
+  for (let j = 0; j < n; j++){
+    const o = [p[0] + rand(-0.04, 0.04), p[1] + rand(0, 0.03), p[2] + rand(-0.04, 0.04)];
+    emitSpray(o, [vel[0]*rand(0.75, 1.25) + rand(-0.15, 0.15), vel[1]*rand(0.7, 1.3), vel[2]*rand(0.75, 1.25) + rand(-0.15, 0.15)], rand(0.0075, 0.021), life*rand(0.7, 1.1), rand(0.55, 0.85), 0);
+  }
+}
+function emitSpray(p, vel, size, life, alpha, kind){
+  const k = kind === true ? 1 : kind || 0;
+  if (PART.list.length < PART_MAX) PART.list.push({ p, v: vel, s: size, life, age: 0, a: alpha, kind: k, mist: k === 1 });
+}
 function updateParticles(dt){
   const v = G.boatV, av = Math.abs(v), f = boatF(), r = boatR();
   if (av > 1.0){
@@ -2293,30 +2363,25 @@ function updateParticles(dt){
       const sd = Math.random() < 0.5 ? -1 : 1, bk = (v > 0 ? -1 : 1)*HULL.l*rand(0.45, 0.85);
       const p = boatToWorld(sd*hullHalfWidth(bk)*rand(1.02, 1.12), 0.06, bk);
       const out = rand(0.5, 1.2)*(0.6 + av*0.22), upv = rand(0.8, 1.6)*(0.7 + av*0.3);
-      emitSpray(p, [r[0]*sd*out + f[0]*v*0.35, upv, r[2]*sd*out + f[2]*v*0.35], rand(0.035, 0.09), rand(0.5, 0.9), rand(0.55, 0.9), false);
-    }
-    // mist: fine water vapour hanging over the spray and drifting behind the boat
-    PART.mistAcc += dt*av*2.2;
-    while (PART.mistAcc >= 1){ PART.mistAcc -= 1;
-      const sd = Math.random() < 0.5 ? -1 : 1, bk = rand(-HULL.l*0.9, HULL.l*1.2);
-      const p = boatToWorld(sd*(hullHalfWidth(bk) + rand(0.1, 0.6)), rand(0.1, 0.35), bk);
-      emitSpray(p, [-f[0]*v*0.25 + rand(-0.2, 0.2), rand(0.1, 0.35), -f[2]*v*0.25 + rand(-0.2, 0.2)], rand(0.4, 0.9), rand(2.0, 3.2), 0.1 + 0.08*clamp(av/8, 0, 1), true);
+      const vel = [r[0]*sd*out + f[0]*v*0.35, upv, r[2]*sd*out + f[2]*v*0.35];
+      sprayClump(p, vel, 7, rand(0.5, 0.85));
     }
     // prop wash at the stern
-    if (Math.random() < dt*av*6){ const p = boatToWorld(rand(-0.2, 0.2), 0.03, HULL.l + 0.12); emitSpray(p, [rand(-0.4, 0.4) - f[0]*v*0.2, rand(0.4, 1.0), rand(-0.4, 0.4) - f[2]*v*0.2], rand(0.04, 0.08), 0.5, 0.6, false); }
+    if (Math.random() < dt*av*6){ const p = boatToWorld(rand(-0.2, 0.2), 0.03, HULL.l + 0.12); sprayClump(p, [rand(-0.4, 0.4) - f[0]*v*0.2, rand(0.4, 1.0), rand(-0.4, 0.4) - f[2]*v*0.2], 5, 0.5); }
   }
   let n = 0; const D = PART.data;
   for (let i = PART.list.length - 1; i >= 0; i--){
     const q = PART.list[i]; q.age += dt;
-    if (q.mist){ const k = Math.exp(-dt*0.9); q.v[0] *= k; q.v[2] *= k; q.v[1] *= Math.exp(-dt*0.5); q.s += dt*0.45; }
-    else q.v[1] -= 9.8*dt;
+    if (q.kind === 1){ const k = Math.exp(-dt*0.9); q.v[0] *= k; q.v[2] *= k; q.v[1] *= Math.exp(-dt*0.5); q.s += dt*0.45; }
+    else if (q.kind === 3){ const k = Math.exp(-dt/1.8); q.v[0] *= k; q.v[2] *= k; q.v[1] = q.v[1]*k - 8.5*dt; q.s *= 1 + 0.3*dt; }   // spray: drag, grows
+    else { const k = Math.exp(-dt/3); q.v[0] *= k; q.v[2] *= k; q.v[1] -= 9.8*dt; }
     q.p[0] += q.v[0]*dt; q.p[1] += q.v[1]*dt; q.p[2] += q.v[2]*dt;
     if (q.age >= q.life || (!q.mist && q.p[1] < -0.02)){
       if (!q.mist && q.p[1] < 0 && Math.random() < 0.08) Rn.splash(q.p[0], q.p[2], 0.05, 0.006);
       const L = PART.list, last = L.pop(); if (i < L.length) L[i] = last; continue;   // swap-remove: O(1) with thousands of droplets
     }
-    const lf = q.age/q.life, a = q.mist ? q.a*Math.sin(Math.PI*lf) : q.a*(1 - lf*lf);
-    D.set([q.p[0], q.p[1], q.p[2], q.mist ? -q.s : q.s, a], n*5); n++;
+    const lf = q.age/q.life, a = q.kind === 1 ? q.a*Math.sin(Math.PI*lf) : q.a*Math.min(1, q.age/(q.kind === 3 ? 0.1 : 0.02))*(lf < 0.75 ? 1 : 1 - (lf - 0.75)/0.25);
+    D.set([q.p[0], q.p[1], q.p[2], q.s, q.v[0], q.v[1], q.v[2], a, q.kind], n*9); n++;
   }
   PART.n = n;
 }
@@ -2459,10 +2524,12 @@ function applyRegion(spot, first){
     if (z === 2){ const b = lerp(dp[0]*2, 180, clamp((km - 20)/80, 0, 1)); dp = [b, b*0.35, b*0.4, b*1.6]; start = b; }
     else if (z === 3){ const b = clamp(800 + km*3, 800, 4500); dp = [b, b*0.15, b*0.6, b*1.3]; start = b; }
   }
+  // how far the underwater hills rise toward the surface (fraction of the local depth)
+  depthS[3] = spot.floor ? ({ valley: 0.38, dropoff: 0.32, basin: 0.3, reef: 0.25, bank: 0.15, river: 0.15 })[spot.floor[2]] ?? 0.25 : 0.25;
   REGION = { spot, biome: spot.biome, water: spot.water, depthP: dp, depthS, depthQ: [W.scale, seedA, seedB, start] };
   const sunEl = clamp(72 - Math.abs(spot.lat)*0.72, 18, 68), sunAz = (hashf(spot.lon) - 0.5)*40;
   Rn.setEnv(computeHorizon(spot));
-  Rn.setEnv({ sigA: W.sigA, sigS: W.sigS, depthP: REGION.depthP, depthQ: REGION.depthQ, depthS: REGION.depthS, bed: W.bed, land: W.land, sunEl, sunAz });
+  Rn.setEnv({ sea: spot.water.startsWith('sea'), sigA: W.sigA, sigS: W.sigS, depthP: REGION.depthP, depthQ: REGION.depthQ, depthS: REGION.depthS, bed: W.bed, land: W.land, sunEl, sunAz });
   BOAT.pos = [0, 0, 0]; BOAT.heading = 0; G.boatV = 0; G.aimYaw = Math.PI/2; G.orbit = 0;   // start looking out over the side
   G.rig = null; G.lure = null; G.hooked = null; G.fight = null; G.engaged = null; G.strike = null;
   if (G.state !== 'boat') G.state = 'idle';
@@ -3130,7 +3197,7 @@ function frame(now){
   if (cap && now - last < 1000/cap - 3){ requestAnimationFrame(frame); return; }
   const dt = Math.min(0.05, (now - last)/1000); last = now;
   if (Rn.ready()){
-    if (!started){ started = true; $('loading').classList.add('off'); }
+    if (!started){ started = true; if (window.setLoad) setLoad(100); else $('loading').classList.add('off'); }
     for (let i = 0; i < SUBSTEPS; i++) update(SUBSTEPS > 1 ? 0.05 : dt);
     const res = Rn.render(scene(dt));
     if (res && res.tip){ G.tip = res.tip; G.tipS = vlerp(G.tipS, res.tip, Math.min(1, dt*(G.state === 'hooked' ? 2.5 : 20))); }
