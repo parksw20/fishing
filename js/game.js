@@ -860,6 +860,7 @@ function landFish(){
   else netMsg = '살림망이 가득 차 방생했어요 — 판매하세요';
   fishes.splice(fishes.indexOf(f), 1);
   G.hooked = null; G.fight = null; G.state = 'result';
+  G.landed = { id: sp.id, len: f.len, weight: f.weight, t: 0, ph: 0, amp: 0.5, bend: 0, burst: 1, sw: 0, swV: 0, tw: rand(0, TAU) };   // hangs off the rod, flapping, while the card shows
   Rn.splash(f.pos[0], f.pos[2], 0.2, 0.05); sprayBurst(f.pos, f.len, 1.3); sfx.splash(0.6); if (!playS('catch')) sfx.win();
   showCard(rec, isBest && !!prev, !prev);
   if (netMsg) setTimeout(() => say(netMsg, 3, 'bad'), 400);
@@ -953,6 +954,7 @@ function hideCard(){
   if (CARD.running && CARD.finish){ CARD.finish(); return; }
   CARD.timers.forEach(clearTimeout); CARD.timers = []; CARD.seq++;
   $('card').hidden = true; if (G.state === 'result') G.state = 'idle';
+  G.landed = null;
   if (G.toNet){ G.toNet = false; playS('net', { gain: 0.8 }); }   // the catch goes into the keep net
 }
 // a short brass-like fanfare (no audio files): rising arpeggio and a held chord
@@ -1504,6 +1506,29 @@ function waterRings(S, dt){
    fish in a fight. The reel's bail opens for the cast; the crank and rotor turn while reeling; the spool slips back
    when the fish takes line off the drag. */
 const ROD = { el: 0.46, side: 0, bend: 0, bendV: 0, load: 0.15, bail: 0, crank: 0, crankRate: 0, rotor: 0, spool: 0, t: 0, lastDt: 0.016 };
+// the landed fish on the line: where the rod must point so it hangs about level with the view, left of the card
+function landedPose(){
+  const L = G.landed, len = modeCfg().rodLen, pole = G.mode === 'pole', e = eyeWorld();
+  const ll = pole ? 1.0 : 0.3;                                   // line from the tip to the mouth
+  const d = norm(sub(cam.look, cam.pos)), pitch = Math.asin(clamp(d[1], -0.9, 0.9));
+  const handY = e[1] + (pole ? -0.42 : -0.24);
+  const Dh = len*0.85;
+  const yc = e[1] + Math.tan(pitch)*Dh;                          // fish centre roughly on the view's horizon line
+  const tipH = yc + 0.5*L.len + ll;
+  return { el: Math.asin(clamp((tipH - handY)/len, -0.2, 0.97)), ll };
+}
+// flapping: bursts of hard tail beats and body curls, pauses between; the fish swings like a pendulum on the line
+function updateLanded(dt){
+  const L = G.landed; if (!L) return;
+  L.t += dt;
+  if ((L.next ?? 0) <= L.t){ L.burst = L.burst > 0.5 ? rand(0.05, 0.25) : rand(0.75, 1); L.next = L.t + (L.burst > 0.5 ? rand(0.5, 1.3) : rand(0.4, 1.4)); if (L.burst > 0.5) L.kick = rand(-1, 1); }
+  const b = L.burst;
+  L.amp += (0.12 + 0.75*b - L.amp)*Math.min(1, dt*6);
+  L.ph += dt*TAU*(1.2 + 5.5*b);
+  L.bend += (b*0.55*Math.sin(L.t*3.1 + 1.3)*(L.kick || 0.5) - L.bend)*Math.min(1, dt*5);
+  L.swV += (-9.8/Math.max(0.2, 0.3 + L.len*0.5)*Math.sin(L.sw) + b*6*Math.sin(L.ph*0.5)*0.4 - L.swV*0.6)*dt; L.sw += L.swV*dt;
+  L.tw += dt*(0.25 + 1.2*b*Math.sin(L.t*1.7));
+}
 function rodSpec(){
   const e = eyeWorld(), dt = ROD.lastDt, pole = G.mode === 'pole';
   ROD.t += dt;
@@ -1518,12 +1543,17 @@ function rodSpec(){
     else { elT = pole ? 0.14 : 0.24; speed = 5; }                            // follow-through along the cast
   } else if (G.state === 'wait') elT = pole ? -0.02 : 0.4;
   else if (G.state === 'hooked') elT = 0.75 + 0.35*F.tension*(mouse.down ? 1.4 : 1);
+  else if (G.state === 'result' && G.landed) { elT = landedPose().el; speed = 3; }
   const k = 1 - Math.exp(-speed*dt);
   ROD.el += (elT - ROD.el)*k; ROD.side += (sideT - ROD.side)*k;
   // yaw: along the view, toward the rig / fish once the line is out; the fight adds the rod pressure
   let yaw = viewYaw(), focus = null;
   if (G.state === 'wait') focus = G.rig ? G.rig.pos : G.lure.pos;
   if (G.state === 'hooked') focus = G.hooked.pos;
+  if (G.state === 'result' && G.landed){   // the catch is held up off to the left of the card (≈ halfway to the screen's left edge)
+    const d = sub(cam.look, cam.pos);
+    yaw = Math.atan2(d[0], -d[2]) - Math.atan(0.72*(innerWidth/innerHeight)*Math.tan(Math.PI/6));
+  }
   if (focus){
     yaw = Math.atan2(focus[0] - e[0], -(focus[2] - e[2]));
     if (G.state === 'hooked'){ const P = rodPressure(), fx = Math.sin(yaw), fz = -Math.cos(yaw); yaw = Math.atan2(fx + P.w[0]*P.m*1.3, -(fz + P.w[1]*P.m*1.3)); }
@@ -1536,6 +1566,7 @@ function rodSpec(){
   let bendT = 0, loadT = 0.15;
   if (G.state === 'hooked'){ bendT = 0.06 + 0.3*Math.min(F.tension, 1.1) + (G.hooked.run && G.hooked.run.burst ? 0.05 : 0); loadT = Math.min(1, F.tension*1.1); }
   else if (G.state === 'charge') bendT = 0.02 + 0.03*G.power;
+  else if (G.state === 'result' && G.landed) bendT = Math.min(0.3, 0.04 + 0.03*Math.sqrt(G.landed.weight))*(1 + 0.35*G.landed.burst*Math.abs(Math.sin(G.landed.ph)));
   else if (G.state === 'fly' && G.fly.t < 0.15){ bendT = -0.2*(0.4 + G.fly.power); loadT = 0.55; }   // loaded back, then released
   else if (G.state === 'wait'){
     if (G.lure && G.lure.reeling) bendT = 0.035;
@@ -1572,7 +1603,20 @@ function scene(dt){
   if (G.state === 'boat') return S;
   const it = curItem();
   const tip = G.tip;
-  if (G.state === 'idle' || G.state === 'charge' || G.state === 'result'){
+  if (G.state === 'result' && G.landed && tip){
+    // the catch dangles from the rod tip by the mouth, head up, flapping and swinging on the line
+    updateLanded(ROD.lastDt);
+    const L = G.landed, ll = landedPose().ll, d = norm(sub(cam.look, cam.pos)), rgt = norm([-d[2], 0, d[0]]);
+    const ax = [Math.sin(L.sw)*rgt[0], Math.cos(L.sw), Math.sin(L.sw)*rgt[2]];   // line direction, from the hook up to the tip
+    const H = sub(tip, mul(ax, ll));
+    const lean = 0.25*L.bend;                                        // the body kicks out sideways as it curls
+    const f = norm([ax[0] + rgt[0]*lean, ax[1], ax[2] + rgt[2]*lean]);
+    const hz = [Math.cos(L.tw), 0, Math.sin(L.tw)], k = hz[0]*f[0] + hz[2]*f[2], side = norm(sub(hz, mul(f, k)));
+    S.hang = { id: L.id, pos: sub(H, mul(f, 0.5*L.len)), f, side, len: L.len, ph: L.ph, amp: L.amp, bend: L.bend };
+    S.lineTo = H;
+    if (G.mode === 'pole') S.bobber = { pos: vlerp(tip, H, 0.45), flying: true };
+    else S.flyObj = { pos: H, r: 0.02 };
+  } else if (G.state === 'idle' || G.state === 'charge' || G.state === 'result'){
     if (G.mode === 'pole'){ const p = add(tip, [0, -1.0, 0]); S.bobber = { pos: p, flying: true }; S.lineTo = add(p, [0, 0.2, 0]); }
     else { const p = add(tip, [0, -0.28, 0]); S.flyObj = { pos: p, r: 0.022 }; S.lineTo = p; }
   } else if (G.state === 'fly'){
@@ -1757,7 +1801,7 @@ function updateGauges(){
   $('dragmark').style.display = G.mode === 'lure' ? 'block' : 'none';
   const lines = [];
   const lk = lineKg();
-  $('tbar').hidden = G.state === 'boat';
+  $('tcenter').hidden = !(G.state === 'wait' || G.state === 'hooked' || G.state === 'fly');
   if (G.state === 'boat'){
     const hdg = ((BOAT.heading*180/Math.PI) % 360 + 360) % 360;
     lines.push(`<div><span>속도</span><b>${(Math.abs(G.boatV)*1.944).toFixed(1)}노트</b></div>`);
@@ -1772,7 +1816,7 @@ function updateGauges(){
   if (F) lines.push(`<div><span>거리</span><b>${F.lineOut.toFixed(1)}m</b></div>`);
   else if (G.rig) lines.push(`<div><span>바닥</span><b>${fmtD(G.rig.floor)}m</b></div>`);
   else if (G.lure) lines.push(`<div><span>거리</span><b>${dist2(G.lure.pos, tipXZ()).toFixed(1)}m</b></div>`);
-  if (G.state !== 'boat') lines.push(`<div><span>장력</span><b>${(T*lk).toFixed(1)}kg</b></div>`);   // last, right above the tension bar
+  $('tval').textContent = (T*lk).toFixed(1) + 'kg';
   const h = lines.join('');
   if (h !== gaugeCache){ $('ginfo').innerHTML = h; gaugeCache = h; }
   $('retrieve').hidden = G.state !== 'wait';

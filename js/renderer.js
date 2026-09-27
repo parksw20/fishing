@@ -88,6 +88,7 @@ in vec2 vUv; out vec4 o;
 /* ---------------- Ocean spectrum (FFT) ---------------- */
 const N = 256, LOGN = 8;
 const L = 4.6;               // patch size (m)
+const L_PATCH = L;
 const DEPTH = 2.4;          // mean depth (m): caustics focus plane
 const TARGET_SLOPE = 0.078;  // RMS slope
 
@@ -1976,6 +1977,116 @@ function loadGLB(key, b64, fit){
       }).catch(() => {});
   }
 }
+/* ---------------- rigged fish models (models/fish/<id>.glb) ---------------- */
+// Each model: head toward +x, length 1 (x -0.5..0.5), y up, z to the side; a 6-joint spine from the head (x 0.42) to
+// the tail (x -0.42) with linear skin weights. Loaded on demand; until a model is in (or if it can't load, e.g. from
+// file://) the fish is drawn by the traced photo body instead. The pose uses the same travelling wave as the traced
+// fish (tail phase, amplitude, bend into the turn), turned into joint yaws.
+const FISHM = {};
+const FJX = [0.42, 0.252, 0.084, -0.084, -0.252, -0.42];
+function fishModel(id){
+  if (!id) return null;
+  let m = FISHM[id];
+  if (!m){
+    m = FISHM[id] = { ready: false };
+    fetch('models/fish/' + id + '.glb').then(r => { if (!r.ok) throw 0; return r.arrayBuffer(); }).then(buf => {
+      const bytes = new Uint8Array(buf), dv = new DataView(buf);
+      const jl = dv.getUint32(12, true), J = JSON.parse(new TextDecoder().decode(bytes.subarray(20, 20 + jl))), bin = 20 + jl + 8;
+      const acc = i => { const a = J.accessors[i], v = J.bufferViews[a.bufferView], n = { SCALAR:1, VEC2:2, VEC3:3, VEC4:4 }[a.type], off = bin + (v.byteOffset||0) + (a.byteOffset||0);
+        const T = a.componentType === 5126 ? Float32Array : a.componentType === 5123 ? Uint16Array : a.componentType === 5125 ? Uint32Array : Uint8Array;
+        return new T(buf.slice(off, off + a.count*n*T.BYTES_PER_ELEMENT)); };
+      const pr = J.meshes[0].primitives[0], A = pr.attributes;
+      const P = acc(A.POSITION), N = acc(A.NORMAL), UV = acc(A.TEXCOORD_0), JO = acc(A.JOINTS_0), WE = acc(A.WEIGHTS_0), I = acc(pr.indices);
+      const nv = P.length/3, V = new Float32Array(nv*14);
+      for (let i = 0; i < nv; i++) V.set([P[i*3], P[i*3+1], P[i*3+2], N[i*3], N[i*3+1], N[i*3+2], UV[i*2], UV[i*2+1], JO[i*4], JO[i*4+1], WE[i*4], WE[i*4+1], 0, 0], i*14);
+      const vao = gl.createVertexArray(); gl.bindVertexArray(vao);
+      gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer()); gl.bufferData(gl.ARRAY_BUFFER, V, gl.STATIC_DRAW);
+      gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 3, gl.FLOAT, false, 56, 0);
+      gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 3, gl.FLOAT, false, 56, 12);
+      gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2, 2, gl.FLOAT, false, 56, 24);
+      gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 4, gl.FLOAT, false, 56, 32);   // joint a, joint b, weight a, weight b
+      gl.bindBuffer(gl.ELEMENT_ARRAY_BUFFER, gl.createBuffer()); gl.bufferData(gl.ELEMENT_ARRAY_BUFFER, I, gl.STATIC_DRAW);
+      gl.bindVertexArray(null);
+      m.vao = vao; m.n = I.length; m.type = I instanceof Uint32Array ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
+      m.top = J.accessors[A.POSITION].max[1]; m.bot = J.accessors[A.POSITION].min[1];
+      const im = J.images[0], v = J.bufferViews[im.bufferView];
+      return createImageBitmap(new Blob([bytes.subarray(bin + (v.byteOffset||0), bin + (v.byteOffset||0) + v.byteLength)], { type: im.mimeType })).then(img => {
+        const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
+        gl.texImage2D(gl.TEXTURE_2D, 0, gl.SRGB8_ALPHA8, gl.RGBA, gl.UNSIGNED_BYTE, img); gl.generateMipmap(gl.TEXTURE_2D);
+        gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_LINEAR);
+        if (extAniso) gl.texParameterf(gl.TEXTURE_2D, extAniso.TEXTURE_MAX_ANISOTROPY_EXT, 4);
+        m.tex = t; m.ready = true;
+      });
+    }).catch(() => { m.failed = true; });
+  }
+  return m.ready ? m : null;
+}
+const pFishM = prog(`#version 300 es
+layout(location=0) in vec3 aP; layout(location=1) in vec3 aN; layout(location=2) in vec2 aT; layout(location=3) in vec4 aJW;
+uniform mat4 uM, uJ[6]; uniform vec3 uCam, uR, uU, uF; uniform float uTanF, uAspect;
+out vec3 vN, vW; out vec2 vT;
+void main(){
+  mat4 S = uJ[int(aJW.x)]*aJW.z + uJ[int(aJW.y)]*aJW.w;
+  vec4 w = uM*(S*vec4(aP, 1.0)); vW = w.xyz; vN = mat3(uM)*(mat3(S)*aN); vT = aT;
+  vec3 v = w.xyz - uCam; float dz = dot(v, uF);
+  gl_Position = vec4(dot(v,uR)/(uAspect*uTanF), dot(v,uU)/uTanF, ${ZA.toFixed(8)}*dz + (${ZB.toFixed(8)}), dz);
+}`, `#version 300 es
+precision highp float;
+in vec3 vN, vW; in vec2 vT; out vec4 o;
+uniform sampler2D uTex, uCaus; uniform vec3 uSun, uCam, uSunC, uSkyK, uSigT; uniform float uL, uDepth, uWet; uniform vec2 uCausShift;
+${UWR_GLSL}
+void main(){
+  vec3 n = normalize(vN), v = normalize(uCam - vW);
+  if (dot(n, v) < 0.0) n = -n;
+  vec3 alb = texture(uTex, vT).rgb;
+  vec3 col;
+  if (uUW.w > 0.5 && vW.y < 0.0){
+    // under water: lit like the seabed and decor (refracted sun through the depth, caustics, sky fill), then the water column
+    float dep = max(-vW.y, 0.0), mu = max(uUWls.y, 0.2), focus = clamp(dep/uDepth, 0.0, 1.0);
+    vec3 caus = mix(vec3(1.0), texture(uCaus, (vW.xz - uCausShift*focus)/uL, 1.0).rgb, focus);
+    vec3 sunL = uUWsun*exp(-uSigT*dep/mu)*caus;
+    vec3 sky = uUWsky*exp(-uSigT*dep*1.2)*(0.55 + 0.45*n.y);
+    col = alb*1.3/3.14159*(sunL*max(dot(n, uUWls), 0.0) + sky);
+    col += sunL*0.05*pow(max(dot(n, normalize(uUWls + v)), 0.0), 40.0);
+    col = uwFog(col, vW, uCam);
+  } else {
+    // in the air (a catch on the hook): sun, sky and a wet sheen
+    float nl = max(dot(n, uSun), 0.0);
+    vec3 skyE = (vec3(0.62,0.70,0.78)*1.5*(0.55 + 0.45*n.y) + vec3(0.30,0.40,0.40)*0.5*max(-n.y, 0.0))*uSkyK;
+    col = alb/3.14159*(uSunC*nl + skyE);
+    vec3 h = normalize(v + uSun);
+    col += uSunC*(0.03 + 0.12*uWet)*pow(max(dot(n, h), 0.0), 60.0)*nl + skyE*0.05*uWet*pow(1.0 - max(dot(n, v), 0.0), 4.0);
+  }
+  o = vec4(col, 1);
+}`, 'fishmodel');
+const fishJ = new Float32Array(6*16);
+// joint skin matrices for a pose: the midline follows off(s) (s = 0 head .. 1 tail, in body lengths) like the traced fish
+function fishJoints(ph, amp, bend){
+  const off = s => amp*(0.02 + 0.22*s*s)*Math.sin(ph - 4.8*s) + bend*0.35*s*s;
+  const pts = FJX.map(x => [x, off(0.5 - x)]); pts.push([-0.5, off(1)]);
+  for (let j = 0; j < 6; j++){
+    const a = pts[j], b = pts[j + 1], d = a[0] - b[0], sn = Math.max(-0.95, Math.min(0.95, (b[1] - a[1])/d)), cs = Math.sqrt(1 - sn*sn);
+    // S = translate(a.x, 0, a.z) · Ry(φ) · translate(-x_j, 0, 0), Ry: x' = c·x + s·z, z' = -s·x + c·z (sin φ = sn)
+    const tx = a[0] - cs*FJX[j], tz = a[1] + sn*FJX[j];
+    fishJ.set([cs, 0, -sn, 0,  0, 1, 0, 0,  sn, 0, cs, 0,  tx, 0, tz, 1], j*16);
+  }
+  return fishJ;
+}
+// draw one fish model: centre, forward (head), side (body's +z), length; pose; wet = sheen out of the water
+function drawFishModel(m, B, c, f, sd, L, ph, amp, bend, wet){
+  const up = cross3(sd, f);   // z × x = y
+  const M = new Float32Array([f[0]*L, f[1]*L, f[2]*L, 0, up[0]*L, up[1]*L, up[2]*L, 0, sd[0]*L, sd[1]*L, sd[2]*L, 0, c[0], c[1], c[2], 1]);
+  const u = pFishM.u;
+  gl.useProgram(pFishM.p); setCamUniforms(pFishM, B); setUW(pFishM);
+  gl.uniform3fv(u.uSun, SUNV); gl.uniform3fv(u.uSunC, ENV.sunC); gl.uniform3fv(u.uSkyK, ENV.skyK);
+  gl.uniform3fv(u.uSigT, ENV.sigA.map((a, i) => a + ENV.sigS[i])); gl.uniform1f(u.uL, L_PATCH); gl.uniform1f(u.uDepth, DEPTH); gl.uniform2fv(u.uCausShift, causShift);
+  gl.uniform1f(u.uWet, wet || 0);
+  gl.uniformMatrix4fv(u.uM, false, M); gl.uniformMatrix4fv(u.uJ, false, fishJoints(ph, amp, bend));
+  gl.activeTexture(gl.TEXTURE14); gl.bindTexture(gl.TEXTURE_2D, causRT.t); gl.uniform1i(u.uCaus, 14);
+  gl.activeTexture(gl.TEXTURE15); gl.bindTexture(gl.TEXTURE_2D, m.tex); gl.uniform1i(u.uTex, 15); gl.activeTexture(gl.TEXTURE0);
+  gl.bindVertexArray(m.vao); gl.drawElements(gl.TRIANGLES, m.n, m.type, 0);
+  gl.useProgram(pMesh.p);
+}
 // starter boat: inflatable RIB (b_1.glb, 1 x 0.75 x 0.79 model units)
 if (window.BOAT_GLB) try { loadGLB('b1', window.BOAT_GLB, { scale: 3.0, tilt: 0.10, lift: -0.42, zoff: 0, gain: 1.6 }); } catch(e){ console.warn('b_1.glb', e); }
 function drawBoat(M){
@@ -2291,7 +2402,9 @@ function render(S){
   gl.uniform4fv(u.uBed, ENV.bed); gl.uniform1f(u.uLand, 1.0);
   gl.uniform1fv(u.uHor, ENV.hor); gl.uniform1fv(u.uHorD, ENV.horD); gl.uniform1f(u.uSnow, ENV.snow);
   gl.uniform3fv(u.uSunC, ENV.sunC); gl.uniform4fv(u.uWeather, ENV.weather); gl.uniform3fv(u.uSkyK, ENV.skyK); gl.uniform1f(u.uNight, ENV.night);
-  const fl = S.fish.slice(0, MAXF);
+  // below the surface, fish that have a rigged model are drawn as meshes (after this pass) instead of traced
+  const meshFish = [];
+  const fl = S.fish.filter(f => { const m = B.pos[1] < -0.03 && fishModel(f.id); if (m) meshFish.push([m, f]); else fishModel(f.id); return !m; }).slice(0, MAXF);
   fl.forEach((f,i) => {
     fishBuf.P.set([f.pos[0],f.pos[1],f.pos[2],f.len], i*4);
     fishBuf.D.set([f.dir[0],f.dir[1],f.dir[2],f.tail], i*4);
@@ -2326,6 +2439,11 @@ function render(S){
   gl.depthFunc(gl.LESS);
   gl.useProgram(pMesh.p); setCamUniforms(pMesh, B); gl.uniform3fv(pMesh.u.uSun, SUNV); gl.uniform3fv(pMesh.u.uSunC, ENV.sunC); gl.uniform3fv(pMesh.u.uSkyK, ENV.skyK); setLamps(pMesh);
   drawDecor(B, t);
+  for (const [m, f] of meshFish){
+    const d = f.dir, up0 = norm3([-d[0]*d[1], 1 - d[1]*d[1], -d[2]*d[1]]), sd = cross3(d, up0);
+    drawFishModel(m, B, f.pos, d, sd, f.len, f.tailPh || 0, f.tailAmp || 0, f.bend || 0, 0);
+  }
+  if (S.hang){ const h = S.hang, m = fishModel(h.id); if (m) drawFishModel(m, B, h.pos, h.f, h.side, h.len, h.ph, h.amp, h.bend, 1); }
   drawBoat(boatM);
   drawLampGlows(B);
   let tip = null;

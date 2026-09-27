@@ -137,7 +137,11 @@
   .netbtns { display:flex; gap:6px; margin-top:6px; }
   .netbtns button { flex:1; font-size:11px; padding:4px 8px; }
   #gauges { position:fixed; left:14px; bottom:calc(14px + env(safe-area-inset-bottom,0px)); width:164px; padding:10px 12px; display:flex; flex-direction:column; gap:8px; z-index:5; }
-  #tbar { position:relative; height:10px; border-radius:5px; background:rgba(0,0,0,.35); overflow:hidden; }
+  #tcenter { position:fixed; left:50%; top:calc(50% + 20vmin + 30px); transform:translateX(-50%); width:min(380px, 62vw); z-index:5; pointer-events:none; display:flex; flex-direction:column; gap:5px; align-items:center; }
+  #tcenter[hidden] { display:none; }
+  #tlabel { font-size:14px; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,.8); }
+  #tlabel b { font-size:16px; }
+  #tbar { position:relative; width:100%; height:12px; border-radius:6px; background:rgba(0,0,0,.45); box-shadow:0 0 0 1px rgba(255,255,255,.25); overflow:hidden; }
   #tbar::after { content:''; position:absolute; top:0; bottom:0; left:calc(100%/1.1); width:2px; background:#ff5a4a; }
   #tfill { position:absolute; left:0; top:0; bottom:0; width:0; background:linear-gradient(90deg,#8ff0a8,#46c36d); transition:width .08s linear; }
   #tfill.warn { background:linear-gradient(90deg,#ffe27a,#f0b53a); }
@@ -250,7 +254,7 @@
   body.touch #gauges { left:10px; bottom:auto; top:calc(96px + env(safe-area-inset-top,0px)); width:140px; padding:0 2px; gap:4px;
     background:none; backdrop-filter:none; -webkit-backdrop-filter:none; text-shadow:0 1px 3px rgba(0,0,0,.9), 0 0 8px rgba(0,0,0,.5); }
   body.touch #ginfo { font-size:11px; gap:1px; }
-  body.touch #tbar { height:7px; }
+  body.touch #tbar { height:9px; }
   body.touch #target { display:none; }
   /* settings */
   .sbox { width:min(620px, 100%); }
@@ -475,8 +479,9 @@
 <!-- bottom left (under the fish finder): tension / boat info -->
 <div id="gauges" class="glass">
   <div id="ginfo"></div>
-  <div id="tbar"><div id="tfill"></div><div id="dragmark"></div></div>
 </div>
+<!-- centre: line tension (big and in view while fishing) -->
+<div id="tcenter" hidden><div id="tlabel">장력 <b id="tval">0.0kg</b></div><div id="tbar"><div id="tfill"></div><div id="dragmark"></div></div></div>
 
 <!-- bottom centre: fishing / boat toggle, tackle (2-level), and the hint line under them -->
 <div id="dock">
