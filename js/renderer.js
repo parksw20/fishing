@@ -2030,6 +2030,10 @@ function fishModel(id){
       gl.bindVertexArray(null);
       m.vao = vao; m.n = I.length; m.type = I instanceof Uint32Array ? gl.UNSIGNED_INT : gl.UNSIGNED_SHORT;
       m.top = J.accessors[A.POSITION].max[1]; m.bot = J.accessors[A.POSITION].min[1];
+      // the mouth: the snout tip, i.e. the forward-most vertices (averaged over the last 1.5% of the length)
+      { let mx = -1; for (let i = 0; i < nv; i++) mx = Math.max(mx, P[i*3]);
+        let sx = 0, sy = 0, n = 0; for (let i = 0; i < nv; i++) if (P[i*3] > mx - 0.015){ sx += P[i*3]; sy += P[i*3+1]; n++; }
+        m.mouth = [sx/n, sy/n]; }
       const im = J.images[0], v = J.bufferViews[im.bufferView];
       return createImageBitmap(new Blob([bytes.subarray(bin + (v.byteOffset||0), bin + (v.byteOffset||0) + v.byteLength)], { type: im.mimeType })).then(img => {
         const t = gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D, t);
@@ -2464,7 +2468,10 @@ function render(S){
     const d = f.dir, up0 = norm3([-d[0]*d[1], 1 - d[1]*d[1], -d[2]*d[1]]), sd = cross3(d, up0);
     drawFishModel(m, B, f.pos, d, sd, f.len, f.tailPh || 0, f.tailAmp || 0, f.bend || 0, 0);
   }
-  if (S.hang){ const h = S.hang, m = fishModel(h.id); if (m) drawFishModel(m, B, h.pos, h.f, h.side, h.len, h.ph, h.amp, h.bend, 1); }
+  if (S.hang){ const h = S.hang, m = fishModel(h.id);
+    if (m){ const up = cross3(h.side, h.f), mo = m.mouth || [0.5, 0], L = h.len;   // hung by the mouth: the hook point is the snout
+      const c = [h.hook[0] - (h.f[0]*mo[0] + up[0]*mo[1])*L, h.hook[1] - (h.f[1]*mo[0] + up[1]*mo[1])*L, h.hook[2] - (h.f[2]*mo[0] + up[2]*mo[1])*L];
+      drawFishModel(m, B, c, h.f, h.side, L, h.ph, h.amp, h.bend, 1); } }
   drawBoat(boatM);
   drawLampGlows(B);
   let tip = null;

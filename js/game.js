@@ -1620,7 +1620,7 @@ function scene(dt){
     const lean = 0.25*L.bend;                                        // the body kicks out sideways as it curls
     const f = norm([ax[0] + rgt[0]*lean, ax[1], ax[2] + rgt[2]*lean]);
     const hz = [Math.cos(L.tw), 0, Math.sin(L.tw)], k = hz[0]*f[0] + hz[2]*f[2], side = norm(sub(hz, mul(f, k)));
-    S.hang = { id: L.id, pos: sub(H, mul(f, 0.5*L.len)), f, side, len: L.len, ph: L.ph, amp: L.amp, bend: L.bend };
+    S.hang = { id: L.id, hook: H, f, side, len: L.len, ph: L.ph, amp: L.amp, bend: L.bend };
     S.lineTo = H;
     if (G.mode === 'pole') S.bobber = { pos: vlerp(tip, H, 0.45), flying: true };
     else S.flyObj = { pos: H, r: 0.02 };
