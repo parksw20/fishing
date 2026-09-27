@@ -1566,7 +1566,16 @@ float n3(vec3 x){ vec3 i = floor(x), f = fract(x); f = f*f*(3.0 - 2.0*f);
 void main(){
   vec3 n = normalize(vN), v = normalize(uCam - vW);
   vec3 alb = vC; float ao = 1.0, thin = 0.0;
-  if (vS < -0.5){
+  if (vS < -2.2){
+    // brain coral: meandering ridges and valleys (contour lines of a warped noise), pale ridge tops, dark grooves, fine polyps
+    float w = n3(vW*2.1 + 3.0)*1.6;
+    float v = n3(vW*5.5 + w) + 0.5*n3(vW*11.0 - w);
+    float g = abs(fract(v*5.0) - 0.5)*2.0;                     // 0 in a groove, 1 on a ridge
+    float ridge = smoothstep(0.15, 0.7, g);
+    alb = vC*mix(0.35, 1.15, ridge)*(0.85 + 0.3*n3(vW*70.0));
+    alb = mix(alb, vC*vec3(1.1, 1.05, 0.9) + 0.04, smoothstep(0.85, 1.0, g)*0.4);
+    ao = mix(0.6, 1.0, ridge)*smoothstep(-0.9, 0.1, n.y);
+  } else if (vS < -0.5){
     // stone after Tidewater's rock shading: three noise scales make the tone, dark joints, lighter faces;
     // algae and pink coralline crusts (sea) or an olive film (fresh water) on the faces that look up
     ao = clamp(-vS - 1.0, 0.0, 1.0);
@@ -1581,6 +1590,10 @@ void main(){
     vec3 grow = uSea > 0.5 ? mix(vec3(0.05, 0.09, 0.02), vec3(0.40, 0.19, 0.21), smoothstep(0.45, 0.7, n3(vW*1.7 + 2.0)))
                            : mix(vec3(0.06, 0.08, 0.025), vec3(0.10, 0.09, 0.04), fine);
     alb = mix(rc, grow*1.6, top*0.8);
+  } else if (vS > -0.001 && vS < 0.001){
+    // branching coral and logs: rough polyp-studded surface
+    float pp = n3(vW*55.0), mm = n3(vW*9.0);
+    alb = vC*(0.75 + 0.35*mm)*(0.8 + 0.4*smoothstep(0.55, 0.75, pp));
   } else if (vS > 0.001){
     // blades: darker toward the root, paler aged tips; thin enough to let light through
     float t = clamp(vS, 0.0, 1.0);
@@ -1681,7 +1694,13 @@ function buildDecor(items){
   for (const it of items){
     const R = rnd(it.h), o = it.p, s = it.s, c = it.c;
     if (it.k === 'rock'){ const rad = [s*(0.8 + 0.5*R()), s*(0.5 + 0.45*R()), s*(0.8 + 0.5*R())]; rock([o[0], o[1] + rad[1]*(0.25 - 0.3*R()), o[2]], rad, c, R, it.r); }
-    else if (it.k === 'brain') blob(o, [s, s*0.7, s], c, 8, R()*10, 1, 0.08);
+    else if (it.k === 'brain'){   // brain coral: a smooth dome (aS = -2.5 marks it for the meander texture in the shader)
+      const rad = [s*(0.9 + 0.2*R()), s*(0.55 + 0.2*R()), s*(0.9 + 0.2*R())], sd = R()*50;
+      const P = ICO.v.map(d => { const k = 1 + (vn3(d[0]*2.2 + sd, d[1]*2.2, d[2]*2.2) - 0.5)*0.12; return [o[0] + d[0]*rad[0]*k, o[1] + Math.max(d[1], -0.25)*rad[1]*k, o[2] + d[2]*rad[2]*k]; });
+      const N = P.map(() => [0, 0, 0]);
+      for (const [a, b, e] of ICO.f){ const n = cross3(sub3(P[b], P[a]), sub3(P[e], P[a])); for (const i of [a, b, e]){ N[i][0] += n[0]; N[i][1] += n[1]; N[i][2] += n[2]; } }
+      for (const [a, b, e] of ICO.f) tri(P[a], P[b], P[e], norm3(N[a]), norm3(N[b]), norm3(N[e]), c, c, c, -2.5, -2.5, -2.5);
+    }
     else if (it.k === 'coral'){   // branching coral: a few forks
       const grow = (a, dir, len, r, depth) => { const b = [a[0] + dir[0]*len, a[1] + dir[1]*len, a[2] + dir[2]*len]; branch(a, b, r, r*0.7, c, 0); if (depth > 0) for (let q = 0; q < 2; q++){ const t = R()*Math.PI*2, sp = 0.5 + R()*0.4; grow(b, norm3([dir[0] + Math.cos(t)*sp, dir[1], dir[2] + Math.sin(t)*sp]), len*0.72, r*0.7, depth - 1); } };
       for (let q = 0; q < 3; q++){ const t = R()*Math.PI*2; grow([o[0] + Math.cos(t)*s*0.15, o[1], o[2] + Math.sin(t)*s*0.15], norm3([Math.cos(t)*0.35, 1, Math.sin(t)*0.35]), s*0.45, s*0.07, 2); }

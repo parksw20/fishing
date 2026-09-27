@@ -1506,16 +1506,22 @@ function waterRings(S, dt){
    fish in a fight. The reel's bail opens for the cast; the crank and rotor turn while reeling; the spool slips back
    when the fish takes line off the drag. */
 const ROD = { el: 0.46, side: 0, bend: 0, bendV: 0, load: 0.15, bail: 0, crank: 0, crankRate: 0, rotor: 0, spool: 0, t: 0, lastDt: 0.016 };
-// the landed fish on the line: where the rod must point so it hangs about level with the view, left of the card
+// the landed fish lifted into view: its place is fixed on screen (left of the card, a little above the middle, close
+// enough to fill about a third of the view), the rod is raised steeply above it and the line drops straight to its mouth
 function landedPose(){
-  const L = G.landed, len = modeCfg().rodLen, pole = G.mode === 'pole', e = eyeWorld();
-  const ll = pole ? 1.0 : 0.3;                                   // line from the tip to the mouth
-  const d = norm(sub(cam.look, cam.pos)), pitch = Math.asin(clamp(d[1], -0.9, 0.9));
-  const handY = e[1] + (pole ? -0.42 : -0.24);
-  const Dh = len*0.85;
-  const yc = e[1] + Math.tan(pitch)*Dh;                          // fish centre roughly on the view's horizon line
-  const tipH = Math.max(yc + 0.5*L.len, L.len + 0.3) + ll;   // the rod comes up far enough to lift the whole fish clear of the water
-  return { el: Math.asin(clamp((tipH - handY)/len, -0.2, 0.97)), ll };
+  const L = G.landed, pole = G.mode === 'pole', R = modeCfg().rodLen*0.93, e = eyeWorld();
+  const f = norm(sub(cam.look, cam.pos)), rgt = norm([-f[2], 0, f[0]]), up = [rgt[1]*f[2] - rgt[2]*f[1], rgt[2]*f[0] - rgt[0]*f[2], rgt[0]*f[1] - rgt[1]*f[0]];
+  const tf = Math.tan(Math.PI/6), asp = innerWidth/innerHeight;
+  const D = clamp(1.0 + 1.3*L.len, 1.4, 7);
+  const px = 160 + clamp(0.18*innerWidth, 140, 340), nx = -Math.min(0.8, px/(innerWidth/2)), ny = 0.12;
+  const C = add(add(add(e, mul(f, D)), mul(rgt, nx*asp*tf*D)), mul(up, ny*tf*D));
+  const H = add(C, [0, 0.5*L.len, 0]);                            // mouth / hook, the fish hangs head up
+  const hand = add(add(add(e, mul(rgt, pole ? 0.26 : 0.2)), [0, pole ? -0.42 : -0.24, 0]), mul(yawDir(Math.atan2(f[0], -f[2])), pole ? 0.32 : 0.48));
+  // line length so the (straight) rod reaches from the hand to a point right above the hook
+  const q = sub(H, hand), b = q[1], c = q[0]*q[0] + q[1]*q[1] + q[2]*q[2] - R*R;
+  const ll = clamp(-b + Math.sqrt(Math.max(b*b - c, 0)), 0.25, 4);
+  const tip = add(H, [0, ll, 0]), dir = norm(sub(tip, hand));
+  return { H, ll, el: Math.asin(clamp(dir[1], -1, 1)), yaw: Math.atan2(dir[0], -dir[2]), rgt };
 }
 // flapping: bursts of hard tail beats and body curls, pauses between; the fish swings like a pendulum on the line
 function updateLanded(dt){
@@ -1543,18 +1549,14 @@ function rodSpec(){
     else { elT = pole ? 0.14 : 0.24; speed = 5; }                            // follow-through along the cast
   } else if (G.state === 'wait') elT = pole ? -0.02 : 0.4;
   else if (G.state === 'hooked') elT = 0.75 + 0.35*F.tension*(mouse.down ? 1.4 : 1);
-  else if (G.state === 'result' && G.landed) { elT = landedPose().el; speed = 3; }
+  else if (G.state === 'result' && G.landed) { elT = landedPose().el; speed = 4; }
   const k = 1 - Math.exp(-speed*dt);
   ROD.el += (elT - ROD.el)*k; ROD.side += (sideT - ROD.side)*k;
   // yaw: along the view, toward the rig / fish once the line is out; the fight adds the rod pressure
   let yaw = viewYaw(), focus = null;
   if (G.state === 'wait') focus = G.rig ? G.rig.pos : G.lure.pos;
   if (G.state === 'hooked') focus = G.hooked.pos;
-  if (G.state === 'result' && G.landed){   // the catch is held up off to the left of the card (≈ halfway to the screen's left edge)
-    const d = sub(cam.look, cam.pos);
-    const px = 160 + clamp(0.18*innerWidth, 140, 340), ndc = Math.min(0.85, px/(innerWidth/2));   // just left of the card (320 px wide, centred)
-    yaw = Math.atan2(d[0], -d[2]) - Math.atan(ndc*(innerWidth/innerHeight)*Math.tan(Math.PI/6));
-  }
+  if (G.state === 'result' && G.landed) yaw = landedPose().yaw;   // raised steeply over the lifted catch
   if (focus){
     yaw = Math.atan2(focus[0] - e[0], -(focus[2] - e[2]));
     if (G.state === 'hooked'){ const P = rodPressure(), fx = Math.sin(yaw), fz = -Math.cos(yaw); yaw = Math.atan2(fx + P.w[0]*P.m*1.3, -(fz + P.w[1]*P.m*1.3)); }
@@ -1607,9 +1609,9 @@ function scene(dt){
   if (G.state === 'result' && G.landed && tip){
     // the catch dangles from the rod tip by the mouth, head up, flapping and swinging on the line
     updateLanded(ROD.lastDt);
-    const L = G.landed, ll = landedPose().ll, d = norm(sub(cam.look, cam.pos)), rgt = norm([-d[2], 0, d[0]]);
-    const ax = [Math.sin(L.sw)*rgt[0], Math.cos(L.sw), Math.sin(L.sw)*rgt[2]];   // line direction, from the hook up to the tip
-    const H = sub(tip, mul(ax, ll));
+    const L = G.landed, lp = landedPose(), rgt = lp.rgt;
+    const ax = [Math.sin(L.sw)*0.35*rgt[0], 1, Math.sin(L.sw)*0.35*rgt[2]];   // it swings a little on the line
+    const H = add(lp.H, [-ax[0]*lp.ll*0.3, 0, -ax[2]*lp.ll*0.3]);
     const lean = 0.25*L.bend;                                        // the body kicks out sideways as it curls
     const f = norm([ax[0] + rgt[0]*lean, ax[1], ax[2] + rgt[2]*lean]);
     const hz = [Math.cos(L.tw), 0, Math.sin(L.tw)], k = hz[0]*f[0] + hz[2]*f[2], side = norm(sub(hz, mul(f, k)));
