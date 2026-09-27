@@ -1506,22 +1506,27 @@ function waterRings(S, dt){
    fish in a fight. The reel's bail opens for the cast; the crank and rotor turn while reeling; the spool slips back
    when the fish takes line off the drag. */
 const ROD = { el: 0.46, side: 0, bend: 0, bendV: 0, load: 0.15, bail: 0, crank: 0, crankRate: 0, rotor: 0, spool: 0, t: 0, lastDt: 0.016 };
-// the landed fish lifted into view: its place is fixed on screen (left of the card, a little above the middle, close
-// enough to fill about a third of the view), the rod is raised steeply above it and the line drops straight to its mouth
+// the landed fish lifted into view: the rod is raised steeply (55-65°, lower only for long fish so they don't fill the
+// screen) and aimed so its tip stands just left of the card; the fish hangs straight below the tip on a short line,
+// its middle a little above the centre of the view
 function landedPose(){
-  const L = G.landed, pole = G.mode === 'pole', R = modeCfg().rodLen*0.93, e = eyeWorld();
-  const f = norm(sub(cam.look, cam.pos)), rgt = norm([-f[2], 0, f[0]]), up = [rgt[1]*f[2] - rgt[2]*f[1], rgt[2]*f[0] - rgt[0]*f[2], rgt[0]*f[1] - rgt[1]*f[0]];
+  const L = G.landed, pole = G.mode === 'pole', R = modeCfg().rodLen*0.95, e = eyeWorld();
+  const f = norm(sub(cam.look, cam.pos)), rgt = norm([-f[2], 0, f[0]]);
   const tf = Math.tan(Math.PI/6), asp = innerWidth/innerHeight;
-  const D = clamp(1.0 + 1.3*L.len, 1.4, 7);
-  const px = 160 + clamp(0.18*innerWidth, 140, 340), nx = -Math.min(0.8, px/(innerWidth/2)), ny = 0.12;
-  const C = add(add(add(e, mul(f, D)), mul(rgt, nx*asp*tf*D)), mul(up, ny*tf*D));
-  const H = add(C, [0, 0.5*L.len, 0]);                            // mouth / hook, the fish hangs head up
-  const hand = add(add(add(e, mul(rgt, pole ? 0.26 : 0.2)), [0, pole ? -0.42 : -0.24, 0]), mul(yawDir(Math.atan2(f[0], -f[2])), pole ? 0.32 : 0.48));
-  // line length so the (straight) rod reaches from the hand to a point right above the hook
-  const q = sub(H, hand), b = q[1], c = q[0]*q[0] + q[1]*q[1] + q[2]*q[2] - R*R;
-  const ll = clamp(-b + Math.sqrt(Math.max(b*b - c, 0)), 0.25, 4);
-  const tip = add(H, [0, ll, 0]), dir = norm(sub(tip, hand));
-  return { H, ll, el: Math.asin(clamp(dir[1], -1, 1)), yaw: Math.atan2(dir[0], -dir[2]), rgt };
+  const hand = add(add(add(e, mul(rgt, pole ? 0.26 : 0.2)), [0, pole ? -0.42 : -0.24, 0]), mul(norm([f[0], 0, f[2]]), pole ? 0.32 : 0.48));
+  const elDes = pole ? 1.13 : 0.96;
+  const dh = Math.min(R*0.92, Math.max(R*Math.cos(elDes), L.len*1.7));   // horizontal reach of the tip from the hand
+  const el = Math.acos(dh/R);
+  // azimuth: the tip (and the fish) at the screen spot left of the card, at the tip's distance
+  const px = 160 + clamp(0.18*innerWidth, 140, 340), nx = -Math.min(0.8, px/(innerWidth/2));
+  const fh = norm([f[0], 0, f[2]]), Dc = dh + (pole ? 0.32 : 0.48);
+  const C = add(add(e, mul(fh, Dc)), mul(rgt, nx*asp*tf*Dc));
+  const yaw = Math.atan2(C[0] - hand[0], -(C[2] - hand[2]));
+  const pitch = Math.asin(clamp(f[1], -0.9, 0.9));
+  const yc = e[1] + Math.tan(pitch + 0.12*0.5)*Dc;                 // fish centre a little above the middle of the view
+  const tipY = hand[1] + R*Math.sin(el);
+  const ll = Math.max(0.15, tipY - (yc + 0.5*L.len));
+  return { ll, el, yaw, rgt };
 }
 // flapping: bursts of hard tail beats and body curls, pauses between; the fish swings like a pendulum on the line
 function updateLanded(dt){
@@ -1569,7 +1574,7 @@ function rodSpec(){
   let bendT = 0, loadT = 0.15;
   if (G.state === 'hooked'){ bendT = 0.06 + 0.3*Math.min(F.tension, 1.1) + (G.hooked.run && G.hooked.run.burst ? 0.05 : 0); loadT = Math.min(1, F.tension*1.1); }
   else if (G.state === 'charge') bendT = 0.02 + 0.03*G.power;
-  else if (G.state === 'result' && G.landed) bendT = Math.min(0.3, 0.04 + 0.03*Math.sqrt(G.landed.weight))*(1 + 0.35*G.landed.burst*Math.abs(Math.sin(G.landed.ph)));
+  else if (G.state === 'result' && G.landed) bendT = Math.min(0.1, 0.02 + 0.015*Math.sqrt(G.landed.weight))*(1 + 0.4*G.landed.burst*Math.abs(Math.sin(G.landed.ph)));   // raised: the fish's weight only bows the tip a little
   else if (G.state === 'fly' && G.fly.t < 0.15){ bendT = -0.2*(0.4 + G.fly.power); loadT = 0.55; }   // loaded back, then released
   else if (G.state === 'wait'){
     if (G.lure && G.lure.reeling) bendT = 0.035;
@@ -1610,8 +1615,8 @@ function scene(dt){
     // the catch dangles from the rod tip by the mouth, head up, flapping and swinging on the line
     updateLanded(ROD.lastDt);
     const L = G.landed, lp = landedPose(), rgt = lp.rgt;
-    const ax = [Math.sin(L.sw)*0.35*rgt[0], 1, Math.sin(L.sw)*0.35*rgt[2]];   // it swings a little on the line
-    const H = add(lp.H, [-ax[0]*lp.ll*0.3, 0, -ax[2]*lp.ll*0.3]);
+    const ax = [Math.sin(L.sw)*rgt[0], Math.cos(L.sw), Math.sin(L.sw)*rgt[2]];   // line direction from the hook up to the tip (it swings)
+    const H = sub(tip, mul(ax, lp.ll));                              // straight below the rod tip
     const lean = 0.25*L.bend;                                        // the body kicks out sideways as it curls
     const f = norm([ax[0] + rgt[0]*lean, ax[1], ax[2] + rgt[2]*lean]);
     const hz = [Math.cos(L.tw), 0, Math.sin(L.tw)], k = hz[0]*f[0] + hz[2]*f[2], side = norm(sub(hz, mul(f, k)));
