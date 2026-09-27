@@ -318,7 +318,7 @@ const ZNEAR = 0.05, ZFAR = 5000.0;
 const ZA = (ZFAR+ZNEAR)/(ZFAR-ZNEAR), ZB = -2*ZFAR*ZNEAR/(ZFAR-ZNEAR);
 const pMain = prog(VS, HEAD+`
 #define MAXF ${MAXF}
-uniform sampler2D uSurf, uCaus, uPeb, uRip;
+uniform sampler2D uSurf, uCaus, uPeb, uRip, uCloud;
 uniform vec3 uCam, uR, uU, uF, uSun;
 uniform float uTanF, uAspect, uL, uDepth, uTime, uRipSize, uPixAng;
 uniform vec2 uCausShift, uRipCenter;
@@ -380,13 +380,40 @@ float mountains(float a){
   return n;
 }
 float gLand = 0.0;   // set by sky(): how much distant land covers this direction (hides the sun disk behind it)
+float gCloud = 0.0;  // set by sky(): cloud cover in this direction (dims the sun disk)
 vec3 sky(vec3 d, float soft){
-  gLand = 0.0;
+  gLand = 0.0; gCloud = 0.0;
   float e = d.y;
   float mu = dot(d, uSun);
   vec3 zen = vec3(0.11, 0.27, 0.62), hor = vec3(0.66, 0.78, 0.90);
+  // low sun (after Tidewater's atmosphere): a deeper zenith, the horizon glowing orange toward the sun and a pink
+  // band (belt of Venus) on the opposite side
+  float low = 1.0 - smoothstep(0.02, 0.4, uSun.y), sunA = max(dot(normalize(d.xz + 1e-5), normalize(uSun.xz + 1e-5)), -1.0);
+  zen = mix(zen, vec3(0.06, 0.14, 0.40), low*0.6);
+  float band = pow(1.0 - clamp(e, 0.0, 1.0), 5.0);
+  hor = mix(hor, mix(vec3(0.80, 0.62, 0.72), vec3(1.15, 0.62, 0.30), smoothstep(-0.6, 0.9, sunA)), low*band*0.85);
   vec3 c = mix(hor, zen, pow(clamp(e,0.,1.), 0.42));
   c += vec3(1.0, 0.86, 0.66) * (0.22*pow(max(mu,0.),6.) + 0.30*pow(max(mu,0.),64.) + 1.6*pow(max(mu,0.),2400.));
+  c += vec3(1.0, 0.55, 0.25)*low*0.55*pow(max(mu, 0.0), 4.0)*band;
+  // clouds: a drifting layer projected on a plane ~2 km up (tileable noise texture, two scales), lit toward the sun
+  // with a bright silver lining around it; coverage follows the weather. Reflections take one tap only.
+  if (e > 0.0){
+    vec2 cp = d.xz/(e + 0.06)*0.30 + uTime*vec2(0.0045, 0.0018);
+    float cov = mix(0.22, 0.95, uWeather.x);
+    float n = texture(uCloud, cp*0.22).r;
+    if (soft == 0.0) n = n*0.7 + texture(uCloud, cp*0.85 + 0.37).g*0.3;
+    float den = smoothstep(1.0 - cov, 1.0 - cov + 0.3, n);
+    if (den > 0.0){
+      float shade = 1.0;
+      if (soft == 0.0){ float ns = texture(uCloud, (cp + uSun.xz*0.05)*0.22).r; shade = clamp(1.0 - (ns - n)*4.0, 0.45, 1.15); }
+      vec3 cc = mix(vec3(0.50, 0.55, 0.63), vec3(1.02, 0.99, 0.95), shade*(0.55 + 0.45*clamp(uSun.y*3.0, 0.0, 1.0)));
+      cc += vec3(1.0, 0.88, 0.7)*1.4*pow(max(mu, 0.0), 10.0)*(1.0 - den*0.8);      // silver lining toward the sun
+      cc = mix(cc, cc*vec3(1.25, 0.72, 0.52), low*0.75);                           // sunset undersides
+      float fade = smoothstep(0.0, 0.10, e);
+      gCloud = den*fade;
+      c = mix(c, cc, gCloud*0.96);
+    }
+  }
   // distant headland: pine canopy over pale limestone, softened by ~2 km of air
   float a = atan(d.z, d.x);
   float dkm; float base = uLand*horizonAt(a, dkm);
@@ -719,7 +746,7 @@ vec3 underwaterView(vec3 rd, out float tHit){
     if (dot(tr, tr) < 0.01) L = deepC*0.8;
     else {
       float Fw = fresnel(max(dot(-rd, -n), 0.0), 1.0/IOR);
-      vec3 sk = sky(tr, 0.0); L = (1.0 - Fw)*(sk*1.1 + SUN*6.0*smoothstep(0.9990, 0.99975, dot(tr, uSun))*(1.0 - uWeather.x)*(1.0 - gLand)) + Fw*deepC;
+      vec3 sk = sky(tr, 0.0); L = (1.0 - Fw)*(sk*1.1 + SUN*6.0*smoothstep(0.9990, 0.99975, dot(tr, uSun))*(1.0 - uWeather.x)*(1.0 - gLand)*(1.0 - 0.9*gCloud)) + Fw*deepC;
     }
   }
   // the water column between the eye and what it sees: absorption plus sunlit in-scatter;
@@ -947,6 +974,25 @@ void main(){
     col += (refl*0.55 + SUN*max(uSun.y, 0.05)*0.004)*smoothstep(0.015, 0.25, rs) + refl*0.12*clamp(R.x*25.0, 0.0, 1.0);
   }
 
+  // crest translucency (after Tidewater's WaterMaterial): sun shining through thin wave tips glows green-teal,
+  // strongest looking toward the sun, side-lit waves a little too
+  {
+    vec2 vH = normalize(v.xz + 1e-5), lH = normalize(uSun.xz + 1e-5);
+    float back = pow(clamp(dot(vH, -lH)*0.6 + 0.4, 0.0, 1.0), 2.5);
+    float crest = clamp(hsum*5.0*uWaveK + 0.1, 0.0, 1.0)*(clamp((1.0 - n.y)*4.0, 0.0, 1.0) + 0.25);
+    col += SUN*Ts*vec3(0.12, 0.55, 0.45)*0.05*back*crest*smoothstep(0.0, 0.25, uSun.y)*(1.0 - F)*exp(-dist*0.01);
+  }
+  // whitecaps: in wind or a rough sea the steepest crests break into foam
+  {
+    float wind = max(uWeather.w - 0.25, 0.0)*1.4 + max(uWaveK - 1.4, 0.0)*0.5;
+    if (wind > 0.0 && dist < 80.0){
+      float steep = length(slope)/max(uWaveK, 0.5);
+      float br = vnoise(P.xz*2.3 + uTime*vec2(0.3, -0.2))*0.6 + vnoise(P.xz*7.0 - uTime*0.5)*0.4;
+      float wc = smoothstep(0.30, 0.55, steep*(0.7 + 0.6*br))*min(wind, 1.0)*smoothstep(80.0, 20.0, dist);
+      vec3 foamC = 0.8/PI*(SUN*max(uSun.y, 0.05) + skyIrr*2.2);
+      col = mix(col, foamC, wc*0.75);
+    }
+  }
   // wake foam: broken white water on the track and the arms near the boat
   if (wk.y > 0.01){
     float br = vnoise(P.xz*3.1 + uTime*vec2(0.35, -0.25))*0.7 + vnoise(P.xz*9.0 - uTime*0.4)*0.3;
@@ -965,7 +1011,7 @@ void main(){
   // sky above horizon
   vec3 skyc = sky(rd, 0.0);
   float mu = dot(rd, uSun);
-  skyc += SUN*18.0*smoothstep(0.99996, 0.999985, mu)*(1.0 - uWeather.x)*(1.0 - gLand);
+  skyc += SUN*18.0*smoothstep(0.99996, 0.999985, mu)*(1.0 - uWeather.x)*(1.0 - gLand)*(1.0 - 0.9*gCloud);
   float hz = smoothstep(-0.0005, 0.0015, rd.y);
   col = mix(col, skyc, hz);
 
@@ -1269,6 +1315,28 @@ function setLight(sunEl, sunAz, dayK, warm){
   ENV.expo = 1 + 2.2*(1 - k);
 }
 function lerp1(a, b, t){ return a + (b - a)*t; }
+// tileable cloud noise (256², R: billowy fbm for the cloud shapes, G: finer detail), built once
+const cloudTex = (() => {
+  const N = 256, data = new Uint8Array(N*N*2);
+  const hash = (x, y, s) => { const h = Math.sin(x*127.1 + y*311.7 + s*74.7)*43758.5453; return h - Math.floor(h); };
+  const vn = (x, y, P, s) => {   // periodic value noise, period P cells
+    const xi = Math.floor(x), yi = Math.floor(y), fx = x - xi, fy = y - yi, u = fx*fx*(3 - 2*fx), v = fy*fy*(3 - 2*fy);
+    const a = hash(((xi % P) + P) % P, ((yi % P) + P) % P, s), b = hash((((xi + 1) % P) + P) % P, ((yi % P) + P) % P, s);
+    const c = hash(((xi % P) + P) % P, (((yi + 1) % P) + P) % P, s), d = hash((((xi + 1) % P) + P) % P, (((yi + 1) % P) + P) % P, s);
+    return a + (b - a)*u + (c - a)*v + (a - b - c + d)*u*v;
+  };
+  for (let y = 0; y < N; y++) for (let x = 0; x < N; x++){
+    let r = 0, g = 0, amp = 0.5, tot = 0;
+    for (let o = 0; o < 5; o++){ const P = 4 << o, k = P/N; r += amp*(1 - Math.abs(2*vn(x*k, y*k, P, o) - 1)*0.6); tot += amp; amp *= 0.5; }
+    r /= tot; amp = 0.5; tot = 0;
+    for (let o = 0; o < 4; o++){ const P = 16 << o, k = P/N; g += amp*vn(x*k, y*k, P, o + 11); tot += amp; amp *= 0.5; }
+    g /= tot;
+    const i = (y*N + x)*2; data[i] = Math.round(Math.min(1, Math.max(0, (r - 0.35)*1.9))*255); data[i + 1] = Math.round(g*255);
+  }
+  const t = tex(N, N, gl.RG8, { wrap: gl.REPEAT, mip: true });
+  gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, N, N, gl.RG, gl.UNSIGNED_BYTE, data); gl.generateMipmap(gl.TEXTURE_2D);
+  return t;
+})();
 const VFOV = 60*Math.PI/180;
 
 
@@ -1809,9 +1877,9 @@ function render(S){
   target(hdrRT);
   gl.enable(gl.DEPTH_TEST); gl.depthFunc(gl.ALWAYS); gl.depthMask(true);
   gl.disable(gl.BLEND); gl.useProgram(pMain.p);
-  bindT(0,surfRT.t); bindT(1,causRT.t); bindT(2,pebTex); bindT(3,ripN.t);
+  bindT(0,surfRT.t); bindT(1,causRT.t); bindT(2,pebTex); bindT(3,ripN.t); bindT(4,cloudTex);
   const u = pMain.u;
-  gl.uniform1i(u.uSurf,0); gl.uniform1i(u.uCaus,1); gl.uniform1i(u.uPeb,2); gl.uniform1i(u.uRip,3);
+  gl.uniform1i(u.uSurf,0); gl.uniform1i(u.uCaus,1); gl.uniform1i(u.uPeb,2); gl.uniform1i(u.uRip,3); gl.uniform1i(u.uCloud,4);
   setCamUniforms(pMain, B); gl.uniform3fv(u.uSun, SUNV);
   gl.uniform1f(u.uL, L); gl.uniform1f(u.uWaveK, ENV.waveK); gl.uniform1f(u.uDepth, DEPTH); gl.uniform1f(u.uTime, t);
   gl.uniform1f(u.uRipSize, RSIZE); gl.uniform2fv(u.uRipCenter, ripCenter); gl.uniform2fv(u.uCausShift, causShift);
