@@ -1379,7 +1379,7 @@ function release(){
 }
 function wheel(s){
   if (G.state === 'boat'){ G.camDist = clamp(G.camDist*(s > 0 ? 0.88 : 1.14), 4.5, 30); return; }
-  if (G.mode === 'lure'){ G.drag = clamp(Math.round((G.drag + s*0.05)*100)/100, 0.05, 1.2); say(`드랙 ${s > 0 ? '조임' : '풀기'} · ${(G.drag*lineKg()).toFixed(1)}kg${G.drag >= 1 ? ' (잠김!)' : ''}`, 1); sfx.click(0.05); }
+  if (G.mode === 'lure'){ G.dragShowT = G.time + 1.8; G.drag = clamp(Math.round((G.drag + s*0.05)*100)/100, 0.05, 1.2); say(`드랙 ${s > 0 ? '조임' : '풀기'} · ${(G.drag*lineKg()).toFixed(1)}kg${G.drag >= 1 ? ' (잠김!)' : ''}`, 1); sfx.click(0.05); }
   else {
     // step in real metres: 0.1 m near the surface, coarser when fishing deep
     const cur = toReal(G.depthSet), st = cur < 3 ? 0.1 : cur < 10 ? 0.5 : cur < 25 ? 1 : 2;
@@ -1514,7 +1514,7 @@ function landedPose(){
   const handY = e[1] + (pole ? -0.42 : -0.24);
   const Dh = len*0.85;
   const yc = e[1] + Math.tan(pitch)*Dh;                          // fish centre roughly on the view's horizon line
-  const tipH = yc + 0.5*L.len + ll;
+  const tipH = Math.max(yc + 0.5*L.len, L.len + 0.3) + ll;   // the rod comes up far enough to lift the whole fish clear of the water
   return { el: Math.asin(clamp((tipH - handY)/len, -0.2, 0.97)), ll };
 }
 // flapping: bursts of hard tail beats and body curls, pauses between; the fish swings like a pendulum on the line
@@ -1552,7 +1552,8 @@ function rodSpec(){
   if (G.state === 'hooked') focus = G.hooked.pos;
   if (G.state === 'result' && G.landed){   // the catch is held up off to the left of the card (≈ halfway to the screen's left edge)
     const d = sub(cam.look, cam.pos);
-    yaw = Math.atan2(d[0], -d[2]) - Math.atan(0.72*(innerWidth/innerHeight)*Math.tan(Math.PI/6));
+    const px = 160 + clamp(0.18*innerWidth, 140, 340), ndc = Math.min(0.85, px/(innerWidth/2));   // just left of the card (320 px wide, centred)
+    yaw = Math.atan2(d[0], -d[2]) - Math.atan(ndc*(innerWidth/innerHeight)*Math.tan(Math.PI/6));
   }
   if (focus){
     yaw = Math.atan2(focus[0] - e[0], -(focus[2] - e[2]));
@@ -1801,7 +1802,8 @@ function updateGauges(){
   $('dragmark').style.display = G.mode === 'lure' ? 'block' : 'none';
   const lines = [];
   const lk = lineKg();
-  $('tcenter').hidden = !(G.state === 'wait' || G.state === 'hooked' || G.state === 'fly');
+  // tension: only during the fight, or for a moment after setting the lure reel's drag with the wheel
+  $('tcenter').hidden = !(G.state === 'hooked' || (G.mode === 'lure' && (G.dragShowT || 0) > G.time));
   if (G.state === 'boat'){
     const hdg = ((BOAT.heading*180/Math.PI) % 360 + 360) % 360;
     lines.push(`<div><span>속도</span><b>${(Math.abs(G.boatV)*1.944).toFixed(1)}노트</b></div>`);
