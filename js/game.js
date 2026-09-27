@@ -57,8 +57,21 @@ function floorDepth(x, z){
   const B = REGION.depthS;
   const d = B[0] ? lerp(base, amp, clamp(bedShare(B[0], clamp(0.5 + 0.5*n, 0, 1), x, z, [B[1], B[2]]), 0, 1))   // depthP = [min, max, ...]
     : sclamp(base + amp*n, mn, mx, 0.3*amp);
-  const t = clamp((Math.hypot(x, z) - 12)/58, 0, 1);
-  return toVis(lerp(st, d, t*t*(3 - 2*t)));    // the region data are real depths
+  const t = clamp((Math.hypot(x, z) - 12)/58, 0, 1), tt = t*t*(3 - 2*t);
+  // underwater hills: ridged noise lifts the bed into knolls and ridges away from the start spot (same as the shader)
+  const rt = clamp((Math.hypot(x, z) - 4)/21, 0, 1);
+  return toVis(lerp(st, d, tt)*(1 - B[3]*rt*rt*(3 - 2*rt)*bedRelief(x, z)));    // the region data are real depths
+}
+// integer-hash value noise, bit-identical to the shader's (Math.imul = GLSL uint multiply)
+function uhash(x, y){ let h = Math.imul(x, 0x8da6b343) ^ Math.imul(y, 0xd8163841); h ^= h >>> 16; h = Math.imul(h, 0x7feb352d); h ^= h >>> 15; h = Math.imul(h, 0x846ca68b); h ^= h >>> 16; return (h >>> 0)/4294967295; }
+function inoise(px, py){
+  const ix = Math.floor(px), iy = Math.floor(py); let fx = px - ix, fy = py - iy; fx = fx*fx*(3 - 2*fx); fy = fy*fy*(3 - 2*fy);
+  const a = uhash(ix|0, iy|0), b = uhash((ix + 1)|0, iy|0), c = uhash(ix|0, (iy + 1)|0), e = uhash((ix + 1)|0, (iy + 1)|0);
+  return a + (b - a)*fx + (c - a)*fy + (a - b - c + e)*fx*fy;
+}
+function bedRelief(x, z){   // 0..1: ridged, two octaves (Tidewater's ridged fbm: each octave weighted by the one before)
+  const r1 = (1 - Math.abs(2*inoise(x/34 + 11.3, z/34 - 7.1) - 1))**2, r2 = (1 - Math.abs(2*inoise(x/13 - 3.7, z/13 + 5.9) - 1))**2;
+  return 0.7*r1 + 0.3*r1*r2;
 }
 function column(x, z){ return Math.min(floorDepth(x, z), VIS_DEPTH); }
 
@@ -2511,10 +2524,12 @@ function applyRegion(spot, first){
     if (z === 2){ const b = lerp(dp[0]*2, 180, clamp((km - 20)/80, 0, 1)); dp = [b, b*0.35, b*0.4, b*1.6]; start = b; }
     else if (z === 3){ const b = clamp(800 + km*3, 800, 4500); dp = [b, b*0.15, b*0.6, b*1.3]; start = b; }
   }
+  // how far the underwater hills rise toward the surface (fraction of the local depth)
+  depthS[3] = spot.floor ? ({ valley: 0.38, dropoff: 0.32, basin: 0.3, reef: 0.25, bank: 0.15, river: 0.15 })[spot.floor[2]] ?? 0.25 : 0.25;
   REGION = { spot, biome: spot.biome, water: spot.water, depthP: dp, depthS, depthQ: [W.scale, seedA, seedB, start] };
   const sunEl = clamp(72 - Math.abs(spot.lat)*0.72, 18, 68), sunAz = (hashf(spot.lon) - 0.5)*40;
   Rn.setEnv(computeHorizon(spot));
-  Rn.setEnv({ sigA: W.sigA, sigS: W.sigS, depthP: REGION.depthP, depthQ: REGION.depthQ, depthS: REGION.depthS, bed: W.bed, land: W.land, sunEl, sunAz });
+  Rn.setEnv({ sea: spot.water.startsWith('sea'), sigA: W.sigA, sigS: W.sigS, depthP: REGION.depthP, depthQ: REGION.depthQ, depthS: REGION.depthS, bed: W.bed, land: W.land, sunEl, sunAz });
   BOAT.pos = [0, 0, 0]; BOAT.heading = 0; G.boatV = 0; G.aimYaw = Math.PI/2; G.orbit = 0;   // start looking out over the side
   G.rig = null; G.lure = null; G.hooked = null; G.fight = null; G.engaged = null; G.strike = null;
   if (G.state !== 'boat') G.state = 'idle';

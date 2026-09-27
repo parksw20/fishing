@@ -327,6 +327,38 @@ if (window.FISH_ATLAS){ loadAtlas('img/fish/atlas.jpg', fishCTex, gl.RGBA); load
 /* ---------------- Main water shader (+ underwater scene: fish, lure, float, hull, line) ---------------- */
 // Everything below the surface is ray-traced along the refracted view ray, so fish get the same
 // refraction, absorption, in-scatter and caustic light as the seabed.
+// Water column seen from below (after Tidewater's Underwater pass): light at depth z is E·exp(-σt·z/μ); integrating the
+// sun and sky in-scatter along a view ray through that gradient has a closed form, so the water darkens and turns
+// bluer with depth and toward the bottom on its own. Henyey-Greenstein forward peak toward the sun plus a
+// multiple-scattering term. Shared by the traced underwater view and the rasterised objects.
+const UW_GLSL = `
+#define UW_GAIN 2.2
+vec3 uwLit(float m, vec3 sT, float zc, float dy, float dist){
+  vec3 a = sT*zc/m, k = sT*(1.0 - dy/m);
+  vec3 e0 = exp(-a), e1 = exp(-max(a + k*dist, 0.0));
+  vec3 ks = sign(k)*max(abs(k), vec3(1e-4));
+  return mix((e0 - e1)/ks, e0*dist, step(abs(k), vec3(1e-4)));
+}
+vec3 uwScatter(vec3 sA, vec3 sS, vec3 sunE, vec3 skyE, vec3 Ls, float zc, vec3 rd, float dist){
+  vec3 sT = sA + sS;
+  float mu = max(Ls.y, 0.15), c = dot(rd, Ls), g = 0.85;
+  float ph = (1.0 - g*g)/(12.566371*pow(1.0 + g*g - 2.0*g*c, 1.5))*0.75 + 0.25/12.566371;
+  vec3 bb = sS*0.035, ms = bb*1.3/(sA + bb);
+  vec3 inSun = sunE*(sS*ph + ms*sT/3.14159)*uwLit(mu, sT, zc, rd.y, dist);
+  vec3 inAmb = skyE*0.9*(sS/12.566371 + ms*sT/3.14159)*uwLit(0.8, sT, zc, rd.y, dist);
+  return (inSun + inAmb)*UW_GAIN;
+}
+`;
+// the same for rasterised meshes (decor, boat, rod) when the camera is below the surface
+const UWR_GLSL = `
+uniform vec4 uUW;                                   // w: camera under water
+uniform vec3 uUWsA, uUWsS, uUWsun, uUWsky, uUWls;  // absorption, scattering (with murk), sun and sky light, direction toward the sun below the surface
+` + UW_GLSL + `
+vec3 uwFog(vec3 col, vec3 P, vec3 cam){
+  vec3 d = P - cam; float dist = max(length(d), 1e-3); vec3 rd = d/dist;
+  return col*exp(-(uUWsA + uUWsS)*dist) + uwScatter(uUWsA, uUWsS, uUWsun, uUWsky, uUWls, max(-cam.y, 0.0), rd, dist);
+}
+`;
 const MAXF = 12;
 const ZNEAR = 0.05, ZFAR = 5000.0;
 const ZA = (ZFAR+ZNEAR)/(ZFAR-ZNEAR), ZB = -2*ZFAR*ZNEAR/(ZFAR-ZNEAR);
@@ -493,6 +525,7 @@ vec4 texBS(sampler2D t, vec2 uv){ // cubic B-spline filtering in 4 bilinear taps
        + (texture(t, vec2(h0.x,h1.y))*g0.x + texture(t, vec2(h1.x,h1.y))*g1.x)*g1.y;
 }
 // real depth → screen depth (inverse of game.js toReal: v·(1 + 0.078·v²)); the scene is drawn in screen metres
+float toReal(float v){ return v*(1.0 + 0.078*v*v); }
 float cbrt1(float x){ return sign(x)*pow(abs(x), 1.0/3.0); }
 float toVis(float r){ const float A = 0.078; float p = 1.0/A, q = -r/A, D = sqrt(q*q*0.25 + p*p*p/27.0); return cbrt1(-q*0.5 + D) + cbrt1(-q*0.5 - D); }
 // touch-ripple simulation: a small window that follows the action; fades out at its border so the clamped
@@ -512,6 +545,19 @@ vec3 swell(vec2 x){
   }
   return r*uWaveK;
 }
+// integer-hash value noise, bit-identical to game.js (so fish and the line meet the same hills the eye sees)
+uint uhash(uvec2 q){ uint h = (q.x*0x8da6b343u) ^ (q.y*0xd8163841u); h ^= h >> 16; h *= 0x7feb352du; h ^= h >> 15; h *= 0x846ca68bu; h ^= h >> 16; return h; }
+float inoise(vec2 p){
+  vec2 i = floor(p), f = fract(p); f = f*f*(3.0 - 2.0*f); uvec2 c = uvec2(ivec2(i));
+  float a = float(uhash(c))/4294967295.0, b = float(uhash(c + uvec2(1u, 0u)))/4294967295.0,
+        cc = float(uhash(c + uvec2(0u, 1u)))/4294967295.0, e = float(uhash(c + uvec2(1u, 1u)))/4294967295.0;
+  return a + (b - a)*f.x + (cc - a)*f.y + (a - b - cc + e)*f.x*f.y;
+}
+float bedRelief(vec2 x){
+  float r1 = 1.0 - abs(2.0*inoise(x/34.0 + vec2(11.3, -7.1)) - 1.0), r2 = 1.0 - abs(2.0*inoise(x/13.0 + vec2(-3.7, 5.9)) - 1.0);
+  r1 *= r1; r2 *= r2;
+  return 0.7*r1 + 0.3*r1*r2;
+}
 float smin1(float a, float b, float k){ float h = max(k - abs(a - b), 0.0)/k; return min(a, b) - h*h*k*0.25; }
 float floorDepth(vec2 xz){
   // region depth profile (same formula as game.js), plus fine shader-only noise
@@ -530,7 +576,8 @@ float floorDepth(vec2 xz){
     else g = u;
     d = mix(uDepthP.x, uDepthP.y, clamp(g, 0.0, 1.0));
   }
-  d = toVis(mix(uDepthQ.w, d, smoothstep(12.0, 70.0, length(xz))));
+  float tt = smoothstep(12.0, 70.0, length(xz));
+  d = toVis(mix(uDepthQ.w, d, tt)*(1.0 - uDepthS.w*smoothstep(4.0, 25.0, length(xz))*bedRelief(xz)));   // underwater hills (same as game.js)
   return d + 0.10*(vnoise(xz*0.9+7.0)-0.5);
 }
 vec3 pebbles(vec2 x, float sc, out float hgt){
@@ -546,6 +593,53 @@ vec3 pebbles(vec2 x, float sc, out float hgt){
   vec3 ca = textureGrad(uPeb, uv+oa, dx*6.0, dy*6.0).rgb, cb = textureGrad(uPeb, uv+ob, dx*6.0, dy*6.0).rgb;
   hgt = dot(mix(ca,cb,m), vec3(0.3,0.55,0.15));
   return mix(a, b, m);
+}
+// Seabed material (after Tidewater's seabed): pebbles and cobbles, sand that fills the gaps and takes over on
+// sandy beds, with swell-aligned megaripples and fine ripples (albedo + bump, faded out where they would alias),
+// greyer and paler with depth; seagrass meadows streaked along the surge in the shallows. Returns albedo,
+// pseudo height (0..1) and the bump normal.
+vec3 bedAlbedo(vec2 x, float dep, out float hgt, out vec3 nb){
+  float h1, h2;
+  vec3 pf = pebbles(x, 1.0, h1), pc = pebbles(x.yx*vec2(-1.0, 1.0) + 5.3, 1.7, h2);
+  float coarse = smoothstep(0.45, 0.62, fbm2(x*0.21 + 40.0));
+  vec3 alb = mix(pf, pc, coarse); hgt = mix(h1, h2, coarse);
+  alb = mix(vec3(dot(alb, vec3(0.3, 0.55, 0.15))), alb, 0.8)*vec3(1.10, 1.0, 0.86);
+  alb = mix(vec3(0.30, 0.29, 0.27), pow(alb, vec3(1.2)), 0.72)*0.6;
+  // sand
+  float zone = fbm2(x*0.16 + 3.0) + 0.10*(vnoise(x*2.5) - 0.5);
+  float sandM = max(smoothstep(hgt + 0.02, hgt + 0.16, (zone - 0.40)*1.6), uBed.x*smoothstep(-0.3, 0.2, zone - 0.35 + uBed.x));
+  float ang = uDepthQ.y*0.5; vec2 sw = vec2(cos(ang), sin(ang));
+  float warp = vnoise(x/6.7)*16.0 + vnoise(x*0.02 + 3.0)*24.0;
+  float ph2 = dot(x, sw)*8.3776 + warp, ph1 = dot(x, sw)*39.27 + warp*2.3 + vnoise(x*1.3)*6.0;   // 0.75 m and 0.16 m
+  float f2 = 1.0 - smoothstep(0.5, 2.0, fwidth(ph2)), f1 = 1.0 - smoothstep(0.5, 2.0, fwidth(ph1));
+  float field = smoothstep(0.25, 0.6, vnoise(x*0.07 + 9.0));                    // ripple fields come and go
+  float rip2 = pow(sin(ph2)*0.5 + 0.5, 1.4);
+  vec3 sandC = mix(vec3(0.68, 0.58, 0.37), vec3(0.48, 0.45, 0.30), smoothstep(toVis(1.0), toVis(9.0), dep));
+  sandC *= (vnoise(x/6.7) - 0.5)*0.14 + 1.0; sandC *= (vnoise(x*40.0) - 0.45)*0.25 + 1.0;
+  sandC *= (rip2 - 0.55)*0.22*field*f2 + 1.0;
+  sandC *= 0.75;
+  alb = mix(alb, sandC, sandM); hgt = mix(hgt, 0.42 + 0.08*rip2*field, sandM);
+  // bump from the ripples (analytic slopes along the swell direction)
+  float sl = (0.035*8.3776*cos(ph2)*0.5*field*f2 + 0.012*39.27*cos(ph1)*0.5*f1)*sandM;
+  nb = normalize(vec3(-sw.x*sl, 1.0, -sw.y*sl));
+  // seagrass meadows in the shallows: dark green streaks lying along the surge, paler tips
+  float realD = toReal(dep);
+  float mead = smoothstep(0.58, 0.72, fbm2(x*0.035 + vec2(vnoise(x*0.01)*3.0, 17.0)))*smoothstep(1.2, 2.5, realD)*smoothstep(14.0, 8.0, realD);
+  if (mead > 0.0){
+    vec2 sp = vec2(-sw.y, sw.x);
+    float bl = vnoise(vec2(dot(x, sw)/0.9, dot(x, sp)/0.05));
+    float fb = 1.0 - smoothstep(0.3, 1.2, fwidth(dot(x, sp)/0.05));
+    vec3 meadC = mix(vec3(0.045, 0.07, 0.02), vec3(0.12, 0.14, 0.05), mix(0.5, smoothstep(0.35, 0.75, bl), fb));
+    meadC = mix(meadC, vec3(0.10, 0.08, 0.04), 0.25*vnoise(x*1.7));   // epiphytes, dead blades
+    alb = mix(alb, meadC*1.6, mead); hgt = mix(hgt, 0.5, mead);
+    nb = normalize(mix(nb, vec3(0.0, 1.0, 0.0), mead));
+  }
+  // large-scale variation: sun-bleached patches, darker weedy hollows
+  float big = vnoise(x*0.45)*0.65 + vnoise(x*1.3 + 3.1)*0.35;
+  float weed = smoothstep(0.50, 0.85, vnoise(x*0.32 + 11.0));
+  alb *= mix(0.72, 1.15, big);
+  alb = mix(alb, alb*vec3(0.45, 0.62, 0.30), weed*0.6*(1.0 - uBed.x));
+  return alb*uBed.yzw;
 }
 float fresnel(float ci, float n){
   ci = clamp(ci, 0.0, 1.0);
@@ -772,6 +866,7 @@ vec2 wakeAt(vec2 x){
 }
 
 // ---- camera below the surface: look around inside the water column ----
+${UW_GLSL}
 vec3 underwaterView(vec3 rd, out float tHit){
   vec3 ro = uCam;
   vec3 sunT = refract(-uSun, vec3(0,1,0), 1.0/IOR);
@@ -809,35 +904,48 @@ vec3 underwaterView(vec3 rd, out float tHit){
     L += oSpec*SUN*Ts*att*caus*pow(max(dot(oN, normalize(-sunT - rd)), 0.0), 48.0)*0.35;
     if (lureHit) L += oAlb*0.35 + vec3(0.02);
   } else if (sB <= sS && sB < FAR){
-    float hgt; vec3 alb = pebbles(X.xz, 1.0, hgt);
-    // darker, contrasty stones: deep gaps between pebbles, dark grey-brown rock
-    alb = mix(vec3(0.13,0.12,0.11), pow(alb, vec3(1.35)), 0.6)*0.42*uBed.yzw;
-    alb *= mix(0.35, 1.0, smoothstep(0.08, 0.45, hgt));
+    float hgt; vec3 nb; vec3 alb = bedAlbedo(X.xz, dep, hgt, nb);
+    float ao = mix(0.5, 1.0, smoothstep(0.08, 0.45, hgt));
     vec3 caus = texture(uCaus, (X.xz - uCausShift)/uL, 1.0).rgb;
     float shd = shadowAt(X, -sunT);
-    L = alb/PI*(SUN*Ts*exp(-SIG_T*dep/(-sunT.y))*caus*(-sunT.y)*shd + skyIrr*exp(-(SIG_A + 0.4*SIG_S)*dep*1.25));
+    L = alb/PI*(SUN*Ts*exp(-SIG_T*dep/(-sunT.y))*caus*max(dot(nb, -sunT), 0.0)*shd*mix(0.75, 1.0, ao) + skyIrr*exp(-(SIG_A + 0.4*SIG_S)*dep*1.25)*ao);
   } else if (sS < FAR){
     // the surface from below: Snell's window (sky and sun) inside ~49°, mirror of the dark water outside it
     vec4 A = texture(uSurf, X.xz/uL); vec4 R = ripAt((X.xz - uRipCenter)/uRipSize + 0.5);
     vec3 n = normalize(vec3(-(uWaveK*A.y + R.y), 1.0, -(uWaveK*A.z + R.z)));
     vec3 tr = refract(rd, -n, IOR);
-    vec3 deepC = SIG_S/SIG_T*(SUN*Ts*0.02 + skyIrr/(4.0*PI))*exp(-SIG_A*2.0);
+    vec3 Rr = reflect(rd, -n);   // outside Snell's window: total internal reflection of the endless water column
+    vec3 deepC = uwScatter(SIG_A, SIG_S + vec3(0.030, 0.026, 0.022), SUN*Ts, skyIrr, -sunT, 0.0, Rr, 300.0);
     if (dot(tr, tr) < 0.01) L = deepC*0.8;
     else {
       float Fw = fresnel(max(dot(-rd, -n), 0.0), 1.0/IOR);
       vec3 sk = sky(tr, 0.0); L = (1.0 - Fw)*(sk*1.1 + SUN*6.0*smoothstep(0.9990, 0.99975, dot(tr, uSun))*(1.0 - uWeather.x)*(1.0 - gLand)*(1.0 - 0.9*gCloud)) + Fw*deepC;
     }
   }
-  // the water column between the eye and what it sees: absorption plus sunlit in-scatter;
-  // a little extra murk so the distance fades out (suspended matter the surface view does not need)
-  vec3 SIGV = SIG_T*1.35 + vec3(0.045, 0.035, 0.03);
-  vec3 Tv = exp(-SIGV*sHit);
-  float g = 0.8, cosS = dot(sunT, -rd);
-  float ph = (1.0-g*g)/(4.0*PI*pow(1.0+g*g-2.0*g*cosS, 1.5));
-  float dm = max(-ro.y, 0.0) + 0.5*max(-X.y - max(-ro.y, 0.0), 0.0);
-  vec3 Lmid = SUN*Ts*exp(-SIG_T*dm/(-sunT.y))*(ph + 0.02) + skyIrr*exp(-SIG_A*dm*1.2)/(4.0*PI);
-  vec3 fogC = SIG_S/SIG_T*Lmid*3.2;
-  vec3 col = L*Tv + fogC*(1.0 - Tv);
+  // the water column between the eye and what it sees: absorption plus the analytic sun and sky in-scatter;
+  // suspended matter adds scattering (murk) so the distance fades out
+  vec3 wS = SIG_S + vec3(0.030, 0.026, 0.022), wA = SIG_A, sTv = wA + wS;
+  vec3 Ls = -sunT, sunE = SUN*Ts;
+  float zc = max(-ro.y, 0.0);
+  vec3 Tv = exp(-sTv*sHit);
+  vec3 fogC = uwScatter(wA, wS, sunE, skyIrr, Ls, zc, rd, 300.0);   // an endless column: the water colour this way
+  vec3 col = L*Tv + uwScatter(wA, wS, sunE, skyIrr, Ls, zc, rd, sHit);
+  // light shafts: march toward the hit through the caustic pattern each point receives; only the deviation from
+  // the mean adds, so they are bright and dark streaks around the smooth in-scatter (interleaved-gradient dither)
+  {
+    float jit = fract(52.9829189*fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715))));
+    float sm = min(sHit, 18.0), ds = sm/10.0, mu = max(Ls.y, 0.15);
+    vec3 acc = vec3(0.0);
+    for (int i = 0; i < 10; i++){
+      float st = (float(i) + jit)*ds; vec3 q = ro + rd*st; float z = max(-q.y, 0.01);
+      float focus = clamp(z/uDepth, 0.0, 1.0);
+      vec3 c = mix(vec3(1.0), texture(uCaus, (q.xz - uCausShift*focus)/uL, 2.0).rgb, focus);
+      acc += (c - 1.0)*exp(-sTv*(st + z/mu))*ds;
+    }
+    float g = 0.85, cc = dot(rd, Ls);
+    float ph = (1.0 - g*g)/(12.566371*pow(1.0 + g*g - 2.0*g*cc, 1.5))*0.75 + 0.25/12.566371;
+    col += max(acc*sunE*wS*ph*2.5*UW_GAIN, vec3(-0.5)*col);
+  }
   // deep water: the bed fades into the water colour from 50m real depth and is gone past 100m (no decor down there either)
   if (so <= 0.0 && sB <= sS && sB < FAR){
     float gone = smoothstep(toVis(50.0), toVis(100.0), dep);
@@ -854,7 +962,7 @@ vec3 underwaterView(vec3 rd, out float tHit){
     float dl = length(ro + rd*tl - q);
     float pw = max(tl, 0.05)*uPixAng, lw = max(pw*0.9, 0.0012);
     float al = smoothstep(lw, lw*0.25, dl)*clamp(0.0035/pw, 0.3, 0.85)*step(tl, sHit + 0.05);
-    vec3 Tl = exp(-SIGV*tl);
+    vec3 Tl = exp(-sTv*tl);
     vec3 lc = fogC*(1.0 - Tl)*1.25 + (fogC*1.6 + SUN*Ts*0.01*exp(-SIG_T*max(-q.y, 0.0)))*Tl;
     col = mix(col, lc, al);
     if (al > 0.2) tHit = tl;   // the line's own depth, so weed and rocks behind it don't paint over it
@@ -977,25 +1085,7 @@ void main(){
     Lsurf += oSpec * skyIrr * 0.04 * pow(1.0 - max(dot(oN, -tr), 0.0), 3.0);   // rim sheen
     if (lureHit) Lsurf += oAlb*0.35 + vec3(0.02);   // game aid: the lure stays readable deep down
   } else {
-    // bottom made of zones: fine pebbles, coarse cobbles, and sand that fills the gaps first
-    float hgt, hgt2;
-    vec3 pf = pebbles(FP.xz, 1.0, hgt);
-    vec3 pc = pebbles(FP.xz.yx*vec2(-1.0,1.0) + 5.3, 1.7, hgt2);
-    float coarse = smoothstep(0.45, 0.62, fbm2(FP.xz*0.21 + 40.0));
-    vec3 alb = mix(pf, pc, coarse); hgt = mix(hgt, hgt2, coarse);
-    float zone = fbm2(FP.xz*0.16 + 3.0) + 0.10*(vnoise(FP.xz*2.5)-0.5);
-    float sandM = max(smoothstep(hgt + 0.02, hgt + 0.16, (zone - 0.40)*1.6), uBed.x*smoothstep(-0.3, 0.2, zone - 0.35 + uBed.x));
-    float marks = 0.5 + 0.5*sin(dot(FP.xz, vec2(0.93, 0.37))*16.0 + 3.0*vnoise(FP.xz*0.8));
-    vec3 sand = vec3(0.60, 0.55, 0.44) * (0.82 + 0.22*vnoise(FP.xz*40.0) + 0.10*marks);
-    sand = sand*sand*1.4; // to linear-ish, matching the texture
-    alb = mix(alb, sand, sandM); hgt = mix(hgt, 0.42 + 0.05*marks, sandM);
-    alb = mix(vec3(dot(alb,vec3(0.3,0.55,0.15))), alb, 0.8) * vec3(1.10, 1.0, 0.86);
-    // large-scale variation: sun-bleached patches, darker weedy hollows, a hint of olive film
-    float big = vnoise(FP.xz*0.45) * 0.65 + vnoise(FP.xz*1.3+3.1) * 0.35;
-    float weed = smoothstep(0.50, 0.85, vnoise(FP.xz*0.32 + 11.0));
-    alb *= mix(0.62, 1.22, big);
-    alb = mix(alb, alb*vec3(0.45, 0.62, 0.30), weed*0.8*(1.0-uBed.x)); alb = mix(vec3(0.30,0.29,0.27), pow(alb, vec3(1.2)), 0.72) * 0.6 * uBed.yzw;
-
+    float hgt; vec3 nb; vec3 alb = bedAlbedo(FP.xz, depthHere, hgt, nb);
     // relief: nudge caustic lookup by pseudo height along the sun path; darken gaps a little
     vec2 cuv = (FP.xz - uCausShift + sunT.xz/(-sunT.y)*(hgt-0.35)*0.05)/uL;
     vec3 caus = texture(uCaus, cuv, 1.0).rgb;
@@ -1005,7 +1095,7 @@ void main(){
     caus *= clamp(1.0/(1.0 + 0.12*depthHere*lap), 0.45, 3.0);
     float ao = mix(0.55, 1.0, smoothstep(0.08, 0.42, hgt));
     float shd = dist < 60.0 ? shadowAt(FP, -sunT) : 1.0;
-    vec3 Esun = SUN * Ts * exp(-SIG_T*depthHere/(-sunT.y)) * caus * (-sunT.y) * mix(0.75, 1.0, ao) * shd;
+    vec3 Esun = SUN * Ts * exp(-SIG_T*depthHere/(-sunT.y)) * caus * max(dot(nb, -sunT), 0.0) * mix(0.75, 1.0, ao) * shd;
     vec3 Esky = skyIrr * exp(-(SIG_A + 0.4*SIG_S)*depthHere*1.25) * ao;
     Lsurf = alb/PI * (Esun + Esky) * (1.0 - smoothstep(toVis(50.0), toVis(100.0), depthHere));   // a bed past 100m is lost in the dark
   }
@@ -1428,46 +1518,96 @@ const VFOV = 60*Math.PI/180;
 /* ---------------- underwater decor: rocks, coral, weed (rasterised; only seen from below the surface) ---------------- */
 const pDecor = prog(`#version 300 es
 layout(location=0) in vec3 aP; layout(location=1) in vec3 aN; layout(location=2) in vec3 aC; layout(location=3) in float aS;
-uniform vec3 uCam, uR, uU, uF; uniform float uTanF, uAspect, uTime;
-out vec3 vN, vC, vW; out float vRock;
+uniform vec3 uCam, uR, uU, uF; uniform float uTanF, uAspect, uTime; uniform vec2 uSw;
+out vec3 vN, vC, vW; out float vS;
 void main(){
-  vec3 p = aP; vRock = aS < -0.5 ? 1.0 : 0.0;   // aS = -1 marks rock (textured in the fragment shader)
-  // weed sways with the current: more towards the tip (aS = 0 at the root, 1 at the tip)
-  float w = max(aS, 0.0)*max(aS, 0.0), ph = uTime*1.1 + p.x*0.45 + p.z*0.31;
-  p.x += (sin(ph) + 0.35*sin(ph*2.3 + 1.7))*0.16*w; p.z += cos(ph*0.8 + 0.6)*0.11*w;
+  vec3 p = aP; vS = aS;   // aS < -0.5: rock (-1 - occlusion); else how far up a swaying blade (0 root .. 1 tip, × flex)
+  // plants sway with the swell's surge (after Tidewater's reef sway): three long waves along and across the
+  // swell direction, weaker deeper down, plus a little flutter per blade; t² weighting and a droop that
+  // roughly keeps the blade length
+  if (aS > 0.0){
+    vec2 sp = vec2(-uSw.y, uSw.x); float al = dot(p.xz, uSw), ac = dot(p.xz, sp);
+    float a = sin(uTime*0.7662 - al*0.0898 + sin(ac*0.021)*1.5)*0.30;
+    float b = sin(uTime*1.1855 - al*0.1848 + ac*0.09)*0.10;
+    float c = sin(uTime*0.5370 + ac*0.1396)*0.07;
+    float ph = uTime*1.7 + p.x*3.1 + p.z*2.3;
+    float w = aS*aS, deep = exp(-max(-p.y, 0.0)*0.06);
+    vec2 d = ((uSw*(a + b) + sp*c)*1.3*deep + vec2(sin(ph), cos(ph*0.77))*0.07)*w;
+    p.xz += d; p.y -= dot(d, d)/(2.0*max(aS*0.9, 0.12));
+  }
   vW = p; vN = aN; vC = aC;
   vec3 v = p - uCam; float dz = dot(v, uF);
   gl_Position = vec4(dot(v,uR)/(uAspect*uTanF), dot(v,uU)/uTanF, ${ZA.toFixed(8)}*dz + (${ZB.toFixed(8)}), dz);
 }`, `#version 300 es
 precision highp float;
-in vec3 vN, vC, vW; in float vRock; out vec4 o;
-uniform vec3 uSun, uCam, uSunC, uSkyK, uSigT; uniform vec4 uUW; uniform vec3 uUWsig;
+in vec3 vN, vC, vW; in float vS; out vec4 o;
+uniform vec3 uCam, uSkyK, uSigT; uniform float uSea, uL, uDepth; uniform vec2 uCausShift; uniform sampler2D uCaus;
+${UWR_GLSL}
 float h3(vec3 p){ p = fract(p*0.3183099 + 0.1); p *= 17.0; return fract(p.x*p.y*p.z*(p.x + p.y + p.z)); }
 float n3(vec3 x){ vec3 i = floor(x), f = fract(x); f = f*f*(3.0 - 2.0*f);
   return mix(mix(mix(h3(i), h3(i + vec3(1,0,0)), f.x), mix(h3(i + vec3(0,1,0)), h3(i + vec3(1,1,0)), f.x), f.y),
              mix(mix(h3(i + vec3(0,0,1)), h3(i + vec3(1,0,1)), f.x), mix(h3(i + vec3(0,1,1)), h3(i + vec3(1,1,1)), f.x), f.y), f.z); }
 void main(){
   vec3 n = normalize(vN), v = normalize(uCam - vW);
-  vec3 alb = vC;
-  if (vRock > 0.5){   // procedural stone: mottled dark grey with darker pits and a few lighter mineral flecks, algae on top
-    float m = n3(vW*3.1)*0.55 + n3(vW*9.7)*0.3 + n3(vW*27.0)*0.15;
-    float pits = smoothstep(0.55, 0.75, n3(vW*6.3 + 11.0));
-    alb = (vC*mix(0.35, 1.2, m)*(1.0 - 0.6*pits) + vec3(0.04)*step(0.93, n3(vW*41.0)))*0.45;   // dark stone
-    alb = mix(alb, vec3(0.05, 0.09, 0.04), smoothstep(0.55, 0.95, n.y)*0.55*n3(vW*2.3 + 5.0));
+  vec3 alb = vC; float ao = 1.0, thin = 0.0;
+  if (vS < -0.5){
+    // stone after Tidewater's rock shading: three noise scales make the tone, dark joints, lighter faces;
+    // algae and pink coralline crusts (sea) or an olive film (fresh water) on the faces that look up
+    ao = clamp(-vS - 1.0, 0.0, 1.0);
+    float big = n3(vW*0.9), mid = n3(vW*3.1 + 4.0), fine = n3(vW*11.0 + 9.0);
+    float hr = big*0.45 + mid*0.35 + fine*0.2;
+    float tone = hr*0.9 + (n3(vW*0.37 + 7.0) - 0.5)*0.7 + (mid - 0.5)*0.3;
+    vec3 rc = mix(vec3(0.020, 0.019, 0.017), vec3(0.073, 0.066, 0.058), smoothstep(0.1, 0.5, tone));
+    rc = mix(rc, vec3(0.195, 0.175, 0.150), smoothstep(0.5, 0.85, tone));
+    rc *= smoothstep(0.05, 0.3, big)*0.35 + 0.65;
+    rc *= vC/max(dot(vC, vec3(0.3333)), 0.01)*2.4;
+    float top = smoothstep(0.35, 0.85, n.y + (big - 0.5)*0.5 + (mid - 0.5)*0.4);
+    vec3 grow = uSea > 0.5 ? mix(vec3(0.05, 0.09, 0.02), vec3(0.40, 0.19, 0.21), smoothstep(0.45, 0.7, n3(vW*1.7 + 2.0)))
+                           : mix(vec3(0.06, 0.08, 0.025), vec3(0.10, 0.09, 0.04), fine);
+    alb = mix(rc, grow*1.6, top*0.8);
+  } else if (vS > 0.001){
+    // blades: darker toward the root, paler aged tips; thin enough to let light through
+    float t = clamp(vS, 0.0, 1.0);
+    ao = 0.45 + 0.55*t;
+    alb = mix(vC, vec3(0.30, 0.26, 0.12), smoothstep(0.55, 1.0, t)*0.5*n3(vW*7.0));
+    thin = 0.55;
   }
-  if (dot(n, v) < 0.0) n = -n;
-  float dep = max(-vW.y, 0.0), sy = max(uSun.y, 0.3);
-  vec3 att = exp(-uSigT*dep/sy*0.4);
-  vec3 sky = vec3(0.62,0.70,0.78)*0.7*uSkyK*exp(-uSigT*dep*0.4)*(0.55 + 0.45*n.y);
-  vec3 col = alb/3.14159*(uSunC*0.97*att*max(dot(n, uSun), 0.0)*0.55 + sky*1.4);
-  // a little kinder than physics so the colours of coral and weed read before the water swallows them
-  if (uUW.w > 0.5){ float dd = length(vW - uCam); col = mix(uUW.rgb, col, exp(-uUWsig*dd*0.4)); }
+  vec3 nf = dot(n, v) < 0.0 ? -n : n;
+  float dep = max(-vW.y, 0.0), mu = max(uUWls.y, 0.2);
+  vec3 att = exp(-uSigT*dep/mu);
+  float focus = clamp(dep/uDepth, 0.0, 1.0);
+  vec3 caus = mix(vec3(1.0), texture(uCaus, (vW.xz - uCausShift*focus)/uL, 1.0).rgb, focus);
+  vec3 sunL = uUWsun*att*caus;
+  vec3 sky = uUWsky*exp(-uSigT*dep*1.2)*(0.55 + 0.45*nf.y);
+  alb *= 1.3;   // a little kinder than physics so coral and weed colours read
+  vec3 col = alb/3.14159*(sunL*(max(dot(nf, uUWls), 0.0) + thin*(clamp(-dot(nf, uUWls), 0.0, 1.0)*0.8 + 0.2)) + sky)*ao;
+  if (uUW.w > 0.5) col = uwFog(col, vW, uCam);
   o = vec4(col, 1);
 }`, 'decor');
 const decor = { vao: gl.createVertexArray(), vb: gl.createBuffer(), n: 0 };
 gl.bindVertexArray(decor.vao); gl.bindBuffer(gl.ARRAY_BUFFER, decor.vb);
 for (let i = 0; i < 4; i++){ gl.enableVertexAttribArray(i); gl.vertexAttribPointer(i, i === 3 ? 1 : 3, gl.FLOAT, false, 40, i*12); }
 gl.bindVertexArray(null);
+// unit icosphere (2 subdivisions, 162 vertices / 320 faces) with vertex neighbours, for the rocks
+const ICO = (() => {
+  const t = (1 + Math.sqrt(5))/2; let v = [[-1,t,0],[1,t,0],[-1,-t,0],[1,-t,0],[0,-1,t],[0,1,t],[0,-1,-t],[0,1,-t],[t,0,-1],[t,0,1],[-t,0,-1],[-t,0,1]].map(norm3);
+  let f = [[0,11,5],[0,5,1],[0,1,7],[0,7,10],[0,10,11],[1,5,9],[5,11,4],[11,10,2],[10,7,6],[7,1,8],[3,9,4],[3,4,2],[3,2,6],[3,6,8],[3,8,9],[4,9,5],[2,4,11],[6,2,10],[8,6,7],[9,8,1]];
+  for (let k = 0; k < 2; k++){
+    const mid = new Map(), m = (a, b) => { const key = a < b ? a + '_' + b : b + '_' + a; if (!mid.has(key)){ mid.set(key, v.length); v.push(norm3([(v[a][0] + v[b][0])/2, (v[a][1] + v[b][1])/2, (v[a][2] + v[b][2])/2])); } return mid.get(key); };
+    f = f.flatMap(([a, b, c]) => { const ab = m(a, b), bc = m(b, c), ca = m(c, a); return [[a, ab, ca], [b, bc, ab], [c, ca, bc], [ab, bc, ca]]; });
+  }
+  const nb = v.map(() => new Set());
+  for (const [a, b, c] of f){ nb[a].add(b).add(c); nb[b].add(a).add(c); nb[c].add(a).add(b); }
+  return { v, f, nb: nb.map(x => [...x]) };
+})();
+function vn3(x, y, z){   // 3D value noise 0..1
+  const h = (i, j, k) => { const q = Math.sin(i*127.1 + j*311.7 + k*74.7)*43758.5453; return q - Math.floor(q); };
+  const ix = Math.floor(x), iy = Math.floor(y), iz = Math.floor(z); let fx = x - ix, fy = y - iy, fz = z - iz;
+  fx = fx*fx*(3 - 2*fx); fy = fy*fy*(3 - 2*fy); fz = fz*fz*(3 - 2*fz);
+  const L = (a, b, t) => a + (b - a)*t;
+  return L(L(L(h(ix,iy,iz), h(ix+1,iy,iz), fx), L(h(ix,iy+1,iz), h(ix+1,iy+1,iz), fx), fy),
+           L(L(h(ix,iy,iz+1), h(ix+1,iy,iz+1), fx), L(h(ix,iy+1,iz+1), h(ix+1,iy+1,iz+1), fx), fy), fz);
+}
 // items: { k: kind, p: [x, y (floor), z], s: size, r: yaw, c: [r,g,b], h: seed }
 function buildDecor(items){
   const V = [];
@@ -1500,9 +1640,31 @@ function buildDecor(items){
       tri(p00, p01, p11, n0, n1, n1, col, col, c2, 0, 0, sway); tri(p00, p11, p10, n0, n1, n0, col, c2, c2, 0, sway, sway);
     }
   };
+  // Rocks after Tidewater's RockGeometry: an icosphere cut by random fracture planes (flat broken faces, rounded
+  // edges), a little noise for weathering, sunk into the bed; per-vertex cavity occlusion from how far a vertex
+  // sits below its neighbours, darker where it meets the ground. aS carries -1 - ao (rock marker + occlusion).
+  const rock = (o, rad, col, R, yaw) => {
+    const nPl = 9 + Math.floor(R()*4), pl = [];
+    for (let q = 0; q < nPl; q++){ const a = R()*Math.PI*2, y = (R()*2 - 1)*0.85, h = Math.sqrt(1 - y*y); pl.push([Math.cos(a)*h, y, Math.sin(a)*h, 0.62 + R()*0.26]); }
+    pl.push([0, -1, 0, 0.62 + R()*0.15]);
+    const soft = 0.07, rough = 0.055, sd = R()*100, cy = Math.cos(yaw), sy = Math.sin(yaw);
+    const r = ICO.v.map(d => {
+      let rp = 1.6;
+      for (const P of pl){ const k = d[0]*P[0] + d[1]*P[1] + d[2]*P[2]; if (k > 1e-3) rp = Math.min(rp, P[3]/k); }
+      const hh = Math.max(soft - Math.abs(1 - rp), 0)/soft;
+      return Math.min(1, rp) - hh*hh*soft*0.25 + (vn3(d[0]*2.1 + sd, d[1]*2.1, d[2]*2.1) - 0.5)*rough*1.6 - Math.abs(vn3(d[0]*5.3, d[1]*5.3 + sd, d[2]*5.3) - 0.5)*rough*0.7;
+    });
+    const P = ICO.v.map((d, i) => { const x = d[0]*r[i]*rad[0], z = d[2]*r[i]*rad[2]; return [o[0] + x*cy - z*sy, o[1] + d[1]*r[i]*rad[1], o[2] + x*sy + z*cy]; });
+    const N = P.map(() => [0, 0, 0]);
+    for (const [a, b, e] of ICO.f){ const n = cross3(sub3(P[b], P[a]), sub3(P[e], P[a])); for (const i of [a, b, e]){ N[i][0] += n[0]; N[i][1] += n[1]; N[i][2] += n[2]; } }
+    const ao = r.map((ri, i) => { let m = 0; for (const j of ICO.nb[i]) m += r[j]; m /= ICO.nb[i].length;
+      const low = Math.min(1, Math.max(0, (P[i][1] - o[1] + 0.05*rad[1])/(0.35*rad[1])));   // ground contact
+      return Math.max(0.3, Math.min(1, 1 - (m - ri)*9))*(0.55 + 0.45*low); });
+    for (const [a, b, e] of ICO.f) tri(P[a], P[b], P[e], norm3(N[a]), norm3(N[b]), norm3(N[e]), col, col, col, -1 - ao[a]*0.98, -1 - ao[b]*0.98, -1 - ao[e]*0.98);
+  };
   for (const it of items){
     const R = rnd(it.h), o = it.p, s = it.s, c = it.c;
-    if (it.k === 'rock') blob([o[0], o[1] - 0.05*s, o[2]], [s*(0.8 + 0.5*R()), s*(0.45 + 0.4*R()), s*(0.8 + 0.5*R())], c, 7, R()*10, 1, 0.18, -1);
+    if (it.k === 'rock'){ const rad = [s*(0.8 + 0.5*R()), s*(0.5 + 0.45*R()), s*(0.8 + 0.5*R())]; rock([o[0], o[1] + rad[1]*(0.25 - 0.3*R()), o[2]], rad, c, R, it.r); }
     else if (it.k === 'brain') blob(o, [s, s*0.7, s], c, 8, R()*10, 1, 0.08);
     else if (it.k === 'coral'){   // branching coral: a few forks
       const grow = (a, dir, len, r, depth) => { const b = [a[0] + dir[0]*len, a[1] + dir[1]*len, a[2] + dir[2]*len]; branch(a, b, r, r*0.7, c, 0); if (depth > 0) for (let q = 0; q < 2; q++){ const t = R()*Math.PI*2, sp = 0.5 + R()*0.4; grow(b, norm3([dir[0] + Math.cos(t)*sp, dir[1], dir[2] + Math.sin(t)*sp]), len*0.72, r*0.7, depth - 1); } };
@@ -1512,9 +1674,10 @@ function buildDecor(items){
       for (let q = 0; q < 9; q++){ const t = -0.9 + q*0.225; blade(o, it.r + Math.PI/2, s*(0.9 + 0.3*R()), s*0.09, s*Math.sin(t)*0.8, c, c.map(v => Math.min(1, v*1.4)), 0.5); }
     }
     else if (it.k === 'grass' || it.k === 'kelp' || it.k === 'reed'){
-      const nb = it.k === 'kelp' ? 3 + Math.floor(R()*3) : 6 + Math.floor(R()*6);
-      for (let q = 0; q < nb; q++){ const a = R()*Math.PI*2, off = s*0.25*R();
-        const h = it.k === 'kelp' ? s*(2.2 + 1.5*R()) : it.k === 'reed' ? s*(1.2 + 0.8*R()) : s*(0.4 + 0.5*R()), w = it.k === 'kelp' ? s*0.12 : s*0.035;
+      // a clump: blades fan out from a few shoots (seagrass meadows after Tidewater: many narrow ribbons)
+      const nb = it.k === 'kelp' ? 3 + Math.floor(R()*3) : it.k === 'reed' ? 6 + Math.floor(R()*6) : 16 + Math.floor(R()*12);
+      for (let q = 0; q < nb; q++){ const a = R()*Math.PI*2, off = s*(it.k === 'grass' ? 0.45 : 0.25)*Math.sqrt(R());
+        const h = it.k === 'kelp' ? s*(2.2 + 1.5*R()) : it.k === 'reed' ? s*(1.2 + 0.8*R()) : s*(0.25 + 0.45*R()), w = it.k === 'kelp' ? s*0.12 : it.k === 'grass' ? s*(0.012 + 0.012*R()) : s*0.035;
         blade([o[0] + Math.cos(a)*off, o[1] - 0.02, o[2] + Math.sin(a)*off], a, h, w, (R() - 0.5)*h*0.5, c, c.map(v => Math.min(1, v*1.5 + 0.03)), it.k === 'reed' ? 0.35 : 1); }
     }
     else if (it.k === 'log') branch([o[0] - Math.cos(it.r)*s, o[1] + 0.08*s, o[2] - Math.sin(it.r)*s], [o[0] + Math.cos(it.r)*s, o[1] + 0.12*s, o[2] + Math.sin(it.r)*s], s*0.14, s*0.11, c, 0);
@@ -1525,9 +1688,50 @@ function buildDecor(items){
 function drawDecor(B, t){
   if (!decor.n || !UW.on) return;
   gl.useProgram(pDecor.p); setCamUniforms(pDecor, B); setUW(pDecor);
-  gl.uniform1f(pDecor.u.uTime, t); gl.uniform3fv(pDecor.u.uSun, SUNV); gl.uniform3fv(pDecor.u.uSunC, ENV.sunC); gl.uniform3fv(pDecor.u.uSkyK, ENV.skyK);
-  gl.uniform3fv(pDecor.u.uSigT, ENV.sigA.map((a, i) => a + ENV.sigS[i]));
+  const u = pDecor.u, sa = ENV.depthQ[1]*0.5;
+  gl.uniform1f(u.uTime, t); gl.uniform3fv(u.uSkyK, ENV.skyK); gl.uniform2f(u.uSw, Math.cos(sa), Math.sin(sa));
+  gl.uniform3fv(u.uSigT, ENV.sigA.map((a, i) => a + ENV.sigS[i])); gl.uniform1f(u.uSea, ENV.sea ? 1 : 0);
+  gl.uniform1f(u.uL, L); gl.uniform1f(u.uDepth, DEPTH); gl.uniform2fv(u.uCausShift, causShift);
+  bindT(1, causRT.t); gl.uniform1i(u.uCaus, 1);
   gl.bindVertexArray(decor.vao); gl.drawArrays(gl.TRIANGLES, 0, decor.n);
+}
+
+/* ---------------- marine snow (after Tidewater's MarineSnow): specks in an 8 m box that wraps around the eye ---------------- */
+const SNOW_N = 2600;
+const pSnow = prog(`#version 300 es
+uniform vec3 uCam, uR, uU, uF; uniform float uTanF, uAspect, uTime, uPxK, uDens;
+uniform vec3 uSigT, uSunC, uSkyE;
+out vec3 vC; out float vA;
+void main(){
+  float n = float(gl_VertexID);
+  vec3 h = fract(sin(vec3(n, n + 17.13, n + 43.71))*vec3(43758.5453, 22578.1459, 19642.3490));
+  vec3 h2 = fract(sin(vec3(n + 5.1, n + 9.7, n + 2.3))*vec3(24634.6345, 37241.217, 16271.37));
+  const float B = 8.0;
+  vec3 drift = vec3(0.05, -0.012, 0.03)*uTime + (h2 - 0.5)*uTime*0.02;
+  vec3 local = (fract(h + drift/B - uCam/B) - 0.5)*B, p = uCam + local;
+  vec3 v = p - uCam; float dz = dot(v, uF);
+  float size = mix(0.003, 0.008, h2.x*h2.x) + (h2.y > 0.98 ? 0.008 : 0.0);
+  float px = size*uPxK/max(dz, 0.05);
+  vA = smoothstep(B*0.5, B*0.3, length(local))*smoothstep(0.08, 0.3, dz)*smoothstep(0.0, 0.04, -p.y)*min(px*px, 1.0)*step(h.z*1.0, uDens);
+  vC = (uSunC*0.1 + uSkyE*1.2)*exp(-uSigT*max(-p.y, 0.0))*vec3(0.9, 1.0, 0.95)*mix(1.3, 0.8, h.x)*0.35;
+  gl_PointSize = max(px, 1.0);
+  gl_Position = vec4(dot(v,uR)/(uAspect*uTanF), dot(v,uU)/uTanF, ${ZA.toFixed(8)}*dz + (${ZB.toFixed(8)}), dz);
+}`, `#version 300 es
+precision highp float;
+in vec3 vC; in float vA; out vec4 o;
+void main(){ vec2 q = gl_PointCoord*2.0 - 1.0; float r = dot(q, q); if (r > 1.0 || vA < 0.004) discard; o = vec4(vC, vA*(1.0 - r*0.5)); }`, 'snow');
+const snowVAO = gl.createVertexArray();
+function drawSnow(B, t){
+  if (!UW.on) return;
+  gl.useProgram(pSnow.p); setCamUniforms(pSnow, B); const u = pSnow.u;
+  gl.uniform1f(u.uTime, t); gl.uniform1f(u.uPxK, H/(2*Math.tan(VFOV/2)));
+  // murkier water carries more particles
+  const turb = Math.min(1, (ENV.sigS[0] + ENV.sigS[1] + ENV.sigS[2])/0.15);
+  gl.uniform1f(u.uDens, 0.45 + 0.55*turb);
+  gl.uniform3fv(u.uSigT, ENV.sigA.map((a, i) => a + ENV.sigS[i])); gl.uniform3fv(u.uSunC, UW.sun); gl.uniform3fv(u.uSkyE, UW.sky);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA); gl.depthMask(false);
+  gl.bindVertexArray(snowVAO); gl.drawArrays(gl.POINTS, 0, SNOW_N);
+  gl.depthMask(true); gl.disable(gl.BLEND);
 }
 
 const MESH_VS = `#version 300 es
@@ -1543,7 +1747,7 @@ const pMesh = prog(MESH_VS, `#version 300 es
 precision highp float;
 in vec3 vN, vC, vW; out vec4 o;
 uniform vec3 uSun, uCam, uSunC, uSkyK, uGlow; uniform float uEmis, uInner;
-uniform vec4 uUW; uniform vec3 uUWsig;   // camera under water: fog colour (w = on) and extinction
+${UWR_GLSL}
 uniform vec4 uLP[4]; uniform vec3 uLC[4];   // boat lamps at night: position + intensity, colour
 vec3 lampLight(vec3 W, vec3 n, vec3 alb){
   vec3 r = vec3(0.0);
@@ -1563,7 +1767,7 @@ void main(){
   vec3 col = c/3.14159*(SUN*nl + skyE);
   vec3 h = normalize(v+uSun); col += SUN*0.05*pow(max(dot(n,h),0.0),48.0)*nl;
   col += c*uEmis + uGlow + lampLight(vW, n, c);
-  if (uUW.w > 0.5){ float dd = length(vW - uCam); vec3 T = exp(-uUWsig*dd)*(vW.y > 0.02 ? 0.3 : 1.0); col = mix(uUW.rgb, col, T); }
+  if (uUW.w > 0.5) col = uwFog(col*(vW.y > 0.02 ? 0.3 : 1.0), vW, uCam);
   o = vec4(col,1);
 }`, 'mesh');
 const pLine = prog(`#version 300 es
@@ -1696,7 +1900,7 @@ void main(){
 precision highp float;
 in vec3 vN, vW; in vec2 vT; out vec4 o;
 uniform sampler2D uTex; uniform vec3 uSun, uCam, uSunC, uSkyK; uniform float uGain;
-uniform vec4 uUW; uniform vec3 uUWsig;
+${UWR_GLSL}
 uniform vec4 uLP[4]; uniform vec3 uLC[4];   // boat lamps at night: position + intensity, colour
 vec3 lampLight(vec3 W, vec3 n, vec3 alb){
   vec3 r = vec3(0.0);
@@ -1717,7 +1921,7 @@ void main(){
   vec3 h = normalize(v+uSun); col += uSunC*0.04*pow(max(dot(n,h),0.0),40.0)*nl + lampLight(vW, n, c);
   // seen from under the water: the hull fades into the water colour with distance; parts above the surface
   // are only glimpsed through the waves
-  if (uUW.w > 0.5){ float dd = length(vW - uCam); vec3 T = exp(-uUWsig*dd)*(vW.y > 0.02 ? 0.3 : 1.0); col = mix(uUW.rgb, col, T); }
+  if (uUW.w > 0.5) col = uwFog(col*(vW.y > 0.02 ? 0.3 : 1.0), vW, uCam);
   o = vec4(col,1);
 }`, 'texmesh');
 const glbModels = {};
@@ -2004,15 +2208,19 @@ function basisFrom(pos, look){
   return { pos, f, r, u };
 }
 // underwater fog for rasterised objects: same water column model as the underwater view (approximate colour)
-const UW = { on: 0, fog: [0,0,0], sig: [0,0,0] };
+const UW = { on: 0, sA: [0,0,0], sS: [0,0,0], sun: [0,0,0], sky: [0,0,0], ls: [0,1,0] };
 function updateUW(B){
   UW.on = B.pos[1] < -0.03 ? 1 : 0; if (!UW.on) return;
-  const sT = ENV.sigA.map((a, i) => a + ENV.sigS[i]), sig = sT.map((v, i) => v*1.35 + [0.045, 0.035, 0.03][i]);
-  const dm = Math.max(-B.pos[1], 0), sy = Math.max(SUNV[1], 0.35), sky = [0.62, 0.70, 0.78].map((v, i) => v*Math.PI*0.22*ENV.skyK[i]);
-  UW.sig = sig;
-  UW.fog = sT.map((t, i) => ENV.sigS[i]/t*(ENV.sunC[i]*0.97*Math.exp(-t*(dm + 1.2)/sy)*0.032 + sky[i]*Math.exp(-ENV.sigA[i]*dm*1.2)/(4*Math.PI))*3.2);
+  const n = 1/1.333, ci = Math.max(SUNV[1], 0), k = 1 - n*n*(1 - ci*ci);
+  // direction toward the sun below the surface (refracted), and the light that gets in
+  const ls = [SUNV[0]*n, Math.sqrt(Math.max(k, 0)), SUNV[2]*n];   // -refract(-sun, up, 1/1.333)
+  const l = Math.hypot(ls[0], ls[1], ls[2]) || 1; UW.ls = ls.map(v => v/l);
+  const r0 = ((1.333 - 1)/(1.333 + 1))**2, Ts = 1 - (r0 + (1 - r0)*Math.pow(1 - ci, 5));
+  UW.sA = ENV.sigA; UW.sS = ENV.sigS.map((v, i) => v + [0.030, 0.026, 0.022][i]);
+  UW.sun = ENV.sunC.map(v => v*Ts); UW.sky = [0.62, 0.70, 0.78].map((v, i) => v*Math.PI*0.22*ENV.skyK[i]);
 }
-function setUW(P){ gl.uniform4f(P.u.uUW, UW.fog[0], UW.fog[1], UW.fog[2], UW.on); gl.uniform3fv(P.u.uUWsig, UW.sig); }
+function setUW(P){ const u = P.u; gl.uniform4f(u.uUW, 0, 0, 0, UW.on);
+  gl.uniform3fv(u.uUWsA, UW.sA); gl.uniform3fv(u.uUWsS, UW.sS); gl.uniform3fv(u.uUWsun, UW.sun); gl.uniform3fv(u.uUWsky, UW.sky); gl.uniform3fv(u.uUWls, UW.ls); }
 function drawMesh(m, M, opts){
   if (!m.n) return;
   gl.useProgram(pMesh.p); setUW(pMesh);
@@ -2111,6 +2319,7 @@ function render(S){
   if (S.rod) tip = drawRod(S.rod, B, !S.hideRod && !UW.on);
     // night: glows fluorescent lime like a chemical light stick (야광찌) instead of washing out white
   if (bo) drawMesh(bobMesh, mat4TRS(bo.pos, 0, bo.tilt||0, 0), { emis: 0.55*(1 - 0.9*ENV.night), glow: [0.07*ENV.night, 0.40*ENV.night, 0.012*ENV.night] });
+  drawSnow(B, t);
   if (S.rain && S.rain.n && !UW.on){   // no rain streaks below the surface
     gl.useProgram(pLine.p); setCamUniforms(pLine, B);
     const k = 0.35*(ENV.skyK[1] + 0.15); gl.uniform3f(pLine.u.uCol, k, k*1.02, k*1.06);
