@@ -318,7 +318,7 @@ function turnToward(f, ang, maxStep){ f.heading = wrapA(f.heading + clamp(wrapA(
 function swim(f, tx, ty, tz, spd, dt, turn){
   const want = Math.atan2(tz - f.pos[2], tx - f.pos[0]);
   const da = wrapA(want - f.heading);
-  turnToward(f, want, (turn||2.2)*dt);
+  turnToward(f, want, (turn||2.2)*dt*clamp(0.45 + 0.8*f.speed/Math.max(f.sp.speed, 0.1), 0.45, 1.2));   // turning takes way: no spinning on the spot
   f.speed += (spd - f.speed)*Math.min(1, dt*(spd > f.speed ? 3.0 : 0.9));   // strokes speed it up quickly, drag slows a glide gently
   const mv = f.speed*dt*(Math.abs(da) > 1.6 ? 0.45 : 1);
   f.pos[0] += Math.cos(f.heading)*mv; f.pos[2] += Math.sin(f.heading)*mv;
@@ -475,13 +475,17 @@ function updateFish(f, dt){
 function animFish(f, dt, effort, fmul){
   const L = Math.max(f.len, 0.1);
   const acc = (f.speed - (f.prevSpeed ?? f.speed))/Math.max(dt, 1e-3); f.prevSpeed = f.speed;
-  const drive = clamp(effort + 0.8*Math.max(0, acc)/(f.sp.speed + 0.2), 0, 1.3);
-  f.tailAmp = lerp(f.tailAmp || 0, 0.05 + 0.45*drive, Math.min(1, dt*5));
-  const beat = Math.min(8, 0.5 + f.speed/(0.7*L)*fmul + 1.5*Math.max(0, acc)/(f.sp.speed + 0.2));
+  // turning is done by the body: the fish curls toward the new heading and pushes off with its tail, so a turn
+  // always brings strong, quick tail strokes (even out of a glide) and a deep bend that straightens as it finishes
+  const dh = wrapA(f.heading - (f.prevHeading ?? f.heading))/Math.max(dt, 1e-3); f.prevHeading = f.heading;
+  f.turnK = lerp(f.turnK || 0, Math.min(1, Math.abs(dh)/1.2), Math.min(1, dt*(Math.abs(dh) > (f.turnK || 0) ? 10 : 3)));
+  const drive = clamp(effort + 0.8*Math.max(0, acc)/(f.sp.speed + 0.2) + 0.9*f.turnK, 0, 1.4);
+  const ampT = 0.05 + 0.45*drive;
+  f.tailAmp = lerp(f.tailAmp || 0, ampT, Math.min(1, dt*(ampT > (f.tailAmp || 0) ? 9 : 4)));   // strokes start fast, fade slowly
+  const beat = Math.min(9, 0.5 + f.speed/(0.7*L)*fmul + 1.5*Math.max(0, acc)/(f.sp.speed + 0.2) + 3.0*f.turnK);
   f.tailPh += dt*TAU*beat;
   f.tail = Math.sin(f.tailPh)*f.tailAmp;
-  const dh = wrapA(f.heading - (f.prevHeading ?? f.heading))/Math.max(dt, 1e-3); f.prevHeading = f.heading;
-  f.bend = lerp(f.bend || 0, clamp(-dh*0.16, -0.4, 0.4), Math.min(1, dt*6));
+  f.bend = lerp(f.bend || 0, clamp(-dh*0.32, -0.65, 0.65), Math.min(1, dt*8));
 }
 function interest(f){
   if (f.cooldown > 0 || f.sp.sight) return;
