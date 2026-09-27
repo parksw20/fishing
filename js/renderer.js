@@ -2003,6 +2003,7 @@ function loadGLB(key, b64, fit){
 // fish (tail phase, amplitude, bend into the turn), turned into joint yaws.
 const FISHM = {};
 const FJX = [0.42, 0.252, 0.084, -0.084, -0.252, -0.42];
+const FLATFISH = new Set(['gwangeo', 'halibut']);
 function fishModel(id){
   if (!id) return null;
   let m = FISHM[id];
@@ -2465,7 +2466,9 @@ function render(S){
   gl.useProgram(pMesh.p); setCamUniforms(pMesh, B); gl.uniform3fv(pMesh.u.uSun, SUNV); gl.uniform3fv(pMesh.u.uSunC, ENV.sunC); gl.uniform3fv(pMesh.u.uSkyK, ENV.skyK); setLamps(pMesh);
   drawDecor(B, t);
   for (const [m, f] of meshFish){
-    const d = f.dir, up0 = norm3([-d[0]*d[1], 1 - d[1]*d[1], -d[2]*d[1]]), sd = cross3(d, up0);
+    const d = f.dir, up0 = norm3([-d[0]*d[1], 1 - d[1]*d[1], -d[2]*d[1]]);
+    // flatfish (flounder, halibut) swim lying on one side: the model rolls 90° so its eyed side faces up and the body wave runs up and down
+    const sd = FLATFISH.has(f.id) ? up0 : cross3(d, up0);
     drawFishModel(m, B, f.pos, d, sd, f.len, f.tailPh || 0, f.tailAmp || 0, f.bend || 0, 0);
   }
   if (S.hang){ const h = S.hang, m = fishModel(h.id);
