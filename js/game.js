@@ -1474,31 +1474,69 @@ function waterRings(S, dt){
   G.ringT = every*rand(0.8, 1.2);
   Rn.splash(p[0], p[2], r, k);
 }
+/* rod pose, bend and reel — after Tidewater's FishingRod: the rod swings back over the shoulder while charging,
+   flicks through on release (the blank loads back, then whips), follows the line while waiting, and bows toward the
+   fish in a fight. The reel's bail opens for the cast; the crank and rotor turn while reeling; the spool slips back
+   when the fish takes line off the drag. */
+const ROD = { el: 0.46, side: 0, bend: 0, bendV: 0, load: 0.15, bail: 0, crank: 0, crankRate: 0, rotor: 0, spool: 0, t: 0, lastDt: 0.016 };
 function rodSpec(){
-  const e = eyeWorld(), m = modeCfg();
-  let yaw = viewYaw(), el = G.mode === 'pole' ? 0.2 : 0.5, bend = 0.04, target;
-  // wind-up: the rod swings back over the right shoulder (stays in view) and whips forward on release
-  if (G.state === 'charge'){ el += G.power*0.35; yaw += G.power*0.6; }
-  if (G.state === 'fly'){ const s = smooth(clamp(G.fly.t/0.3, 0, 1)); el = lerp(el + G.fly.power*0.35, el - 0.1, s); yaw += lerp(G.fly.power*0.6, -0.08, s); }
-  let focus = null;
+  const e = eyeWorld(), dt = ROD.lastDt, pole = G.mode === 'pole';
+  ROD.t += dt;
+  const F = G.fight;
+  // pose targets (elevation above the horizon, sideways swing)
+  let elT = pole ? 0.2 : 0.46, sideT = 0, speed = 5;
+  if (G.state === 'charge'){ elT = lerp(elT, pole ? 1.25 : 1.95, G.power); sideT = 0.12*G.power; speed = 7; }
+  else if (G.state === 'fly'){
+    const t = G.fly.t;
+    if (t < 0.06){ elT = pole ? 1.25 : 1.95; speed = 7; }                  // top of the swing
+    else if (t < 0.35){ elT = pole ? 0.1 : 0.16; sideT = 0.02; speed = 28; } // the flick
+    else { elT = pole ? 0.14 : 0.24; speed = 5; }                            // follow-through along the cast
+  } else if (G.state === 'wait') elT = pole ? -0.02 : 0.4;
+  else if (G.state === 'hooked') elT = 0.75 + 0.35*F.tension*(mouse.down ? 1.4 : 1);
+  const k = 1 - Math.exp(-speed*dt);
+  ROD.el += (elT - ROD.el)*k; ROD.side += (sideT - ROD.side)*k;
+  // yaw: along the view, toward the rig / fish once the line is out; the fight adds the rod pressure
+  let yaw = viewYaw(), focus = null;
   if (G.state === 'wait') focus = G.rig ? G.rig.pos : G.lure.pos;
   if (G.state === 'hooked') focus = G.hooked.pos;
   if (focus){
     yaw = Math.atan2(focus[0] - e[0], -(focus[2] - e[2]));
-    if (G.state === 'hooked'){
-      const P = rodPressure(); const fx = Math.sin(yaw), fz = -Math.cos(yaw);
-      const hx = fx + P.w[0]*P.m*1.3, hz = fz + P.w[1]*P.m*1.3;
-      yaw = Math.atan2(hx, -hz); el = 0.75 + 0.35*G.fight.tension*(mouse.down ? 1.4 : 1);
-      bend = G.fight.tension*0.95;
-    } else { bend = G.mode === 'lure' && G.lure && G.lure.reeling ? 0.15 : 0.06;
-      if (G.mode === 'pole') el = -0.02; }   // waiting on the float: pole held low over the water so its tip stays in view
+    if (G.state === 'hooked'){ const P = rodPressure(), fx = Math.sin(yaw), fz = -Math.cos(yaw); yaw = Math.atan2(fx + P.w[0]*P.m*1.3, -(fz + P.w[1]*P.m*1.3)); }
   }
+  // a live hand: breathing sway, the tip twitching with each crank turn
+  let el = ROD.el + Math.sin(ROD.t*1.3)*0.012 + Math.sin(ROD.crank)*0.006*Math.min(1, ROD.crankRate);
+  yaw += ROD.side + Math.sin(ROD.t*0.9 + 1.7)*0.01;
+  if (G.state === 'hooked' && G.hooked.run && G.hooked.run.burst) el -= 0.12 + 0.05*Math.sin(ROD.t*9);
+  // bend: a damped spring toward the load
+  let bendT = 0, loadT = 0.15;
+  if (G.state === 'hooked'){ bendT = 0.06 + 0.3*Math.min(F.tension, 1.1) + (G.hooked.run && G.hooked.run.burst ? 0.05 : 0); loadT = Math.min(1, F.tension*1.1); }
+  else if (G.state === 'charge') bendT = 0.02 + 0.03*G.power;
+  else if (G.state === 'fly' && G.fly.t < 0.15){ bendT = -0.2*(0.4 + G.fly.power); loadT = 0.55; }   // loaded back, then released
+  else if (G.state === 'wait'){
+    if (G.lure && G.lure.reeling) bendT = 0.035;
+    else if (G.rig) bendT = 0.012 + Math.min(0.08, Math.abs(G.rig.bobV || 0)*0.08);   // the tip nods with the float
+  }
+  if (pole) bendT *= 1.35;   // a long soft pole bows further
+  ROD.bendV += ((bendT - ROD.bend)*250 - ROD.bendV*8)*dt;
+  ROD.bend += ROD.bendV*dt;
+  ROD.load += (loadT - ROD.load)*(1 - Math.exp(-dt*6));
+  // reel (spinning rod only)
+  const bailT = !pole && (G.state === 'charge' || G.state === 'fly') ? 1 : 0;
+  ROD.bail += Math.sign(bailT - ROD.bail)*Math.min(Math.abs(bailT - ROD.bail), (bailT > ROD.bail ? 6 : 16)*dt);
+  const reeling = !pole && ((G.state === 'wait' && G.lure && G.lure.reeling) || (G.state === 'hooked' && mouse.down && !(F.payout > 0)));
+  ROD.crankRate += ((reeling ? Math.min(1.6, 1.1*reelScale()) : 0) - ROD.crankRate)*(1 - Math.exp(-dt*10));
+  const dC = ROD.crankRate*TAU*dt; ROD.crank += dC; ROD.rotor += Math.min(dC*5.2, 3.1*TAU*dt);
+  if (G.state === 'hooked' && F.payout > 0) ROD.spool -= F.payout*dt/0.023;   // the drag slips
+  const lineOut = G.state === 'hooked' ? F.lineOut : focus ? dist3(focus, e) : 0;
   const fw = yawDir(yaw), right = [Math.cos(yaw), 0, Math.sin(yaw)];
-  const base = add(add(add(e, mul(right, 0.26)), [0, -0.42, 0]), mul(fw, 0.32));
+  // the hand on the reel seat: the spinning reel sits in view below the rod (Tidewater's first-person hold); the pole is held lower
+  const hand = pole ? add(add(add(e, mul(right, 0.26)), [0, -0.42, 0]), mul(fw, 0.32)) : add(add(add(e, mul(right, 0.2)), [0, -0.24, 0]), mul(fw, 0.48));
   const dir = [fw[0]*Math.cos(el), Math.sin(el), fw[2]*Math.cos(el)];
-  return { base, dir, len: m.rodLen, bend, kind: G.mode, target: null };
+  return { kind: G.mode, hand, dir, len: modeCfg().rodLen, bend: ROD.bend, load: ROD.load, bendDir: focus ? sub(focus, hand) : null,
+    reel: { rotor: ROD.rotor, bail: ROD.bail, crank: ROD.crank, spool: ROD.spool, osc: Math.sin(ROD.crank*0.5)*0.0035, fill: 1 - Math.min(1, lineOut/220)*0.5 } };
 }
 function scene(dt){
+  ROD.lastDt = Math.min(0.05, Math.max(0.001, dt || 0.016));
   const sh = camShake(dt);
   const S = { t: G.time, dt, cam: { pos: add(cam.pos, sh.pos), look: add(cam.look, sh.look) }, boat: BOAT, fish: [], lure: null, bobber: null, lineUnder: null, lineTo: null, lineSag: 0, flyObj: null };
   const byDist = fishes.slice().sort((a, b) => dist3(a.pos, cam.pos) - (a.visitor ? 25 : 0) - dist3(b.pos, cam.pos) + (b.visitor ? 25 : 0));
@@ -1542,7 +1580,6 @@ function scene(dt){
     S.lineSag = Math.max(0, 0.25 - G.fight.tension*0.4)*dh*0.08;
     if (G.mode === 'pole') S.bobber = { pos: [entry[0], -0.05, entry[2]], tilt: 1.3, flying: true };
   }
-  rod.target = S.lineTo || add(rod.base, mul(rod.dir, 10));
   waterRings(S, dt);
   return S;
 }

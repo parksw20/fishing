@@ -1464,6 +1464,7 @@ function sub3(a,b){ return [a[0]-b[0],a[1]-b[1],a[2]-b[2]]; }
 function len3(a){ return Math.hypot(a[0],a[1],a[2]); }
 function norm3(a){ const l = len3(a)||1; return [a[0]/l,a[1]/l,a[2]/l]; }
 function cross3(a,b){ return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
+function dot3(a,b){ return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
 
 // Rowboat: the hull below the waterline is exactly the ellipsoid the water shader traces (2.05 x 0.37 x 0.72),
 // topped by flared topsides with a sheer line. Local frame: bow toward -z, starboard +x.
@@ -1595,7 +1596,6 @@ function drawBoat(M){
   gl.bindVertexArray(m.vao); gl.drawElements(gl.TRIANGLES, m.n, m.type, 0);
   gl.useProgram(pMesh.p);
 }
-const rodMesh = makeMesh(true);
 const bobMesh = makeMesh(true);
 { // float: fluorescent antenna with bands above a slim body; origin at the nominal waterline mark
   const g = new Geo();
@@ -1648,31 +1648,99 @@ function mat4TRS(p, yaw, pitch, roll, s){
 }
 const IDENT = new Float32Array([1,0,0,0, 0,1,0,0, 0,0,1,0, 0,0,0,1]);
 
-function buildRod(r){
-  // r: { base, dir (unit), len, tip target (line direction), bend 0..1, kind }
-  const g = new Geo();
-  const n = 14, pts=[], rad=[], col=[];
-  const toT = norm3(sub3(r.target, r.base));
-  const k = Math.max(0, Math.min(0.85, r.bend));
-  const dT = norm3([r.dir[0]*(1-k)+toT[0]*k, r.dir[1]*(1-k)+toT[1]*k - 0.15*k, r.dir[2]*(1-k)+toT[2]*k]);
-  const L = r.len*(1-0.1*k);
-  const tip = [r.base[0]+ (r.dir[0]*0.5+dT[0]*0.5)*L, r.base[1]+(r.dir[1]*0.5+dT[1]*0.5)*L, r.base[2]+(r.dir[2]*0.5+dT[2]*0.5)*L];
-  const C = [r.base[0]+r.dir[0]*L*0.55, r.base[1]+r.dir[1]*L*0.55, r.base[2]+r.dir[2]*L*0.55];
-  const pole = r.kind === 'pole';
-  for (let i=0;i<=n;i++){ const t=i/n, a=(1-t)*(1-t), b=2*t*(1-t), c=t*t;
-    pts.push([a*r.base[0]+b*C[0]+c*tip[0], a*r.base[1]+b*C[1]+c*tip[1], a*r.base[2]+b*C[2]+c*tip[2]]);
-    rad.push((pole? 0.014 : 0.011)*(1-t) + 0.0022*t);
-    col.push(t < (pole? 0.1 : 0.17) ? [0.55,0.40,0.22] : (pole ? [0.12,0.20,0.10] : [0.05,0.05,0.07]));
+/* ---------------- fishing rods (models in rodmodel.js, ported from Tidewater) ----------------
+   Static geometry per rod; the vertex shader turns the reel's rotor / bail / crank / spool and bends the blank
+   toward the line (fast action: the deflection exponent drops as the load grows, so a heavy fish bends it deep). */
+const pRod = prog(`#version 300 es
+layout(location=0) in vec3 aP; layout(location=1) in vec3 aN; layout(location=2) in vec3 aC; layout(location=3) in vec2 aA;
+uniform mat4 uM; uniform vec3 uCam, uR, uU, uF; uniform float uTanF, uAspect;
+uniform vec4 uRodK;    // rod length, blank start, reel axis z, crank axis y
+uniform float uPivot;  // bail pivot height
+uniform vec4 uBend;    // bend direction x, z (rod space), bend (tip deflection / length), exponent
+uniform vec4 uReel;    // rotor angle, bail open 0..1, crank angle, spool angle
+uniform vec4 uReel2;   // spool in/out (m), line left on the spool
+out vec3 vN, vC, vW; out float vS;
+void main(){
+  vec3 P = aP, Nn = aN; float part = aA.x;
+  vec3 axisC = vec3(0.0, 0.0, uRodK.z);
+  if (part > 0.5){
+    if (part < 2.5){
+      if (part > 1.5){   // bail flips back about its pivots
+        float a = -uReel.y*1.95, ca = cos(a), sa = sin(a); vec3 c = vec3(0.0, uPivot, uRodK.z), q = P - c;
+        P = c + vec3(q.x, q.y*ca - q.z*sa, q.y*sa + q.z*ca); Nn = vec3(Nn.x, Nn.y*ca - Nn.z*sa, Nn.y*sa + Nn.z*ca);
+      }
+      float a = uReel.x, ca = cos(a), sa = sin(a); vec3 q = P - axisC;   // rotor about the reel axis
+      P = vec3(q.x*ca + q.z*sa, P.y, -q.x*sa + q.z*ca) + vec3(0.0, 0.0, axisC.z); Nn = vec3(Nn.x*ca + Nn.z*sa, Nn.y, -Nn.x*sa + Nn.z*ca);
+    } else if (part < 3.5){   // crank about its shaft
+      float a = uReel.z, ca = cos(a), sa = sin(a); vec3 c = vec3(0.0, uRodK.w, uRodK.z), q = P - c;
+      P = c + vec3(q.x, q.y*ca - q.z*sa, q.y*sa + q.z*ca); Nn = vec3(Nn.x, Nn.y*ca - Nn.z*sa, Nn.y*sa + Nn.z*ca);
+    } else {                  // spool: oscillates with the crank, slips back with the drag; the braid shrinks as line goes out
+      vec3 q = P - axisC;
+      if (part > 4.5){ float r = length(q.xz), r2 = mix(0.0205, r, uReel2.y); q.xz *= r2/max(r, 1e-5); }
+      float a = uReel.w, ca = cos(a), sa = sin(a);
+      P = vec3(q.x*ca + q.z*sa, P.y + uReel2.x, -q.x*sa + q.z*ca) + vec3(0.0, 0.0, axisC.z); Nn = vec3(Nn.x*ca + Nn.z*sa, Nn.y, -Nn.x*sa + Nn.z*ca);
+    }
   }
-  g.tube(pts, rad, col, 7);
-  if (!pole){ // spinning reel under the rod
-    const p = pts[2], q = pts[3]; const d = norm3(sub3(q,p)); const side = norm3(cross3(d,[0,1,0])); const dn = cross3(side, d);
-    const c = [p[0]-dn[0]*0.07, p[1]-dn[1]*0.07, p[2]-dn[2]*0.07];
-    g.tube([[p[0],p[1],p[2]], c], [0.006,0.006], [[0.2,0.2,0.22],[0.2,0.2,0.22]], 5);
-    g.tube([[c[0]-d[0]*0.03,c[1]-d[1]*0.03,c[2]-d[2]*0.03],[c[0]+d[0]*0.03,c[1]+d[1]*0.03,c[2]+d[2]*0.03]], [0.028,0.028], [[0.55,0.55,0.58],[0.55,0.55,0.58]], 12);
-    g.tube([[c[0]+side[0]*0.03,c[1]+side[1]*0.03,c[2]+side[2]*0.03],[c[0]+side[0]*0.06,c[1]+side[1]*0.06,c[2]+side[2]*0.06]], [0.004,0.004], [[0.1,0.1,0.1],[0.1,0.1,0.1]], 5);
-  }
-  rodMesh.set(g.array());
+  // the blank bends toward the line
+  float span = uRodK.x - uRodK.y, s = clamp((P.y - uRodK.y)/span, 0.0, 1.0), pw = uBend.w;
+  float lat = uBend.z*uRodK.x*pow(s, pw), slope = uBend.z*uRodK.x*pw*pow(max(s, 1e-4), pw - 1.0)/span;
+  float drop = 0.5*lat*lat/(max(P.y - uRodK.y, 0.0) + 0.06);
+  vec3 bd = vec3(uBend.x, 0.0, uBend.y);
+  P += bd*lat - vec3(0.0, drop, 0.0); Nn = normalize(Nn - vec3(0.0, slope*dot(Nn, bd), 0.0));
+  vec4 w = uM*vec4(P, 1.0); vW = w.xyz; vN = mat3(uM)*Nn; vC = aC; vS = aA.y;
+  vec3 v = w.xyz - uCam; float dz = dot(v, uF);
+  gl_Position = vec4(dot(v,uR)/(uAspect*uTanF), dot(v,uU)/uTanF, ${ZA.toFixed(8)}*dz + (${ZB.toFixed(8)}), dz);
+}`, `#version 300 es
+precision highp float;
+in vec3 vN, vC, vW; in float vS; out vec4 o;
+uniform vec3 uSun, uCam, uSunC, uSkyK;
+void main(){
+  vec3 n = normalize(vN), v = normalize(uCam - vW); if (dot(n, v) < 0.0) n = -n;
+  float nl = max(dot(n, uSun), 0.0);
+  vec3 skyE = (vec3(0.62,0.70,0.78)*1.5*(0.55 + 0.45*n.y) + vec3(0.30,0.40,0.40)*0.5*max(-n.y, 0.0))*uSkyK;
+  vec3 col = vC/3.14159*(uSunC*nl + skyE);
+  // clear coat / machined metal: a sharp sun highlight and a faint sky reflection, stronger on shiny parts
+  vec3 h = normalize(v + uSun); float fr = 0.04 + 0.96*pow(1.0 - max(dot(n, v), 0.0), 5.0);
+  col += uSunC*vS*0.35*pow(max(dot(n, h), 0.0), 20.0 + 140.0*vS)*nl;
+  vec3 rr = reflect(-v, n); col += vec3(0.55,0.66,0.8)*uSkyK*vS*(0.08 + 0.5*fr)*(0.4 + 0.6*max(rr.y, 0.0));
+  o = vec4(col, 1);
+}`, 'rod');
+const RODS = {};
+function rodGL(kind){
+  if (RODS[kind]) return RODS[kind];
+  const m = kind === 'pole' ? RodModel.floatPole() : RodModel.spinningRod();
+  const vao = gl.createVertexArray(), vb = gl.createBuffer();
+  gl.bindVertexArray(vao); gl.bindBuffer(gl.ARRAY_BUFFER, vb); gl.bufferData(gl.ARRAY_BUFFER, m.data, gl.STATIC_DRAW);
+  const st = RodModel.FL*4;
+  for (let i = 0; i < 3; i++){ gl.enableVertexAttribArray(i); gl.vertexAttribPointer(i, 3, gl.FLOAT, false, st, i*12); }
+  gl.enableVertexAttribArray(3); gl.vertexAttribPointer(3, 2, gl.FLOAT, false, st, 36);
+  gl.bindVertexArray(null);
+  return RODS[kind] = { ...m, vao, n: m.data.length/RodModel.FL };
+}
+// r: { kind, hand (world, the reel seat), dir (along the rod), bendDir (world, toward the line), bend, load, reel }
+function drawRod(r, B, draw){
+  const R = rodGL(r.kind);
+  const y = norm3(r.dir); let z = sub3([0, 1, 0], [y[0]*y[1], y[1]*y[1], y[2]*y[1]]); z = len3(z) < 1e-4 ? [0, 0, 1] : norm3(z);
+  const x = cross3(y, z);
+  const o = sub3(r.hand, [y[0]*R.seat, y[1]*R.seat, y[2]*R.seat]);
+  // bend direction in rod space (across the blank)
+  let bx = 0, bz = -1;
+  if (r.bendDir){ bx = dot3(r.bendDir, x); bz = dot3(r.bendDir, z); const l = Math.hypot(bx, bz); if (l > 1e-5){ bx /= l; bz /= l; } else { bx = 0; bz = -1; } }
+  const bend = r.bend || 0, pw = 3.4 + (1.7 - 3.4)*Math.max(0, Math.min(1, r.load || 0));
+  const lat = bend*R.L, drop = 0.5*lat*lat/(R.L - R.blankStart + 0.06);
+  const tl = [bx*lat, R.L - drop, bz*lat];
+  const tip = [o[0] + x[0]*tl[0] + y[0]*tl[1] + z[0]*tl[2], o[1] + x[1]*tl[0] + y[1]*tl[1] + z[1]*tl[2], o[2] + x[2]*tl[0] + y[2]*tl[1] + z[2]*tl[2]];
+  if (!draw) return tip;
+  gl.useProgram(pRod.p); setCamUniforms(pRod, B);
+  gl.uniform3fv(pRod.u.uSun, SUNV); gl.uniform3fv(pRod.u.uSunC, ENV.sunC); gl.uniform3fv(pRod.u.uSkyK, ENV.skyK);
+  gl.uniformMatrix4fv(pRod.u.uM, false, new Float32Array([x[0], x[1], x[2], 0, y[0], y[1], y[2], 0, z[0], z[1], z[2], 0, o[0], o[1], o[2], 1]));
+  gl.uniform4f(pRod.u.uRodK, R.L, R.blankStart, R.reelZ, R.bodyY); gl.uniform1f(pRod.u.uPivot, R.pivotY);
+  gl.uniform4f(pRod.u.uBend, bx, bz, bend, pw);
+  const q = r.reel || {};
+  gl.uniform4f(pRod.u.uReel, q.rotor || 0, q.bail || 0, q.crank || 0, q.spool || 0);
+  gl.uniform4f(pRod.u.uReel2, q.osc || 0, q.fill ?? 1, 0, 0);
+  gl.bindVertexArray(R.vao); gl.drawArrays(gl.TRIANGLES, 0, R.n);
+  gl.useProgram(pMesh.p);
   return tip;
 }
 
@@ -1787,7 +1855,7 @@ function render(S){
   let tip = null;
   // from under the water the rod and the line above the surface are not drawn: without refraction they pointed off
   // at odd angles; the line is seen only from where it enters the water
-  if (S.rod){ tip = buildRod(S.rod); if (!S.hideRod && !UW.on) drawMesh(rodMesh, IDENT); }
+  if (S.rod) tip = drawRod(S.rod, B, !S.hideRod && !UW.on);
     // night: glows fluorescent lime like a chemical light stick (야광찌) instead of washing out white
   if (bo) drawMesh(bobMesh, mat4TRS(bo.pos, 0, bo.tilt||0, 0), { emis: 0.55*(1 - 0.9*ENV.night), glow: [0.07*ENV.night, 0.40*ENV.night, 0.012*ENV.night] });
   if (S.rain && S.rain.n && !UW.on){   // no rain streaks below the surface
