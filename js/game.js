@@ -2332,7 +2332,7 @@ function sprayBurst(pos, len, power){
   const n = Math.round(clamp(40 + 140*len*power, 30, 220)), r = 0.08 + 0.25*len;
   for (let i = 0; i < n; i++){
     const a = Math.random()*TAU, o = rand(0.1, 1)*r, out = rand(0.3, 1.2)*(0.4 + power*0.7), up = rand(1.0, 2.6)*(0.5 + power*0.7);
-    emitSpray([pos[0] + Math.cos(a)*o, 0.02, pos[2] + Math.sin(a)*o], [Math.cos(a)*out, up, Math.sin(a)*out], rand(0.003, 0.008)*(0.8 + len*0.5), rand(0.7, 1.2), rand(0.55, 0.85), 0);
+    emitSpray([pos[0] + Math.cos(a)*o, 0.02, pos[2] + Math.sin(a)*o], [Math.cos(a)*out, up, Math.sin(a)*out], rand(0.009, 0.024)*(0.8 + len*0.5), rand(0.7, 1.2), rand(0.55, 0.85), 0);
   }
   const m = Math.round(3 + 6*power*(0.6 + len));
   for (let i = 0; i < m; i++){
@@ -2344,7 +2344,7 @@ function sprayBurst(pos, len, power){
 function sprayClump(p, vel, n, life){
   for (let j = 0; j < n; j++){
     const o = [p[0] + rand(-0.04, 0.04), p[1] + rand(0, 0.03), p[2] + rand(-0.04, 0.04)];
-    emitSpray(o, [vel[0]*rand(0.75, 1.25) + rand(-0.15, 0.15), vel[1]*rand(0.7, 1.3), vel[2]*rand(0.75, 1.25) + rand(-0.15, 0.15)], rand(0.0025, 0.007), life*rand(0.7, 1.1), rand(0.55, 0.85), 0);
+    emitSpray(o, [vel[0]*rand(0.75, 1.25) + rand(-0.15, 0.15), vel[1]*rand(0.7, 1.3), vel[2]*rand(0.75, 1.25) + rand(-0.15, 0.15)], rand(0.0075, 0.021), life*rand(0.7, 1.1), rand(0.55, 0.85), 0);
   }
 }
 function emitSpray(p, vel, size, life, alpha, kind){
