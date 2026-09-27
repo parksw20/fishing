@@ -118,8 +118,8 @@
   .seg button small { font-weight:500; opacity:.75; margin-left:4px; font-size:11px; }
   #qtrack { position:fixed; left:14px; top:calc(14px + env(safe-area-inset-top,0px)); padding:8px 12px; z-index:5; font-size:12px; max-width:min(300px, calc(100vw - 260px)); cursor:pointer; }
   #qtrack .qth { font-size:11px; opacity:.6; letter-spacing:.08em; margin-bottom:4px; }
-  #qlist div { display:flex; gap:8px; justify-content:space-between; padding:2px 0; }
-  #qlist div span { opacity:.7; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  #qlist div { display:flex; gap:8px; justify-content:flex-start; align-items:baseline; padding:2px 0; }
+  #qlist div span { order:-1; opacity:.85; font-variant-numeric:tabular-nums; white-space:nowrap; }   /* 📍 / ⛵ in front of the quest */
   #qlist div.done { color:#8ff0a8; }
   #target { position:fixed; left:14px; top:120px; padding:7px 12px; font-size:12px; z-index:5; max-width:280px; line-height:1.5; }
   #target .st { color:#ffd84a; letter-spacing:1px; }
@@ -243,7 +243,7 @@
   /* touch: quests (left) and time/weather/coins (right) at the very top */
   body.touch #qtrack { top:calc(10px + env(safe-area-inset-top,0px)); left:10px; max-width:calc(100vw - 200px); box-sizing:border-box; font-size:11px; padding:7px 10px; }
   body.touch #qlist b { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; min-width:0; }
-  body.touch #qlist div span { display:none; }
+  body.touch #qlist div span { font-size:.9em; }
   body.touch #status .srow { flex-wrap:wrap; font-size:13px; }
   body.touch #status { right:10px; top:calc(10px + env(safe-area-inset-top,0px)); width:170px; padding:8px 10px; }
   body.touch #status .net ul { display:none; }
