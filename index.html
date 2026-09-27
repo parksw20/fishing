@@ -71,7 +71,14 @@
   #card .pts { color:#ffd84a; font-size:20px; font-weight:800; margin-top:8px; }
   #card .badge { color:#8ff0a8; font-weight:700; font-size:13px; min-height:18px; margin-top:4px; }
   #card .foot { font-size:11px; opacity:.55; margin-top:10px; }
-  #loading { position:fixed; inset:0; display:grid; place-items:center; background:#0d2a2a; z-index:20; transition:opacity .8s; font-size:14px; letter-spacing:.1em; }
+  #loading { position:fixed; inset:0; display:grid; place-items:center; background:radial-gradient(ellipse at 50% 40%, #134040, #0a2222 70%); z-index:20; transition:opacity .8s; }
+  #loading .ldbox { width:min(420px, 80vw); text-align:center; }
+  #loading .ldicon { font-size:38px; margin-bottom:14px; animation:ldbob 2.2s ease-in-out infinite; }
+  @keyframes ldbob { 0%,100% { transform:translateY(0) rotate(-3deg); } 50% { transform:translateY(-6px) rotate(3deg); } }
+  #loading .ldtxt { font-size:15px; font-weight:700; letter-spacing:.04em; margin-bottom:12px; min-height:1.4em; }
+  #loading .ldbar { height:8px; border-radius:6px; background:rgba(255,255,255,.12); overflow:hidden; }
+  #loading .ldbar i { display:block; height:100%; width:0; border-radius:6px; background:linear-gradient(90deg, #4fd1ff, #8ff0a8); }
+  #loading .ldpct { margin-top:8px; font-size:12px; opacity:.6; font-variant-numeric:tabular-nums; }
   #loading.off { opacity:0; pointer-events:none; }
   #err { position:fixed; inset:auto 12px 12px 12px; max-height:45%; overflow:auto; font:12px/1.45 ui-monospace, Menlo, monospace; color:#ffd9d2; background:rgba(40,8,8,.92); border-radius:14px; padding:12px 14px; white-space:pre-wrap; z-index:30; }
   #err[hidden], #dbg[hidden] { display:none; }
@@ -594,17 +601,43 @@
   </div>
 </div>
 <div id="fade">⛵ 이동 중…</div>
-<div id="loading">물 위로 나가는 중…</div>
+<div id="loading"><div class="ldbox"><div class="ldicon">⛵</div><div class="ldtxt" id="ldtxt">배를 타러 선착장에 나가는 중…</div><div class="ldbar"><i id="ldfill"></i></div><div class="ldpct" id="ldpct">0%</div></div></div>
+<script>
+// loading bar: steps are reported as the scripts arrive (setLoad), the bar eases toward them and the text follows it
+(function(){
+  let want = 3, shown = 0, last = performance.now(), done = false;
+  const txt = p => p < 50 ? '배를 타러 선착장에 나가는 중…' : p < 80 ? '낚시 포인트로 이동 중…' : '낚시 채비 준비 중…';
+  window.setLoad = p => { want = Math.max(want, p); };
+  function tick(now){
+    const dt = Math.min(0.1, (now - last)/1000); last = now;
+    if (want >= 82 && want < 95) want = Math.min(95, want + dt*3);   // renderer warming up: keep creeping
+    shown = Math.min(want, shown + Math.min(dt*55, Math.max(dt*25, (want - shown)*Math.min(1, dt*4))));   // 25–55 %/s: every message stays up long enough to read
+    const el = document.getElementById('loading'); if (!el) return;
+    document.getElementById('ldfill').style.width = shown.toFixed(1) + '%';
+    document.getElementById('ldpct').textContent = Math.floor(shown) + '%';
+    const t = txt(shown), tx = document.getElementById('ldtxt'); if (tx.textContent !== t) tx.textContent = t;
+    if (shown >= 99.9 && !done){ done = true; setTimeout(() => el.classList.add('off'), 250); return; }
+    requestAnimationFrame(tick);
+  }
+  requestAnimationFrame(tick);
+})();
+</script>
 <div id="dbg" hidden></div>
 <div id="err" hidden></div>
 
 <script src="js/pebbles.js"></script>
+<script>setLoad(14)</script>
 <script src="js/boat_b1.js"></script>
+<script>setLoad(46)</script>
 <script src="js/renderer.js"></script>
+<script>setLoad(56)</script>
 <script src="js/world.js"></script>
+<script>setLoad(68)</script>
 <script src="img/fish/credits.js"></script>
 <script src="js/ecology.js"></script>
 <script src="js/data.js"></script>
+<script>setLoad(76)</script>
 <script src="js/game.js"></script>
+<script>setLoad(82)</script>
 </body>
 </html>

@@ -3128,7 +3128,7 @@ function frame(now){
   if (cap && now - last < 1000/cap - 3){ requestAnimationFrame(frame); return; }
   const dt = Math.min(0.05, (now - last)/1000); last = now;
   if (Rn.ready()){
-    if (!started){ started = true; $('loading').classList.add('off'); }
+    if (!started){ started = true; if (window.setLoad) setLoad(100); else $('loading').classList.add('off'); }
     for (let i = 0; i < SUBSTEPS; i++) update(SUBSTEPS > 1 ? 0.05 : dt);
     const res = Rn.render(scene(dt));
     if (res && res.tip){ G.tip = res.tip; G.tipS = vlerp(G.tipS, res.tip, Math.min(1, dt*(G.state === 'hooked' ? 2.5 : 20))); }
