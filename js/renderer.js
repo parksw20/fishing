@@ -1979,8 +1979,8 @@ function loadGLB(key, b64, fit){
 }
 /* ---------------- rigged fish models (models/fish/<id>.glb) ---------------- */
 // Each model: head toward +x, length 1 (x -0.5..0.5), y up, z to the side; a 6-joint spine from the head (x 0.42) to
-// the tail (x -0.42) with linear skin weights. Loaded on demand; until a model is in (or if it can't load, e.g. from
-// file://) the fish is drawn by the traced photo body instead. The pose uses the same travelling wave as the traced
+// the tail (x -0.42) with linear skin weights. Loaded on demand; until a model is in (or if it can't load) the fish
+// is drawn by the traced photo body instead. The pose uses the same travelling wave as the traced
 // fish (tail phase, amplitude, bend into the turn), turned into joint yaws.
 const FISHM = {};
 const FJX = [0.42, 0.252, 0.084, -0.084, -0.252, -0.42];
@@ -1989,7 +1989,9 @@ function fishModel(id){
   let m = FISHM[id];
   if (!m){
     m = FISHM[id] = { ready: false };
-    fetch('models/fish/' + id + '.glb').then(r => { if (!r.ok) throw 0; return r.arrayBuffer(); }).then(buf => {
+    // the .glb is also shipped as base64 in models/fish/js/<id>.js: a script tag loads it from file:// and any host
+    new Promise((ok, bad) => { const sc = document.createElement('script'); sc.src = 'models/fish/js/' + id + '.js'; sc.onload = ok; sc.onerror = bad; document.head.appendChild(sc); })
+    .then(() => { const b64 = (window.FISH_GLB || {})[id]; if (!b64) throw 0; delete window.FISH_GLB[id]; return Uint8Array.from(atob(b64), c => c.charCodeAt(0)).buffer; }).then(buf => {
       const bytes = new Uint8Array(buf), dv = new DataView(buf);
       const jl = dv.getUint32(12, true), J = JSON.parse(new TextDecoder().decode(bytes.subarray(20, 20 + jl))), bin = 20 + jl + 8;
       const acc = i => { const a = J.accessors[i], v = J.bufferViews[a.bufferView], n = { SCALAR:1, VEC2:2, VEC3:3, VEC4:4 }[a.type], off = bin + (v.byteOffset||0) + (a.byteOffset||0);
