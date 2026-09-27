@@ -303,7 +303,7 @@ window.GameData = (function(){
     { id:'rod', name:'낚싯대', icon:'🎣', tiers: tiers(
       ['기본 낚싯대', '입문 글라스 로드', '카본 로드', '고탄성 카본 로드', '라이트 게임 로드', '프로 카본 로드', '티타늄 가이드 로드', '토너먼트 로드', '빅게임 로드', '마스터 빅게임 로드'], 1,
       (u, i) => { const cast = 1 + (100/30 - 1)*u, absorb = 1 - 0.28*u;   // lure cast: 30 m at level 1 up to 100 m at level 10
-        return { cast, absorb, poleCast: POLE_CAST[i], desc: i ? `대낚시 ${POLE_CAST[i]}m · 루어 +${pct(cast - 1)}% · 파이팅 장력 -${pct(1 - absorb)}%` : '기본 캐스팅 거리 (대낚시 10m · 루어 30m)' }; }) },
+        return { cast, absorb, poleCast: POLE_CAST[i], desc: i ? `대낚시 ${POLE_CAST[i]}m · 루어 ${Math.round(30*cast)}m · 파이팅 장력 -${pct(1 - absorb)}%` : '기본 캐스팅 거리 (대낚시 10m · 루어 30m)' }; }) },
     { id:'reel', name:'릴', icon:'🌀', tiers: tiers(
       ['기본 스피닝 릴', '경량 스피닝 릴', '고기어 릴', '실버 스피닝 릴', '베이트 릴', '하이기어 베이트 릴', '대형 스피닝 릴', '지깅 릴', '소형 전동 릴', '대형 전동 릴'], 0.8,
       (u, i) => { const speed = 1 + 0.8*u; return { speed, desc: i ? `감기 속도 +${pct(speed - 1)}%` : '기본 감기 속도' }; }) },
