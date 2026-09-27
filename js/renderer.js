@@ -329,6 +329,7 @@ uniform vec4 uFA[MAXF];   // fish: back colour, pattern id
 uniform vec4 uFB[MAXF];   // fish: belly colour, body height ratio
 uniform vec4 uFC[MAXF];   // fish shape: width/length, tail mode (0 fin, 1 fluke, 2 none, 3 sunfish), dorsal scale, tail scale
 uniform vec3 uSunC, uSkyK; uniform float uNight;   // time of day: sun (or moon) radiance, sky tint, night amount
+uniform vec4 uLP[4]; uniform vec3 uLC[4];   // boat lamps at night
 uniform float uWaveK;    // wave strength (debug: calm 0.45 / normal 1 / rough 1.8 / very rough 2.8 / storm 4)
 uniform vec4 uWeather;   // cloud cover, fog, rain, wind (0..1)
 #define WAKEN 20
@@ -480,6 +481,20 @@ float toVis(float r){ const float A = 0.078; float p = 1.0/A, q = -r/A, D = sqrt
 // touch-ripple simulation: a small window that follows the action; fades out at its border so the clamped
 // edge texels never smear into straight streaks across the water outside it
 vec4 ripAt(vec2 uv){ vec2 d = abs(uv - 0.5); return texture(uRip, uv)*smoothstep(0.5, 0.42, max(d.x, d.y)); }
+// long-period swell: three trains from one direction (per region), height + slope, applied the same to the
+// surface intersection and the shading so the swell reads as one consistent sea
+vec3 swell(vec2 x){
+  vec3 r = vec3(0.0);
+  float ang = uDepthQ.y*0.5;                       // region seed: the swell's heading
+  for (int i = 0; i < 3; i++){
+    float fi = float(i), a = ang + (fi - 1.0)*0.28;
+    vec2 d = vec2(cos(a), sin(a));
+    float lam = 22.0/(1.0 + fi*0.55), k = 6.2832/lam, w = sqrt(9.81*k), A = 0.045/(1.0 + fi*0.8);
+    float ph = k*dot(d, x) - w*uTime + fi*1.7;
+    r.x += A*sin(ph); r.yz += A*k*cos(ph)*d;
+  }
+  return r*uWaveK;
+}
 float smin1(float a, float b, float k){ float h = max(k - abs(a - b), 0.0)/k; return min(a, b) - h*h*k*0.25; }
 float floorDepth(vec2 xz){
   // region depth profile (same formula as game.js), plus fine shader-only noise
@@ -806,7 +821,7 @@ void main(){
     B = texture(uSurf, (M*xz)/(uL*SC) + 0.37);
     vec2 ruv = (xz - uRipCenter)/uRipSize + 0.5;
     R = ripAt(ruv);
-    hsum = uWaveK*(A.x + WB*SC*B.x) + R.x;
+    hsum = uWaveK*(A.x + WB*SC*B.x) + swell(xz).x + R.x;
     t = (hsum - uCam.y) / wd.y;
   }
   vec3 P = uCam + wd*t;
@@ -814,11 +829,11 @@ void main(){
   B = texBS(uSurf, (M*P.xz)/(uL*SC) + 0.37);
   // break up the 4.6 m tile: a slow noise field trades weight between the two differently rotated and scaled
   // layers, and a third large rotated layer adds a swell that never lines up with them (one extra fetch)
-  float gm = vnoise(P.xz*0.043 + 5.7)*0.65 + vnoise(P.xz*0.11 - 2.3)*0.35;
-  float wa = mix(0.55, 1.35, gm), wb = mix(1.9, 0.6, gm);
-  const mat2 M3 = mat2(0.96, 0.28, -0.28, 0.96);
-  vec4 Dsw = texture(uSurf, (M3*P.xz)/(uL*3.7) + 0.13);
-  vec2 slope = uWaveK*(wa*A.yz + wb*WB*(transpose(M)*B.yz) + 0.4*(transpose(M3)*Dsw.yz)) + R.yz;
+  // (the tile's repetition is broken by a gentle, large-scale trade between the two layers and the swell on top)
+  float gm = vnoise(P.xz*0.018 + 5.7);
+  float wa = mix(0.82, 1.18, gm), wb = mix(1.3, 0.8, gm);
+  vec3 SW = swell(P.xz);
+  vec2 slope = uWaveK*(wa*A.yz + wb*WB*(transpose(M)*B.yz)) + SW.yz + R.yz;
   // boat wake: slope by finite differences of the analytic wake height
   vec2 wk = vec2(0.0);
   if (uWakeN > 1){
@@ -974,6 +989,12 @@ void main(){
     col += (refl*0.55 + SUN*max(uSun.y, 0.05)*0.004)*smoothstep(0.015, 0.25, rs) + refl*0.12*clamp(R.x*25.0, 0.0, 1.0);
   }
 
+  // boat lamps on the water: a soft pool under each and a shimmering glint streak where the waves reflect it
+  for (int i = 0; i < 4; i++){
+    if (uLP[i].w <= 0.0) continue;
+    vec3 L = uLP[i].xyz - P; float d2 = dot(L, L); vec3 l = L*inversesqrt(d2);
+    col += uLC[i]*uLP[i].w*(0.015*max(dot(n, l), 0.0)/(d2 + 0.3) + F*2.2*pow(max(dot(rr, l), 0.0), 220.0));
+  }
   // crest translucency (after Tidewater's WaterMaterial): sun shining through thin wave tips glows green-teal,
   // strongest looking toward the sun, side-lit waves a little too
   {
@@ -1459,6 +1480,16 @@ precision highp float;
 in vec3 vN, vC, vW; out vec4 o;
 uniform vec3 uSun, uCam, uSunC, uSkyK, uGlow; uniform float uEmis, uInner;
 uniform vec4 uUW; uniform vec3 uUWsig;   // camera under water: fog colour (w = on) and extinction
+uniform vec4 uLP[4]; uniform vec3 uLC[4];   // boat lamps at night: position + intensity, colour
+vec3 lampLight(vec3 W, vec3 n, vec3 alb){
+  vec3 r = vec3(0.0);
+  for (int i = 0; i < 4; i++){
+    if (uLP[i].w <= 0.0) continue;
+    vec3 L = uLP[i].xyz - W; float d2 = dot(L, L); vec3 l = L*inversesqrt(d2);
+    r += alb/3.14159*uLC[i]*uLP[i].w*max(dot(n, l)*0.8 + 0.2, 0.0)/(d2 + 0.08);
+  }
+  return r;
+}
 void main(){
   vec3 n = normalize(vN), v = normalize(uCam - vW), c = vC;
   if (dot(n, v) < 0.0){ n = -n; if (uInner > 0.5) c = vec3(0.26,0.16,0.08)*(0.85+0.3*fract(sin(floor(vW.x*9.0+vW.z*1.3)*91.7)*437.5)); }
@@ -1467,7 +1498,7 @@ void main(){
   vec3 skyE = (vec3(0.62,0.70,0.78)*1.5*(0.55+0.45*n.y) + vec3(0.30,0.40,0.40)*0.5*max(-n.y,0.0))*uSkyK;
   vec3 col = c/3.14159*(SUN*nl + skyE);
   vec3 h = normalize(v+uSun); col += SUN*0.05*pow(max(dot(n,h),0.0),48.0)*nl;
-  col += c*uEmis + uGlow;
+  col += c*uEmis + uGlow + lampLight(vW, n, c);
   if (uUW.w > 0.5){ float dd = length(vW - uCam); vec3 T = exp(-uUWsig*dd)*(vW.y > 0.02 ? 0.3 : 1.0); col = mix(uUW.rgb, col, T); }
   o = vec4(col,1);
 }`, 'mesh');
@@ -1602,6 +1633,16 @@ precision highp float;
 in vec3 vN, vW; in vec2 vT; out vec4 o;
 uniform sampler2D uTex; uniform vec3 uSun, uCam, uSunC, uSkyK; uniform float uGain;
 uniform vec4 uUW; uniform vec3 uUWsig;
+uniform vec4 uLP[4]; uniform vec3 uLC[4];   // boat lamps at night: position + intensity, colour
+vec3 lampLight(vec3 W, vec3 n, vec3 alb){
+  vec3 r = vec3(0.0);
+  for (int i = 0; i < 4; i++){
+    if (uLP[i].w <= 0.0) continue;
+    vec3 L = uLP[i].xyz - W; float d2 = dot(L, L); vec3 l = L*inversesqrt(d2);
+    r += alb/3.14159*uLC[i]*uLP[i].w*max(dot(n, l)*0.8 + 0.2, 0.0)/(d2 + 0.08);
+  }
+  return r;
+}
 void main(){
   vec3 n = normalize(vN), v = normalize(uCam - vW);
   if (dot(n, v) < 0.0) n = -n;
@@ -1609,7 +1650,7 @@ void main(){
   float nl = max(dot(n,uSun),0.0);
   vec3 skyE = (vec3(0.62,0.70,0.78)*1.5*(0.55+0.45*n.y) + vec3(0.30,0.40,0.40)*0.5*max(-n.y,0.0))*uSkyK;
   vec3 col = c/3.14159*(uSunC*nl + skyE);
-  vec3 h = normalize(v+uSun); col += uSunC*0.04*pow(max(dot(n,h),0.0),40.0)*nl;
+  vec3 h = normalize(v+uSun); col += uSunC*0.04*pow(max(dot(n,h),0.0),40.0)*nl + lampLight(vW, n, c);
   // seen from under the water: the hull fades into the water colour with distance; parts above the surface
   // are only glimpsed through the waves
   if (uUW.w > 0.5){ float dd = length(vW - uCam); vec3 T = exp(-uUWsig*dd)*(vW.y > 0.02 ? 0.3 : 1.0); col = mix(uUW.rgb, col, T); }
@@ -1659,7 +1700,7 @@ function drawBoat(M){
   if (!m){ drawMesh(boatMesh, M, { inner:true }); return; }
   gl.useProgram(pTexMesh.p); setCamUniforms(pTexMesh, lastBasis);
   gl.uniform3fv(pTexMesh.u.uSun, SUNV); gl.uniform3fv(pTexMesh.u.uSunC, ENV.sunC); gl.uniform3fv(pTexMesh.u.uSkyK, ENV.skyK);
-  gl.uniformMatrix4fv(pTexMesh.u.uM, false, M); gl.uniform1f(pTexMesh.u.uGain, m.gain); setUW(pTexMesh);
+  gl.uniformMatrix4fv(pTexMesh.u.uM, false, M); gl.uniform1f(pTexMesh.u.uGain, m.gain); setUW(pTexMesh); setLamps(pTexMesh);
   gl.activeTexture(gl.TEXTURE15); gl.bindTexture(gl.TEXTURE_2D, m.tex); gl.uniform1i(pTexMesh.u.uTex, 15); gl.activeTexture(gl.TEXTURE0);
   gl.bindVertexArray(m.vao); gl.drawElements(gl.TRIANGLES, m.n, m.type, 0);
   gl.useProgram(pMesh.p);
@@ -1762,17 +1803,71 @@ void main(){
 precision highp float;
 in vec3 vN, vC, vW; in float vS; out vec4 o;
 uniform vec3 uSun, uCam, uSunC, uSkyK;
+uniform vec4 uLP[4]; uniform vec3 uLC[4];   // boat lamps at night: position + intensity, colour
+vec3 lampLight(vec3 W, vec3 n, vec3 alb){
+  vec3 r = vec3(0.0);
+  for (int i = 0; i < 4; i++){
+    if (uLP[i].w <= 0.0) continue;
+    vec3 L = uLP[i].xyz - W; float d2 = dot(L, L); vec3 l = L*inversesqrt(d2);
+    r += alb/3.14159*uLC[i]*uLP[i].w*max(dot(n, l)*0.8 + 0.2, 0.0)/(d2 + 0.08);
+  }
+  return r;
+}
 void main(){
   vec3 n = normalize(vN), v = normalize(uCam - vW); if (dot(n, v) < 0.0) n = -n;
   float nl = max(dot(n, uSun), 0.0);
   vec3 skyE = (vec3(0.62,0.70,0.78)*1.5*(0.55 + 0.45*n.y) + vec3(0.30,0.40,0.40)*0.5*max(-n.y, 0.0))*uSkyK;
-  vec3 col = vC/3.14159*(uSunC*nl + skyE);
+  vec3 col = vC/3.14159*(uSunC*nl + skyE) + lampLight(vW, n, vC);
   // clear coat / machined metal: a sharp sun highlight and a faint sky reflection, stronger on shiny parts
   vec3 h = normalize(v + uSun); float fr = 0.04 + 0.96*pow(1.0 - max(dot(n, v), 0.0), 5.0);
   col += uSunC*vS*0.35*pow(max(dot(n, h), 0.0), 20.0 + 140.0*vS)*nl;
   vec3 rr = reflect(-v, n); col += vec3(0.55,0.66,0.8)*uSkyK*vS*(0.08 + 0.5*fr)*(0.4 + 0.6*max(rr.y, 0.0));
   o = vec4(col, 1);
 }`, 'rod');
+// boat lamps (night): red / green side lights at the bow, a white stern light, a warm deck lamp.
+// Positions in the boat's model frame (bow toward -z, starboard +x).
+const BOAT_LAMPS = [
+  { p: [-0.92, 0.55, -1.0], c: [1.0, 0.07, 0.04], i: 0.35, s: 0.09 },
+  { p: [0.92, 0.55, -1.0],  c: [0.05, 1.0, 0.3],  i: 0.35, s: 0.09 },
+  { p: [0.0, 0.85, 1.4],    c: [1.0, 0.95, 0.85], i: 0.8,  s: 0.11 },
+  { p: [0.0, 1.3, 0.35],    c: [1.0, 0.8, 0.52],  i: 2.4,  s: 0.15 },
+];
+const LAMP = { P: new Float32Array(16), C: new Float32Array(12), on: 0, spr: new Float32Array(4*8) };
+function updateLamps(M){
+  LAMP.on = Math.max(0, Math.min(1, (ENV.night - 0.25)/0.35));
+  for (let k = 0; k < 4; k++){
+    const L = BOAT_LAMPS[k], x = L.p[0], y = L.p[1], z = L.p[2];
+    const w = [M[0]*x + M[4]*y + M[8]*z + M[12], M[1]*x + M[5]*y + M[9]*z + M[13], M[2]*x + M[6]*y + M[10]*z + M[14]];
+    LAMP.P.set([w[0], w[1], w[2], L.i*LAMP.on], k*4); LAMP.C.set(L.c, k*3);
+    LAMP.spr.set([w[0], w[1], w[2], L.s, L.c[0], L.c[1], L.c[2], LAMP.on], k*8);
+  }
+}
+function setLamps(P){ if (P.u.uLP){ gl.uniform4fv(P.u.uLP, LAMP.P); gl.uniform3fv(P.u.uLC, LAMP.C); } }
+const pGlow = prog(`#version 300 es
+layout(location=0) in vec4 aP; layout(location=1) in vec4 aC;   // xyz, size (m) | colour, strength
+uniform vec3 uCam, uR, uU, uF; uniform float uTanF, uAspect, uPxH;
+out vec4 vC;
+void main(){ vec3 v = aP.xyz - uCam; float dz = dot(v, uF);
+  gl_Position = vec4(dot(v,uR)/(uAspect*uTanF), dot(v,uU)/uTanF, ${ZA.toFixed(8)}*dz + (${ZB.toFixed(8)}), dz);
+  gl_PointSize = clamp(aP.w*uPxH/(max(dz, 0.1)*uTanF)*4.0, 10.0, 180.0); vC = aC; }`,
+`#version 300 es
+precision highp float; in vec4 vC; out vec4 o;
+void main(){ vec2 q = gl_PointCoord*2.0 - 1.0; float r = length(q); if (r > 1.0) discard;
+  float core = exp(-r*r*60.0), halo = exp(-r*4.5)*0.35;
+  o = vec4(vC.rgb*(core*6.0 + halo) + vec3(core*2.5), 1.0)*vC.a; }`, 'glow');
+const glowVAO = gl.createVertexArray(), glowVB = gl.createBuffer();
+gl.bindVertexArray(glowVAO); gl.bindBuffer(gl.ARRAY_BUFFER, glowVB);
+gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 32, 0);
+gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 32, 16);
+gl.bindVertexArray(null);
+function drawLampGlows(B){
+  if (LAMP.on <= 0 || UW.on) return;
+  gl.useProgram(pGlow.p); setCamUniforms(pGlow, B); gl.uniform1f(pGlow.u.uPxH, H);
+  gl.bindVertexArray(glowVAO); gl.bindBuffer(gl.ARRAY_BUFFER, glowVB); gl.bufferData(gl.ARRAY_BUFFER, LAMP.spr, gl.DYNAMIC_DRAW);
+  gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE); gl.depthMask(false);
+  gl.drawArrays(gl.POINTS, 0, 4);
+  gl.depthMask(true); gl.disable(gl.BLEND); gl.useProgram(pMesh.p);
+}
 const RODS = {};
 function rodGL(kind){
   if (RODS[kind]) return RODS[kind];
@@ -1800,7 +1895,7 @@ function drawRod(r, B, draw){
   const tip = [o[0] + x[0]*tl[0] + y[0]*tl[1] + z[0]*tl[2], o[1] + x[1]*tl[0] + y[1]*tl[1] + z[1]*tl[2], o[2] + x[2]*tl[0] + y[2]*tl[1] + z[2]*tl[2]];
   if (!draw) return tip;
   gl.useProgram(pRod.p); setCamUniforms(pRod, B);
-  gl.uniform3fv(pRod.u.uSun, SUNV); gl.uniform3fv(pRod.u.uSunC, ENV.sunC); gl.uniform3fv(pRod.u.uSkyK, ENV.skyK);
+  gl.uniform3fv(pRod.u.uSun, SUNV); gl.uniform3fv(pRod.u.uSunC, ENV.sunC); gl.uniform3fv(pRod.u.uSkyK, ENV.skyK); setLamps(pRod);
   gl.uniformMatrix4fv(pRod.u.uM, false, new Float32Array([x[0], x[1], x[2], 0, y[0], y[1], y[2], 0, z[0], z[1], z[2], 0, o[0], o[1], o[2], 1]));
   gl.uniform4f(pRod.u.uRodK, R.L, R.blankStart, R.reelZ, R.bodyY); gl.uniform1f(pRod.u.uPivot, R.pivotY);
   gl.uniform4f(pRod.u.uBend, bx, bz, bend, pw);
@@ -1911,15 +2006,17 @@ function render(S){
   const wk = S.wake || [];
   wakeBuf.fill(0); for (let i = 0; i < Math.min(20, wk.length); i++) wakeBuf.set(wk[i], i*4);
   gl.uniform4fv(u.uWake, wakeBuf); gl.uniform1i(u.uWakeN, Math.min(20, wk.length));
-  const bt = S.boat;
+  const bt = S.boat, boatM = mat4TRS(bt.pos, bt.heading, bt.pitch, bt.roll);
+  updateLamps(boatM); setLamps(pMain);
   gl.uniform4f(u.uBoat, bt.pos[0], 0.02 + bt.pos[1], bt.pos[2], bt.heading); gl.uniform3fv(u.uHullR, ENV.hull);
   fullscreen();
 
   // ---- boat, rod, float, line ----
   gl.depthFunc(gl.LESS);
-  gl.useProgram(pMesh.p); setCamUniforms(pMesh, B); gl.uniform3fv(pMesh.u.uSun, SUNV); gl.uniform3fv(pMesh.u.uSunC, ENV.sunC); gl.uniform3fv(pMesh.u.uSkyK, ENV.skyK);
+  gl.useProgram(pMesh.p); setCamUniforms(pMesh, B); gl.uniform3fv(pMesh.u.uSun, SUNV); gl.uniform3fv(pMesh.u.uSunC, ENV.sunC); gl.uniform3fv(pMesh.u.uSkyK, ENV.skyK); setLamps(pMesh);
   drawDecor(B, t);
-  drawBoat(mat4TRS(bt.pos, bt.heading, bt.pitch, bt.roll));
+  drawBoat(boatM);
+  drawLampGlows(B);
   let tip = null;
   // from under the water the rod and the line above the surface are not drawn: without refraction they pointed off
   // at odd angles; the line is seen only from where it enters the water
