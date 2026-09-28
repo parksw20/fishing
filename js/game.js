@@ -801,6 +801,12 @@ function judgeQTE(J, missed){
   else sfx.drag();
   if (J.dmg > 0.05){ Rn.splash(f.pos[0], f.pos[2], 0.12 + 0.1*f.len, 0.03 + 0.04*J.shake); sprayBurst(f.pos, f.len, 0.5 + 0.5*J.shake); }
 }
+// on a touch screen the joystick (or the action button) answers the closing ring: its timing counts, not where it is
+function qteTapAny(){
+  const Q = G.fight && G.fight.qte; if (G.state !== 'hooked' || !Q || Q.t < Q.T*0.45) return false;
+  judgeQTE(JOY_JUDGE(Math.abs(Q.t - Q.T))); return true;
+}
+function JOY_JUDGE(off){ return JUDGE.find(J => off <= J.win) || JUDGE[JUDGE.length - 1]; }
 function qteTap(x, y){
   const Q = G.fight && G.fight.qte; if (G.state !== 'hooked' || !Q) return;
   const P = G.fight.qtePos; if (!P || Math.hypot(x - P[0], y - P[1]) > qteTgtR()*1.8 + 14) return;   // only a tap on / near the target
@@ -1208,7 +1214,6 @@ function touchDown(e){
 function touchUp(e){
   if (e.pointerId !== TOUCH.id) return;
   TOUCH.id = null; mouse.rdown = false;
-  if (G.state === 'hooked' && !JOY.active){ mouse.x = innerWidth/2; mouse.y = innerHeight/2; }
   if (!TOUCH.moved && performance.now() - TOUCH.t0 < 350){
     if (G.state === 'wait' && G.mode === 'pole'){ press(); mouse.down = false; }
     else if (G.state === 'result') hideCard();
@@ -1319,14 +1324,18 @@ function joyMove(e){
   JOY.x = x; JOY.y = y; knob.style.transform = `translate(${x*R*0.8}px, ${y*R*0.8}px)`;
 }
 joyEl.addEventListener('pointerdown', e => { e.preventDefault(); audioInit(); joyEl.setPointerCapture(e.pointerId); JOY.pad = false; JOY.active = true; JOY.id = e.pointerId; joyEl.classList.add('on'); joyMove(e);
+  qteTapAny();
   // fighting: the centre joystick also reels / lifts while it is held
   if (G.state === 'hooked' && !mouse.down){ mouse.down = true; mouse.downT = G.time; press(); } });
 joyEl.addEventListener('pointermove', e => { if (JOY.active && e.pointerId === JOY.id) joyMove(e); });
-const joyUp = e => { if (e.pointerId !== JOY.id) return; JOY.active = false; JOY.id = null; JOY.x = JOY.y = 0; knob.style.transform = ''; joyEl.classList.remove('on');
-  if (G.state === 'hooked'){ mouse.x = innerWidth/2; mouse.y = innerHeight/2; }
+// letting go during a fight keeps the pull where it was (the knob stays put too); otherwise it springs back
+const joyUp = e => { if (e.pointerId !== JOY.id) return; JOY.active = false; JOY.id = null;
+  if (G.state !== 'hooked'){ JOY.x = JOY.y = 0; knob.style.transform = ''; }
+  joyEl.classList.remove('on');
   if (mouse.down && !act.classList.contains('down')){ mouse.down = false; release(); } };
 joyEl.addEventListener('pointerup', joyUp); joyEl.addEventListener('pointercancel', joyUp);
 function applyJoy(dt){
+  if (G.state !== 'hooked' && !JOY.active && (JOY.x || JOY.y)){ JOY.x = JOY.y = 0; knob.style.transform = ''; }   // the fight is over: recentre the held knob
   if (G.state === 'hooked'){
     if (JOY.active){ const R = ringRadius(); mouse.x = innerWidth/2 + JOY.x*R; mouse.y = innerHeight/2 + JOY.y*R; }
     return;
@@ -1341,6 +1350,7 @@ const act = $('act');
 act.addEventListener('pointerdown', e => {
   e.preventDefault(); e.stopPropagation(); audioInit(); act.setPointerCapture(e.pointerId); act.classList.add('down');
   if (G.state === 'boat'){ setNav(false); return; }
+  if (G.state === 'hooked') qteTapAny();
   if (!mouse.down){ mouse.down = true; mouse.downT = G.time; press(); }
 });
 // hook set → fight without lifting the finger: while fighting, the held cast button steers like the joystick
@@ -1350,7 +1360,7 @@ act.addEventListener('pointermove', e => {
   joyMove(e);
 });
 const actUp = e => { act.classList.remove('down');
-  if (JOY.id === 'act'){ JOY.active = false; JOY.id = null; JOY.x = JOY.y = 0; knob.style.transform = ''; joyEl.classList.remove('on'); if (G.state === 'hooked'){ mouse.x = innerWidth/2; mouse.y = innerHeight/2; } }
+  if (JOY.id === 'act'){ JOY.active = false; JOY.id = null; joyEl.classList.remove('on'); if (G.state !== 'hooked'){ JOY.x = JOY.y = 0; knob.style.transform = ''; } }
   if (mouse.down){ mouse.down = false; release(); } };
 act.addEventListener('pointerup', actUp); act.addEventListener('pointercancel', actUp);
 act.addEventListener('contextmenu', e => e.preventDefault());
@@ -3154,7 +3164,7 @@ function pollPad(dt){
   if (btn(0) || btn(1) || lx || ly || rx || ry) audioInit();
   // left stick = the on-screen joystick (aim, fight direction, boat)
   if (lx || ly){ JOY.pad = true; JOY.active = true; JOY.x = lx; JOY.y = ly; }
-  else if (JOY.pad){ JOY.pad = false; JOY.active = false; JOY.x = JOY.y = 0; if (G.state === 'hooked'){ mouse.x = innerWidth/2; mouse.y = innerHeight/2; } }
+  else if (JOY.pad){ JOY.pad = false; JOY.active = false; if (G.state !== 'hooked') JOY.x = JOY.y = 0; }
   // right stick = look around
   if (!G.mapOpen && (rx || ry)){
     const lk = LOOK()*dt, iy = INV(), ix = INVX();
