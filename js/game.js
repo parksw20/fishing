@@ -267,6 +267,20 @@ function pushOutOfHull(p, m){
 }
 function isSalt(){ return BIOMES[REGION.biome].water === 'salt'; }
 function itemName(it){ return isSalt() && it.nameSea ? it.nameSea : it.name; }
+// bought baits come in packs and are used up: one per hook set, one when a fish strips the hook (P.owned holds the count)
+function useBait(){
+  const it = curItem(); if (G.mode !== 'pole' || !it.pack) return;
+  P.owned[it.id] = Math.max(0, (+P.owned[it.id] || 0) - 1);
+  if (!P.owned[it.id]){ G.item.pole = 0; say(`${itemName(it)} 소진 — 기본 미끼(${itemName(curItem())})로 바꿉니다 · 상점에서 다시 구매`, 3, 'bad'); }
+  save(); buildToolbar();
+}
+// a lure can go with a fish that gets away: snapped line mostly, a thrown hook sometimes (only bought lures, they can be bought again)
+function loseLure(why){
+  const it = curItem(); if (G.mode !== 'lure' || !it.cost) return false;
+  if (Math.random() >= ({ break: 0.7, spool: 0.5, slack: 0.25 }[why] || 0)) return false;
+  P.owned[it.id] = false; G.item.lure = 0; save(); buildToolbar();
+  return true;
+}
 function lineKg(){ return baseLineKg()*tierOf('line').mult; }
 const GAME_HOUR = 225;   // real seconds per game hour (a game day ≈ 90 minutes)
 function yawDir(y){ return [Math.sin(y), 0, -Math.cos(y)]; }
@@ -453,7 +467,7 @@ function updateFish(f, dt){
       }
       if (f.timer <= 0){
         rig.take = null;
-        if (Math.random() < 0.5){ rig.baitGone = true; say('미끼를 따먹혔어요… R로 회수 후 다시 던지세요', 3.5); }
+        if (Math.random() < 0.5){ rig.baitGone = true; say('미끼를 따먹혔어요… R로 회수 후 다시 던지세요', 3.5); useBait(); }
         else say('입질을 놓쳤어요', 2);
         flee(f, rig.bait, rand(15, 30)); resetBait();
       }
@@ -639,7 +653,7 @@ function hookSet(){
   const r = G.rig; if (!r) return;
   const f = G.engaged;
   sfx.whoosh(0.4);
-  if (f && f.state === 'take'){ hookFish(f); return; }
+  if (f && f.state === 'take'){ useBait(); hookFish(f); return; }
   if (f && (f.state === 'nibble' || f.state === 'inspect')){ flee(f, r.bait, rand(10, 20)); resetBait(); say('헛챔질! 너무 일렀어요', 2); missJerk(r); return; }
   scareAround(r.bait, 2.5); say('헛챔질', 1.2); missJerk(r);
 }
@@ -920,7 +934,8 @@ function lose(why){
   const f = G.hooked;
   const msgs = { break: '팅! 줄이 터졌습니다 — 장력을 조절하세요', spool: '원줄이 다 풀렸습니다…', slack: '줄이 느슨해져 바늘이 빠졌습니다' };
   if (why === 'break' || why === 'spool') sfx.snap();
-  say(msgs[why], 3, 'bad');
+  const it = curItem();
+  say(msgs[why] + (loseLure(why) ? ` — ${it.name}도 잃어버렸어요` : ''), 3, 'bad');
   f.state = 'wander'; flee(f, eyeWorld(), 40);
   G.hooked = null; G.fight = null; G.state = 'idle';
 }
@@ -1391,7 +1406,7 @@ function buildToolbar(){
   for (const k of ['pole', 'lure']){
     const b = document.createElement('button'); b.className = G.mode === k ? 'on' : '';
     const it = MODES[k].items[G.item[k]];
-    b.innerHTML = `${MODES[k].name}<small></small> ▴`; b.querySelector('small').textContent = itemName(it);
+    b.innerHTML = `${MODES[k].name}<small></small> ▴`; b.querySelector('small').textContent = itemName(it) + (it.pack ? ` ×${P.owned[it.id]}` : '');
     b.onclick = e => { e.stopPropagation(); if (G.mode !== k) setMode(k); const pop = $('itempop'); pop.hidden = !(pop.hidden || G.mode !== pop.dataset.mode); pop.dataset.mode = k; buildItems(); requestAnimationFrame(placeItems); };
     modes.appendChild(b);
   }
@@ -1403,7 +1418,7 @@ function buildItems(){
   modeCfg().items.forEach((it, i) => {
     if (!P.owned[it.id]) return;
     const b = document.createElement('button'); b.className = G.item[G.mode] === i ? 'on' : '';
-    b.innerHTML = '<b></b><small></small>'; b.firstChild.textContent = (G.item[G.mode] === i ? '✓ ' : '') + itemName(it); b.lastChild.textContent = it.desc;
+    b.innerHTML = '<b></b><small></small>'; b.firstChild.textContent = (G.item[G.mode] === i ? '✓ ' : '') + itemName(it) + (it.pack ? ` ×${P.owned[it.id]}` : ''); b.lastChild.textContent = it.desc;
     b.onclick = e => { e.stopPropagation(); setItem(i); $('itempop').hidden = true; }; items.appendChild(b);
   });
   placeItems();
@@ -2435,7 +2450,8 @@ function save(){
 function load(){
   try {
     const d = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); if (!d) return null;
-    Object.assign(P.tier, d.P.tier || {}); Object.assign(P.owned, d.P.owned || {}); P.coins = d.P.coins ?? P.coins;
+    Object.assign(P.tier, d.P.tier || {}); Object.assign(P.owned, d.P.owned || {});
+    for (const it of BAITS) if (it.pack && P.owned[it.id] === true) P.owned[it.id] = it.pack;   // bought for good before baits were used up: one pack P.coins = d.P.coins ?? P.coins;
     // saves from before the 10-level upgrades: map the old level to the new one with the same meaning
     if (!d.P.tierV){
       const OLD = { rod: [0, 4, 9], reel: [0, 4, 9], line: [0, 3, 6, 9], hook: [0, 4, 9], sonar: [0, 3, 6], boat: [0, 3, 6, 9], net: [0, 4, 9], engine: [0, 4, 9] };
@@ -2790,7 +2806,8 @@ function renderShop(){
     `<button data-food="1" ${P.coins < FOOD_PACK.cost ? 'disabled' : ''}>${FOOD_PACK.n}개 ${FOOD_PACK.cost.toLocaleString()}🪙 구매</button></div>`;
   const itemCards = list => list.filter(it => it.cost).map(it => [it, '']).map(([it, kind]) =>
     `<div class="card"><div class="ct">${it.name}</div><div class="cur"><span>${it.desc}</span></div>` +
-    (P.owned[it.id] ? `<div class="nx max">보유 중</div>` : `<button data-buy="${it.id}" ${P.coins < it.cost ? 'disabled' : ''}>${it.cost.toLocaleString()}🪙 구매</button>`) + `</div>`).join('');
+    (it.pack ? `<div class="nx">보유 ${+P.owned[it.id] || 0}개 · 챔질·미끼 털림마다 1개</div><button data-buy="${it.id}" ${P.coins < it.cost ? 'disabled' : ''}>${it.pack}개 ${it.cost.toLocaleString()}🪙 구매</button>`
+      : P.owned[it.id] ? `<div class="nx max">보유 중</div>` : `<button data-buy="${it.id}" ${P.coins < it.cost ? 'disabled' : ''}>${it.cost.toLocaleString()}🪙 구매</button>`) + `</div>`).join('');
   // tabs: all / gear / bait / lures
   const T = SHOP_TAB.t, sec = (k, title, html) => (T === 'all' || T === k) ? `${T === 'all' ? `<h3>${title}</h3>` : ''}<div class="grid">${html}</div>` : '';
   $('shopgrid').innerHTML = sec('gear', '장비 업그레이드', up) + sec('aqua', '수족관', aqua) + sec('bait', '찌낚시 미끼', itemCards(BAITS)) + sec('lure', '루어', itemCards(LURES));
@@ -2809,7 +2826,8 @@ function renderShop(){
   };
   for (const b of $('shopgrid').querySelectorAll('[data-buy]')) b.onclick = () => {
     const it = [...BAITS, ...LURES].find(i => i.id === b.dataset.buy); if (P.coins < it.cost){ playS('deny'); return; }
-    P.coins -= it.cost; P.owned[it.id] = true; if (!playS('buy')) sfx.win(); say(`${it.name} 구매!`, 1.6); save(); renderShop(); updateLog();
+    P.coins -= it.cost; P.owned[it.id] = it.pack ? (+P.owned[it.id] || 0) + it.pack : true; if (!playS('buy')) sfx.win();
+    say(it.pack ? `${it.name} ${it.pack}개 구매 · 보유 ${P.owned[it.id]}개` : `${it.name} 구매!${LURES.includes(it) ? ' (파이팅 중 놓치면 잃어버릴 수 있어요)' : ''}`, 1.8); buildToolbar(); save(); renderShop(); updateLog();
   };
 }
 
@@ -3700,7 +3718,7 @@ const DEBUG_ACT = {
   coins(){ P.coins += 1000000; say('🪙 +1,000,000', 1.8, 'hot'); },
   gear(){
     for (const it of SHOP) P.tier[it.id] = it.tiers.length - 1;
-    for (const it of [...BAITS, ...LURES]) P.owned[it.id] = true;
+    for (const it of [...BAITS, ...LURES]) P.owned[it.id] = it.pack ? 99 : true;
     applyBoatModel(); buildToolbar(); say('⚙️ 전체 업그레이드 완료', 1.8, 'hot');
   },
   dex(){
@@ -3820,5 +3838,5 @@ window.__mapS = (lon, lat) => m2s(nearLon(lon), lat); window.__mapZ = () => MAP.
 window.__game = { tryPredator, SND, playS, qteTap, sprayBurst, toReal, toVis, showCard, questEvent, updateLog, G, fishes, cam, mouse, hookFish, hookSet, jerkLift, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID,
   // used by js/multi.js (online play)
   say, setWeather, WEATHERS, setClockTo, region: () => REGION, idleOnly, HULL,
-  checkAquaHealth, feedFish, AQ };
+  checkAquaHealth, feedFish, AQ, useBait, loseLure, setItem, curItem, SHOP_TAB, renderShop };
 })();

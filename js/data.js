@@ -275,8 +275,8 @@ window.GameData = (function(){
     { id:'paste',  name:'떡밥',   nameSea:'크릴',      desc:'붕어·잉어·감성돔이 좋아하는 밑밥 미끼', color:[0.55,0.45,0.25], size:[0.012,0.012,0.012], kind:0, metal:0.0 },
     { id:'worm',   name:'지렁이', nameSea:'청갯지렁이', desc:'거의 모든 어종이 반응',               color:[0.45,0.10,0.10], size:[0.022,0.007,0.007], kind:0, metal:0.1 },
     { id:'shrimp', name:'새우',   nameSea:'오징어살',  desc:'육식성 어종이 좋아함',                color:[0.55,0.48,0.40], size:[0.018,0.008,0.008], kind:0, metal:0.2 },
-    { id:'cutbait', name:'생선 토막', desc:'메기·상어·대구·핼리벗 — 냄새로 큰 고기를 부름', color:[0.62,0.38,0.34], size:[0.03,0.012,0.02], kind:0, metal:0.3, cost:250 },
-    { id:'livebait', name:'살아있는 미끼', desc:'미꾸라지·전갱이 — 대형 육식어의 1순위', color:[0.35,0.40,0.42], size:[0.045,0.01,0.008], kind:1, metal:0.7, cost:450 },
+    { id:'cutbait', name:'생선 토막', desc:'메기·상어·대구·핼리벗 — 냄새로 큰 고기를 부름', color:[0.62,0.38,0.34], size:[0.03,0.012,0.02], kind:0, metal:0.3, cost:50, pack:10 },
+    { id:'livebait', name:'살아있는 미끼', desc:'미꾸라지·전갱이 — 대형 육식어의 1순위', color:[0.35,0.40,0.42], size:[0.045,0.01,0.008], kind:1, metal:0.7, cost:90, pack:10 },
   ];
   // 루어 (spinning rod with reel)
   const LURES = [
