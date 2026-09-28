@@ -184,7 +184,10 @@
   #aquahud .ah-top span { opacity:.75; font-variant-numeric:tabular-nums; }
   #aquahud .ah-btns { display:flex; gap:6px; margin-top:8px; }
   #aquahud .ah-btns button { font-size:12px; padding:5px 9px; }
-  #aquahud .ah-btns #aquaout { flex:1; }
+  #aquahud .ah-btns #aquaout, #aquahud .ah-btns #aquafeed, #aquahud .ah-btns #aqualight { flex:1; }
+  #aquastat { margin-top:6px; font-size:12px; opacity:.9; }
+  #aquastat .warn { color:#ffd84a; } #aquastat .bad { color:#ff8a7a; font-weight:700; }
+  #aquafish li.dead b, #aquafish li.dead span { opacity:.55; }
   #aquafish { list-style:none; margin:8px 0 0; padding:0; overflow:auto; touch-action:pan-y; overscroll-behavior:contain; }
   #aquafish li { display:flex; align-items:center; gap:6px; padding:4px 0; border-top:1px solid rgba(255,255,255,.08); }
   #aquafish li b { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
@@ -513,6 +516,8 @@
 <!-- aquarium: title, size/count, back to the fishing spot, fish list, zoom -->
 <div id="aquahud" class="glass" hidden>
   <div class="ah-top"><b>🐠 내 수족관</b><span id="aquasub"></span></div>
+  <div id="aquastat" hidden></div>
+  <div class="ah-btns"><button id="aquafeed">🍤 밥 주기 (0)</button><button id="aqualight">💡 조명 끄기</button></div>
   <div class="ah-btns"><button id="aquaout">⛵ 낚시터로</button><button id="aqualist">목록 ▾</button><button id="aquazin" aria-label="가까이">＋</button><button id="aquazout" aria-label="멀리">－</button></div>
   <ol id="aquafish" hidden></ol>
 </div>

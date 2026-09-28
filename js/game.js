@@ -207,10 +207,11 @@ function loadSounds(){
         SND.k[n] = clamp(0.11/mx, 0.3, 5); SND.buf[n] = b;
       }).catch(() => {});
 }
-function hasS(group){ return SND_GROUPS[group].some(n => SND.buf[n]); }
+function hasS(group){ return (SND_GROUPS[group] || []).some(n => SND.buf[n]); }
 function playS(group, o = {}){
   if (!AU.ctx) return null;
-  const pool = SND_GROUPS[group].filter(n => SND.buf[n]); if (!pool.length) return null;
+  // an unknown group (e.g. 'splash', which has no files) plays nothing — it must not throw inside the game loop
+  const pool = (SND_GROUPS[group] || []).filter(n => SND.buf[n]); if (!pool.length) return null;
   let n = pool[Math.floor(Math.random()*pool.length)];
   if (pool.length > 1 && n === SND.last[group]) n = pool[(pool.indexOf(n) + 1) % pool.length];
   SND.last[group] = n;
@@ -1178,18 +1179,44 @@ const AQUA_SPOT = { id: 'aquarium', name: '🐠 내 수족관', country: '수족
 function aquaTier(){ return tierOf('aquarium'); }
 function aquaSpot(){ const S = aquaTier().size || 3; return Object.assign({}, AQUA_SPOT, { start: S, floor: [S, S, 'basin'] }); }
 function aquaFits(c){ return c.len <= aquaTier().size/2; }
-function aquaDefaultDist(){ return aquaTier().size*0.95 + 1.6; }
+function aquaDefaultDist(){ return aquaTier().size*0.42; }   // from the middle toward the glass, inside the tank
 function aquaFishObj(c){
   const sp = BY_ID[c.id], S = aquaTier().size, h = Math.max(0.05, S/2 - Math.max(0.15, c.len*0.6)), D = toVis(S);
-  return { sp, len: c.len, weight: c.weight, aqua: true, pos: [rand(-h, h), -rand(0.3, Math.max(0.35, D - 0.3)), rand(-h, h)],
+  const f = { sp, len: c.len, weight: c.weight, aqua: c, pos: [rand(-h, h), -rand(0.3, Math.max(0.35, D - 0.3)), rand(-h, h)],
     heading: rand(-Math.PI, Math.PI), pitch: 0, speed: sp.speed*0.3, tailPh: rand(0, TAU), tail: 0, state: 'aqua', target: null, ty: 0, timer: 0 };
+  if (c.dead){ f.state = 'dead'; f.pos[1] = -0.03 - c.len*0.05; f.speed = 0; }   // dead: floating at the top
+  return f;
 }
 function spawnAqua(){ fishes.length = 0; for (const c of P.aqua) fishes.push(aquaFishObj(c)); }
-// fish in the tank: wander between random points inside the glass, burst-and-glide like wild fish
+// fish in the tank: wander between random points inside the glass, burst-and-glide like wild fish;
+// when food is in the water they all rush for the nearest pellet; the dead float at the surface
 function updateAqua(dt){
   const S = aquaTier().size, D = toVis(S);
+  updateFood(dt, S/2, D);
   for (const f of fishes){
     const h = Math.max(0.05, S/2 - Math.max(0.15, f.len*0.6));
+    if (f.state === 'dead'){   // drift slowly on the surface, belly up-ish (the renderer rolls it on its side)
+      f.pos[1] += (-0.03 - f.len*0.05 - f.pos[1])*Math.min(1, dt*0.6);
+      f.pos[0] = clamp(f.pos[0] + Math.sin(G.time*0.13 + f.len*9)*0.02*dt, -h, h);
+      f.pos[2] = clamp(f.pos[2] + Math.cos(G.time*0.11 + f.len*7)*0.02*dt, -h, h);
+      f.pitch = lerp(f.pitch, 0, Math.min(1, dt)); f.tail = 0; f.tailAmp = 0; f.bend = 0;
+      continue;
+    }
+    // food in the water: go for the nearest pellet, and eat it on reaching it
+    if (AQ.food.length){
+      let best = null, bd = 1e9;
+      for (const p of AQ.food){ const d = dist3(p.pos, f.pos); if (d < bd){ bd = d; best = p; } }
+      const m = mouthOf(f);
+      if (dist3(m, best.pos) < Math.max(0.05, f.len*0.25)){ AQ.food.splice(AQ.food.indexOf(best), 1); f.gulp = 0.3; }
+      else {
+        const to = norm(sub(best.pos, f.pos)), tgt = sub(best.pos, mul(to, f.len*0.45));
+        swim(f, tgt[0], tgt[1], tgt[2], f.sp.speed*0.9, dt, 3.2);
+        f.pos[0] = clamp(f.pos[0], -h, h); f.pos[2] = clamp(f.pos[2], -h, h);
+        animFish(f, dt, 1, 1.2);
+        f.target = null;
+        continue;
+      }
+    }
     f.timer -= dt;
     if (!f.target || f.timer <= 0 || dist2(f.pos, f.target) < Math.max(0.3, f.len)){
       f.target = [rand(-h, h), 0, rand(-h, h)];
@@ -1202,6 +1229,62 @@ function updateAqua(dt){
     f.pos[0] = clamp(f.pos[0], -h, h); f.pos[2] = clamp(f.pos[2], -h, h);   // the glass
     animFish(f, dt, clamp(f.speed/(f.sp.speed*1.5), 0, 1)*(f.burst ? 1 : 0.4), 1);
   }
+}
+/* feeding: 🍤 food (shop, packs of 10) is sprinkled on the water and sinks; every fish in the tank rushes for it.
+   One feed a day keeps them well. Past a day unfed a few may die; past three days the risk climbs fast.
+   The dead float at the top until the player takes them out. Time is real time, also while the game is closed. */
+const AQ = { food: [] };
+const FOOD_PACK = { n: 10, cost: 200 };
+const DAY_MS = 86400000;
+function updateFood(dt, h, D){
+  for (let i = AQ.food.length - 1; i >= 0; i--){
+    const p = AQ.food[i]; p.t += dt;
+    p.pos[1] = Math.max(p.pos[1] - p.vy*dt, -D + 0.03);
+    p.pos[0] = clamp(p.pos[0] + Math.sin(p.t*1.7 + p.ph)*0.03*dt, -h + 0.05, h - 0.05);
+    p.pos[2] = clamp(p.pos[2] + Math.cos(p.t*1.3 + p.ph)*0.03*dt, -h + 0.05, h - 0.05);
+    if (p.t > 45) AQ.food.splice(i, 1);   // what nobody ate dissolves on the bottom
+  }
+}
+function feedFish(){
+  if (G.state !== 'aquarium') return;
+  if (!P.food){ confirmBox('🍤 물고기 밥이 없어요<br><span style="opacity:.8;font-size:12px">상점에서 살 수 있어요</span>', '🛒 상점', () => { closeModal(); openShop(); }); return; }
+  P.food--; P.aquaFedAt = Date.now();
+  const h = aquaTier().size/2, c = [rand(-h*0.35, h*0.35), 0, rand(-h*0.35, h*0.35)];
+  for (let i = 0; i < 16; i++) AQ.food.push({ pos: [c[0] + rand(-0.25, 0.25), -0.02, c[2] + rand(-0.25, 0.25)], vy: rand(0.05, 0.12), t: 0, ph: rand(0, TAU) });
+  Rn.splash(c[0], c[2], 0.15, 0.03); playS('plunk');
+  const alive = P.aqua.filter(f => !f.dead).length;
+  say(alive ? `🍤 밥을 줬어요 · 남은 밥 ${P.food}개` : '🍤 밥을 줬지만 살아 있는 물고기가 없어요', 2);
+  save(); renderAquaHud(true);
+}
+function deathRate(days){ return days < 1 ? 0 : days < 3 ? 0.03 : Math.min(0.9, 0.25 + 0.2*(days - 3)); }   // chance per day
+// roll deaths for the time since the last check (in hour steps, up to 30 days back)
+function checkAquaHealth(){
+  const now = Date.now();
+  if (!P.aqua.some(c => !c.dead)){ P.aquaCheck = now; return; }
+  if (!P.aquaFedAt) P.aquaFedAt = now;
+  const last = P.aquaCheck || now; if (now - last < 60000){ if (!P.aquaCheck) P.aquaCheck = now; return; }
+  const died = []; let t = Math.max(last, now - 30*DAY_MS);
+  while (t < now){
+    const step = Math.min(3600000, now - t), r = deathRate((t + step/2 - P.aquaFedAt)/DAY_MS);
+    if (r > 0){ const p = 1 - Math.pow(1 - r, step/DAY_MS); for (const c of P.aqua) if (!c.dead && Math.random() < p){ c.dead = true; c.deadAt = t + step; died.push(c); } }
+    t += step;
+  }
+  P.aquaCheck = now;
+  if (!died.length) return;
+  for (const f of fishes) if (f.aqua && f.aqua.dead && f.state !== 'dead'){ f.state = 'dead'; f.speed = 0; }
+  say(`💀 밥을 오래 못 먹어 ${died.length}마리가 죽었어요 — 수족관에서 건져 주세요`, 4, 'bad');
+  save(); renderAquaHud(true);
+}
+function removeDead(i){
+  const c = P.aqua[i]; if (!c || !c.dead) return;
+  P.aqua.splice(i, 1); if (G.state === 'aquarium') spawnAqua();
+  say(`🫧 ${BY_ID[c.id].name}을(를) 건졌어요`, 1.6); save(); renderAquaHud(true);
+}
+function hungerText(){
+  if (!P.aqua.some(c => !c.dead)) return '';
+  const hrs = (Date.now() - (P.aquaFedAt || Date.now()))/3600000;
+  const ago = hrs < 1 ? '방금' : hrs < 48 ? `${Math.floor(hrs)}시간 전` : `${Math.floor(hrs/24)}일 전`;
+  return hrs < 24 ? `🍤 ${ago} · 배불러요` : hrs < 72 ? `<span class="warn">🍤 ${ago} · 배고파요</span>` : `<span class="bad">⚠ 🍤 ${ago} · 굶어 죽을 수 있어요</span>`;
 }
 function fade(then){
   const f = $('fade'); f.classList.add('on');
@@ -1239,6 +1322,8 @@ function askAqua(){
   }
   const note = [tooBig ? `${tooBig}마리는 너무 커서` : '', noRoom ? `${noRoom}마리는 자리가 없어서` : ''].filter(Boolean).join(', ');
   confirmBox(`<b>${idx.length}마리</b>를 수족관으로 옮길까요?<br><span style="opacity:.8;font-size:12px">${P.aqua.length + idx.length}/${t.cap}마리${note ? ` · ${note} 살림망에 남아요` : ''}</span>`, '🐠 수족관으로', () => {
+    // an empty tank (or only the dead) starts its feeding clock with the newcomers — they arrive fed
+    if (!P.aqua.some(c => !c.dead)){ P.aquaFedAt = Date.now(); P.aquaCheck = Date.now(); }
     for (const i of idx){ const c = P.net[i]; P.aqua.push({ id: c.id, len: c.len, weight: c.weight, price: c.price }); }
     P.net = P.net.filter((f, i) => !idx.includes(i));
     if (G.state === 'aquarium') spawnAqua();
@@ -1259,23 +1344,30 @@ function renderAquaHud(force){
   const on = G.state === 'aquarium', el = $('aquahud');
   if (el.hidden === on) el.hidden = !on;
   if (!on) return;
-  const t = aquaTier(), key = `${t.size}|${P.aqua.length}|${G.aquaList ? 1 : 0}`;
+  const t = aquaTier(), stat = hungerText(), dead = P.aqua.filter(c => c.dead).length;
+  const key = `${t.size}|${P.aqua.length}|${dead}|${G.aquaList ? 1 : 0}|${P.food || 0}|${G.aquaLight !== false}|${stat}`;
   if (!force && key === aquaHudKey) return; aquaHudKey = key;
   $('aquasub').textContent = `${t.size}×${t.size}×${t.size}m · ${P.aqua.length}/${t.cap}마리`;
+  $('aquastat').innerHTML = stat; $('aquastat').hidden = !stat;
+  $('aquafeed').textContent = `🍤 밥 주기 (${P.food || 0})`;
+  $('aqualight').textContent = G.aquaLight === false ? '💡 조명 켜기' : '💡 조명 끄기';
   $('aqualist').textContent = `목록 ${G.aquaList ? '▴' : '▾'}`;
   const ol = $('aquafish'); ol.hidden = !G.aquaList; ol.innerHTML = '';
   if (!P.aqua.length) ol.innerHTML = '<li class="empty">비어 있어요 — 살림망의 "수족관" 버튼으로 넣으세요</li>';
   for (const [i, c] of P.aqua.entries()){
-    const li = document.createElement('li');
-    li.innerHTML = `<b></b><span>${(c.len*100).toFixed(1)}cm · ${kg(c.weight)}</span><button class="sell1">판매</button>`;
+    const li = document.createElement('li'); if (c.dead) li.className = 'dead';
+    li.innerHTML = c.dead ? `<b></b><span>💀 사망</span><button class="sell1">건지기</button>`
+                          : `<b></b><span>${(c.len*100).toFixed(1)}cm · ${kg(c.weight)}</span><button class="sell1">판매</button>`;
     li.querySelector('b').textContent = BY_ID[c.id].name;
-    li.querySelector('button').onclick = e => { e.stopPropagation(); sellAqua(i); };
+    li.querySelector('button').onclick = e => { e.stopPropagation(); if (c.dead) removeDead(i); else sellAqua(i); };
     ol.appendChild(li);
   }
   ol.style.maxHeight = '';
   if (G.aquaList && P.aqua.length > 5) requestAnimationFrame(() => { const r = ol.children; if (r[5]) ol.style.maxHeight = (r[5].offsetTop - r[0].offsetTop) + 'px'; });
 }
 $('aquaout').addEventListener('click', e => { e.stopPropagation(); exitAquarium(); });
+$('aquafeed').addEventListener('click', e => { e.stopPropagation(); feedFish(); });
+$('aqualight').addEventListener('click', e => { e.stopPropagation(); G.aquaLight = G.aquaLight === false; renderAquaHud(true); });
 $('aqualist').addEventListener('click', e => { e.stopPropagation(); G.aquaList = !G.aquaList; renderAquaHud(true); });
 $('aquazin').addEventListener('click', e => { e.stopPropagation(); wheel(1); });
 $('aquazout').addEventListener('click', e => { e.stopPropagation(); wheel(-1); });
@@ -1286,7 +1378,7 @@ function drawAquaLabels(){
   const near = fishes.slice().sort((a, b) => dist3(a.pos, cam.pos) - dist3(b.pos, cam.pos)).slice(0, 14);
   for (const f of near){
     const s = projectSeen([f.pos[0], f.pos[1] + Math.max(0.12, f.len*0.35), f.pos[2]]);
-    if (s && s[0] > 0 && s[0] < hudW && s[1] > 0 && s[1] < hudH) label(`${f.sp.name} ${(f.len*100).toFixed(0)}cm`, s[0], s[1], 'rgba(255,255,255,.85)', 12);
+    if (s && s[0] > 0 && s[0] < hudW && s[1] > 0 && s[1] < hudH) label(f.state === 'dead' ? `💀 ${f.sp.name}` : `${f.sp.name} ${(f.len*100).toFixed(0)}cm`, s[0], s[1], f.state === 'dead' ? 'rgba(255,160,150,.9)' : 'rgba(255,255,255,.85)', 12);
   }
 }
 $('status').querySelector('.neth').addEventListener('click', e => { if (!TOUCH.on) return; e.stopPropagation(); $('status').querySelector('.net').classList.toggle('open'); });
@@ -1618,7 +1710,7 @@ function release(){
 }
 function wheel(s){
   if (G.state === 'boat'){ G.camDist = clamp(G.camDist*(s > 0 ? 0.88 : 1.14), 4.5, 30); return; }
-  if (G.state === 'aquarium'){ const S = aquaTier().size, V = G.aquaView; V.dist = clamp((V.dist ?? aquaDefaultDist())*(s > 0 ? 0.88 : 1.14), 1.2, S*2.2 + 6); return; }
+  if (G.state === 'aquarium'){ const S = aquaTier().size, V = G.aquaView; V.dist = clamp((V.dist ?? aquaDefaultDist())*(s > 0 ? 0.88 : 1.14), 0.25, S*0.75); return; }
   if (G.mode === 'lure'){ G.dragShowT = G.time + 1.8; G.drag = clamp(Math.round((G.drag + s*0.05)*100)/100, 0.05, 1.2); say(`드랙 ${s > 0 ? '조임' : '풀기'} · ${(G.drag*lineKg()).toFixed(1)}kg${G.drag >= 1 ? ' (잠김!)' : ''}`, 1); sfx.click(0.05); }
   else {
     // step in real metres: 0.1 m near the surface, coarser when fishing deep
@@ -1724,10 +1816,11 @@ function updateCamera(dt){
   let T, k;
   switch (G.state){
     case 'idle': case 'charge': case 'result': T = boatView(); k = G.state === 'result' ? 3 : 10; break;
-    case 'aquarium': {   // circle the tank; high enough and the camera looks down into it from above the water
-      const S = aquaTier().size, D = toVis(S), V = G.aquaView, R = V.dist ?? aquaDefaultDist();
+    case 'aquarium': {   // inside the tank: circle its middle, but never through the glass or out of the water
+      const S = aquaTier().size, D = toVis(S), V = G.aquaView, R = V.dist ?? aquaDefaultDist(), h = S/2 - 0.12;
       const c = [0, -D*0.5, 0], cp = Math.cos(V.pitch);
-      T = { pos: [Math.sin(V.yaw)*cp*R, c[1] + Math.sin(V.pitch)*R, -Math.cos(V.yaw)*cp*R], look: c }; k = 4; break; }
+      const pos = [clamp(Math.sin(V.yaw)*cp*R, -h, h), clamp(c[1] + Math.sin(V.pitch)*R, -D + 0.12, -0.15), clamp(-Math.cos(V.yaw)*cp*R, -h, h)];
+      T = { pos, look: c }; k = 4; break; }
     case 'boat': {
       // below the lowest camera angle the view turns up to the sky instead
       const a = BOAT.heading + G.orbit + (G.lookX || 0), cp0 = G.camPitch ?? 0.32, cp = Math.max(cp0, 0.08), sky = Math.max(0, 0.08 - cp0), D = G.camDist;
@@ -1777,7 +1870,7 @@ function updateCamera(dt){
   if (G.state === 'wait' || G.state === 'hooked' || G.state === 'aquarium') cam.pos[1] = Math.max(cam.pos[1], -(floorDepth(cam.pos[0], cam.pos[2]) - 0.3));
   else cam.pos[1] = Math.max(cam.pos[1], Math.min(0.45, cam.pos[1] + dt*4));   // back above the water after retrieving
   const uw = cam.pos[1] < -0.03;
-  if (uw !== G.camUnder){ G.camUnder = uw; if (uw && !G.underTold){ G.underTold = true; say('🤿 물속 시점 — 🌤 물밖 보기(V)로 나올 수 있어요', 2.2); } }
+  if (uw !== G.camUnder){ G.camUnder = uw; if (uw && !G.underTold && G.state !== 'aquarium'){ G.underTold = true; say('🤿 물속 시점 — 🌤 물밖 보기(V)로 나올 수 있어요', 2.2); } }
 }
 
 /* ---------------- scene assembly ---------------- */
@@ -1927,11 +2020,15 @@ function scene(dt){
   const S = { t: G.time, dt, cam: { pos: add(cam.pos, sh.pos), look: add(cam.look, sh.look) }, boat: BOAT, fish: [], lure: null, bobber: null, lineUnder: null, lineTo: null, lineSag: 0, flyObj: null };
   S.others = window.DopaMulti ? DopaMulti.others() : null;   // online: the other players' boats and floats
   const byDist = fishes.slice().sort((a, b) => dist3(a.pos, cam.pos) - (a.visitor ? 25 : 0) - dist3(b.pos, cam.pos) + (b.visitor ? 25 : 0));
-  S.fish = byDist.slice(0, G.state === 'aquarium' ? 60 : 12).map(f => ({ id: f.sp.id, pos: f.pos, len: f.len, dir: fishDir(f), tail: f.tail, tailPh: f.tailPh, tailAmp: f.tailAmp, bend: f.bend, back: f.sp.back, belly: f.sp.belly, pattern: f.sp.pattern, hr: f.sp.hr, shape: f.sp.shape }));
+  S.fish = byDist.slice(0, G.state === 'aquarium' ? 60 : 12).map(f => ({ id: f.sp.id, dead: f.state === 'dead', pos: f.pos, len: f.len, dir: fishDir(f), tail: f.tail, tailPh: f.tailPh, tailAmp: f.tailAmp, bend: f.bend, back: f.sp.back, belly: f.sp.belly, pattern: f.sp.pattern, hr: f.sp.hr, shape: f.sp.shape }));
   const rod = rodSpec(); S.rod = G.state === 'boat' || G.state === 'aquarium' ? null : rod;
   S.hideRod = false;   // the rod is always drawn (only hidden with the camera under the water)
   S.wake = wakeTrack(); S.particles = PART; S.rain = RAIN;
-  if (G.state === 'aquarium'){ const sz = aquaTier().size; S.noBoat = true; S.tank = { h: sz/2, d: toVis(sz) }; return S; }
+  if (G.state === 'aquarium'){
+    const sz = aquaTier().size; S.noBoat = true; S.tank = { h: sz/2, d: toVis(sz), light: G.aquaLight !== false };
+    S.food = AQ.food.map(p => p.pos);
+    return S;
+  }
   if (G.state === 'boat') return S;
   const it = curItem();
   const tip = G.tip;
@@ -2199,6 +2296,12 @@ function setClockTo(h){ G.clockTo = ((h % 24) + 24) % 24; }
 function fmtHour(h){ const H = Math.floor(h), m = Math.floor((h - H)*60); return `${String(H).padStart(2, '0')}:${String(m).padStart(2, '0')}`; }
 function updateClock(dt){
   let step = dt/GAME_HOUR;
+  // aquarium: its lamps are the light — lit like noon with them on, dark like night with them off. The world's
+  // clock waits outside and resumes when you leave.
+  if (G.state === 'aquarium'){
+    if (G.aquaClock == null) G.aquaClock = G.clock;
+    G.clock = G.aquaLight === false ? 22.5 : 12.5; G.clockTo = null; step = 0;
+  } else if (G.aquaClock != null){ G.clock = G.aquaClock; G.aquaClock = null; }
   if (G.clockTo != null){
     const left = (G.clockTo - G.clock + 24) % 24;
     step = Math.max(step, dt*Math.max(0.4, left*0.9));
@@ -2323,7 +2426,7 @@ function matchRating(sp){
 /* ---------------- save data ---------------- */
 const SAVE_KEY = 'boatfish.v2';
 const P = { coins: 200, tierV: 2, owned: {}, tier: { rod: 0, reel: 0, line: 0, hook: 0, sonar: 0, engine: 0, boat: 0, net: 0, goggles: 0, aquarium: 0 }, sightings: {}, quests: [], done: 0,
-  net: [], aqua: [], caught: {}, daily: {}, luckUntil: 0, att: { last: '', streak: 0, log: [] }, week: { key: '', issued: 0, done: 0 } };
+  net: [], aqua: [], food: 0, aquaFedAt: 0, aquaCheck: 0, caught: {}, daily: {}, luckUntil: 0, att: { last: '', streak: 0, log: [] }, week: { key: '', issued: 0, done: 0 } };
 for (const it of [...BAITS, ...LURES]) if (!it.cost) P.owned[it.id] = true;
 function save(){
   try { localStorage.setItem(SAVE_KEY, JSON.stringify({ P, best: G.best, score: G.score, catches: G.catches.slice(0, 30).map(c => ({ id: c.sp.id, len: c.len, weight: c.weight, pts: c.pts })), clock: G.clock, spot: G.aquaFrom || (REGION && REGION.spot) })); } catch(e){}   // in the aquarium: come back to the fishing spot
@@ -2340,7 +2443,8 @@ function load(){
     P.tierV = 2;
     for (const it of SHOP) P.tier[it.id] = clamp(P.tier[it.id] || 0, 0, it.tiers.length - 1);
     P.sightings = d.P.sightings || {};
-    P.net = (d.P.net || []).filter(f => BY_ID[f.id]); P.aqua = (d.P.aqua || []).filter(f => BY_ID[f.id]); P.caught = d.P.caught || {}; P.daily = d.P.daily || {}; P.luckUntil = d.P.luckUntil || 0;
+    P.net = (d.P.net || []).filter(f => BY_ID[f.id]); P.aqua = (d.P.aqua || []).filter(f => BY_ID[f.id]);
+    P.food = d.P.food || 0; P.aquaFedAt = d.P.aquaFedAt || 0; P.aquaCheck = d.P.aquaCheck || 0; P.caught = d.P.caught || {}; P.daily = d.P.daily || {}; P.luckUntil = d.P.luckUntil || 0;
     Object.assign(P.att, d.P.att || {}); Object.assign(P.week, d.P.week || {});
     if (!d.P.caught) for (const c of d.catches || []) if (BY_ID[c.id]) P.caught[c.id] = (P.caught[c.id] || 0) + 1;
     P.quests = (d.P.quests || []).filter(q => q.sp ? BY_ID[q.sp] : true); P.done = d.P.done || 0;
@@ -2666,7 +2770,10 @@ function renderShop(){
     return `<div class="card"><div class="ct">${s.icon} ${s.name} <span class="lv">Lv.${P.tier[s.id] + 1}/${s.tiers.length}</span></div><div class="cur">현재: <b>${cur.name}</b><br><span>${cur.desc}</span></div>` +
       (next ? `<div class="nx">다음: <b>${next.name}</b><br><span>${next.desc}</span></div><button data-up="${s.id}" ${P.coins < next.cost ? 'disabled' : ''}>${next.cost.toLocaleString()}🪙 업그레이드</button>`
             : `<div class="nx max">최고 등급</div>`) + `</div>`;
-  }).join('');
+  }).join('') +
+    // aquarium food: a consumable, bought in packs
+    `<div class="card"><div class="ct">🍤 물고기 밥 <span class="lv">보유 ${P.food || 0}개</span></div><div class="cur"><span>수족관 물고기에게 하루 한 번 — 3일 넘게 굶기면 죽을 수 있어요</span></div>` +
+    `<button data-food="1" ${P.coins < FOOD_PACK.cost ? 'disabled' : ''}>${FOOD_PACK.n}개 ${FOOD_PACK.cost.toLocaleString()}🪙 구매</button></div>`;
   const itemCards = list => list.filter(it => it.cost).map(it => [it, '']).map(([it, kind]) =>
     `<div class="card"><div class="ct">${it.name}</div><div class="cur"><span>${it.desc}</span></div>` +
     (P.owned[it.id] ? `<div class="nx max">보유 중</div>` : `<button data-buy="${it.id}" ${P.coins < it.cost ? 'disabled' : ''}>${it.cost.toLocaleString()}🪙 구매</button>`) + `</div>`).join('');
@@ -2679,6 +2786,11 @@ function renderShop(){
     P.coins -= next.cost; P.tier[s.id]++; if (s.id === 'boat') applyBoatModel(); if (!playS('buy')) sfx.win();
     if (s.id === 'aquarium'){ say(P.tier[s.id] === 1 ? '🐠 수족관 구매! 살림망의 "수족관" 버튼으로 물고기를 넣고, 메뉴 → 수족관에서 보세요' : `🐠 수족관 → ${next.name}`, 3); save(); renderShop(); updateLog(); if (G.state === 'aquarium') applyAquaSize(); return; }
     say(s.tiers.length === 2 ? `${s.icon} ${s.name} 구매!${s.id === 'goggles' ? ' 캐스팅 후 시점을 내려 물속을 볼 수 있어요' : ''}` : `${s.name} → ${next.name}`, 2.2); save(); renderShop(); updateLog();
+  };
+  for (const b of $('shopgrid').querySelectorAll('[data-food]')) b.onclick = () => {
+    if (P.coins < FOOD_PACK.cost){ playS('deny'); return; }
+    P.coins -= FOOD_PACK.cost; P.food = (P.food || 0) + FOOD_PACK.n; if (!playS('buy')) sfx.win();
+    say(`🍤 물고기 밥 ${FOOD_PACK.n}개 구매 · 보유 ${P.food}개`, 1.8); save(); renderShop(); updateLog(); renderAquaHud(true);
   };
   for (const b of $('shopgrid').querySelectorAll('[data-buy]')) b.onclick = () => {
     const it = [...BAITS, ...LURES].find(i => i.id === b.dataset.buy); if (P.coins < it.cost){ playS('deny'); return; }
@@ -2971,7 +3083,7 @@ function applyRegion(spot, first){
   fishes.length = 0;
   if (spot.aquarium){
     // the aquarium: calm clear water, your own fish only, no boat; the camera circles the tank
-    G.state = 'aquarium'; setWeather('clear', true); Rn.setWaves(0.3); spawnAqua();
+    G.state = 'aquarium'; setWeather('clear', true); Rn.setWaves(0.3); AQ.food.length = 0; checkAquaHealth(); spawnAqua();
     const e = eyeWorld(); cam.pos = e.slice(); cam.look = add(e, [0, -2, -10]);
     $('place').textContent = spot.name; buildToolbar(); updateLog(); renderAquaHud(true);
     if (!first) say(`🐠 내 수족관 · ${P.aqua.length}마리`, 2.4);
@@ -3645,6 +3757,8 @@ const SUBSTEPS = Math.max(1, +(new URLSearchParams(location.search).get('sim')) 
 { const saved = load(); applyBoatModel(); applyRegion(saved ? (SPOTS.find(s => s.id === saved.id) || saved) : SPOTS[0], true); fillQuests(); }
 { const v = new URLSearchParams(location.search).get('visit'); if (v && BY_ID[v]) setTimeout(() => spawnVisitor(BY_ID[v]), 500); }
 setInterval(save, 15000);
+// aquarium fish grow hungry in real time — also while the game was closed (checked on start, then every minute)
+setTimeout(checkAquaHealth, 3000); setInterval(checkAquaHealth, 60000);
 function frame(now){
   // frame pacing: phones run at 30 fps (or the frame cap set in settings)
   const cap = Rn.fpsCap;
@@ -3667,5 +3781,6 @@ window.__decorSolids = () => DECOR.solids || [];
 window.__mapS = (lon, lat) => m2s(nearLon(lon), lat); window.__mapZ = () => MAP.z;
 window.__game = { tryPredator, SND, playS, qteTap, sprayBurst, toReal, toVis, showCard, questEvent, updateLog, G, fishes, cam, mouse, hookFish, hookSet, jerkLift, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID,
   // used by js/multi.js (online play)
-  say, setWeather, WEATHERS, setClockTo, region: () => REGION, idleOnly, HULL };
+  say, setWeather, WEATHERS, setClockTo, region: () => REGION, idleOnly, HULL,
+  checkAquaHealth, feedFish, AQ };
 })();

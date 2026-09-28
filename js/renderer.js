@@ -392,6 +392,7 @@ uniform vec4 uBob;        // float body centre xyz; w = 1 + tilt when shown (0 =
 uniform vec4 uLnA, uLnB;  // underwater line segment (w of A = visible)
 uniform vec4 uBoat;       // hull centre xyz, heading
 uniform vec4 uBoats[3]; uniform int uBoatN;   // online: the other players' hulls (centre xyz, heading)
+uniform vec4 uTank;   // aquarium: half width, depth (screen m), light 0..1, on — outside the glass is black
 
 const float IOR = 1.3335;
 uniform vec3 uSigA, uSigS;   // per-region water: absorption / scattering (1/m)
@@ -1001,6 +1002,17 @@ void main(){
   vec3 wd = rd; wd.y = min(wd.y, -0.0015); wd = normalize(wd);
   if (uCam.y < -0.03){
     float th; o = vec4(max(underwaterView(rd, th), 0.0), 1.0);
+    if (uTank.w > 0.5){
+      // aquarium, seen from inside: a ray leaving through the glass sees a dark room (black, with a faint
+      // reflection of the lit water on the pane); one reaching the surface sees it lit from the lamps above
+      float h = uTank.x, dd = uTank.y;
+      float tx = rd.x > 1e-5 ? (h - uCam.x)/rd.x : rd.x < -1e-5 ? (-h - uCam.x)/rd.x : 1e9;
+      float tz = rd.z > 1e-5 ? (h - uCam.z)/rd.z : rd.z < -1e-5 ? (-h - uCam.z)/rd.z : 1e9;
+      float tw = min(tx, tz);
+      float ts = rd.y > 1e-5 ? -uCam.y/rd.y : 1e9, tf = rd.y < -1e-5 ? (-dd - uCam.y)/rd.y : 1e9;
+      if (tw < min(ts, tf)){ o = vec4(o.rgb*0.035, 1.0); th = tw; }
+      else if (ts < tf){ o = vec4(o.rgb*(0.12 + 0.3*uTank.z), 1.0); }
+    }
     // write the depth of what was hit so rocks, weed and coral sort correctly against fish and the bed
     if (th > 0.0){ float dz = max(dot(rd*th, uF), ${ZNEAR}); gl_FragDepth = clamp((${ZA.toFixed(8)} + (${ZB.toFixed(8)})/dz)*0.5 + 0.5, 0.0, 0.999999); }
     else gl_FragDepth = 1.0;
@@ -2317,8 +2329,8 @@ gl.bindVertexArray(glowVAO); gl.bindBuffer(gl.ARRAY_BUFFER, glowVB);
 gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0, 4, gl.FLOAT, false, 32, 0);
 gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1, 4, gl.FLOAT, false, 32, 16);
 gl.bindVertexArray(null);
-function drawLampGlows(B){
-  if (LAMP.on <= 0 || UW.on) return;
+function drawLampGlows(B, tank){
+  if (LAMP.on <= 0 || (UW.on && !tank)) return;   // (the aquarium's lamps show through the surface from below)
   gl.useProgram(pGlow.p); setCamUniforms(pGlow, B); gl.uniform1f(pGlow.u.uPxH, H);
   gl.bindVertexArray(glowVAO); gl.bindBuffer(gl.ARRAY_BUFFER, glowVB); gl.bufferData(gl.ARRAY_BUFFER, LAMP.spr, gl.DYNAMIC_DRAW);
   gl.enable(gl.BLEND); gl.blendFunc(gl.ONE, gl.ONE); gl.depthMask(false);
@@ -2475,12 +2487,23 @@ function render(S){
   gl.uniform4fv(u.uWake, wakeBuf); gl.uniform1i(u.uWakeN, Math.min(20, wk.length));
   // aquarium: no boat — park the traced hull far away so no water is cut out and no hull shadow falls
   const bt = S.noBoat ? { pos: [1e4, 0, 1e4], heading: 0, pitch: 0, roll: 0 } : S.boat, boatM = mat4TRS(bt.pos, bt.heading, bt.pitch, bt.roll);
-  updateLamps(boatM); setLamps(pMain);
+  updateLamps(boatM);
+  if (S.tank){   // aquarium lamps: a row of three cool-white lights just over the water, lighting the fish from above
+    LAMP.P.fill(0); LAMP.spr.fill(0); LAMP.on = S.tank.light ? 1 : 0;
+    const h = S.tank.h;
+    [[-h*0.55, 0], [0, 0], [h*0.55, 0]].forEach(([x, z], k) => {
+      const p = [x, 0.35, z], c = [0.85, 0.95, 1.0];
+      LAMP.P.set([p[0], p[1], p[2], 1.4*LAMP.on], k*4); LAMP.C.set(c, k*3);
+      LAMP.spr.set([p[0], p[1], p[2], 0.16, c[0], c[1], c[2], LAMP.on], k*8);
+    });
+  }
+  setLamps(pMain);
   gl.uniform4f(u.uBoat, bt.pos[0], 0.02 + bt.pos[1], bt.pos[2], bt.heading); gl.uniform3fv(u.uHullR, ENV.hull);
   // online: up to three other boats traced too (no water inside their hulls, their shadow and underwater hull)
   const others = (S.others || []).slice(0, 3);
   othersBuf.fill(0); others.forEach((o, i) => othersBuf.set([o.pos[0], 0.02 + o.pos[1], o.pos[2], o.heading], i*4));
   gl.uniform4fv(u.uBoats, othersBuf); gl.uniform1i(u.uBoatN, others.length);
+  gl.uniform4f(u.uTank, S.tank ? S.tank.h : 0, S.tank ? S.tank.d : 0, S.tank ? (S.tank.light ? 1 : 0) : 0, S.tank ? 1 : 0);
   fullscreen();
 
   // ---- boat, rod, float, line ----
@@ -2490,7 +2513,8 @@ function render(S){
   for (const [m, f] of meshFish){
     const d = f.dir, up0 = norm3([-d[0]*d[1], 1 - d[1]*d[1], -d[2]*d[1]]);
     // flatfish (flounder, halibut) swim lying on one side: the model rolls 90° so its eyed side faces up and the body wave runs up and down
-    const sd = FLATFISH.has(f.id) ? up0 : cross3(d, up0);
+    // a dead fish (aquarium) floats on its side: roll it like a flatfish (and a flatfish the other way)
+    const sd = FLATFISH.has(f.id) !== !!f.dead ? up0 : cross3(d, up0);
     drawFishModel(m, B, f.pos, d, sd, f.len, f.tailPh || 0, f.tailAmp || 0, f.bend || 0, 0);
   }
   if (S.hang){ const h = S.hang, m = fishModel(h.id);
@@ -2525,7 +2549,11 @@ function render(S){
       }
     }
   }
-  drawLampGlows(B);
+  drawLampGlows(B, !!S.tank);
+  if (S.food && S.food.length){   // aquarium: fish food sinking through the water
+    gl.useProgram(pMesh.p);
+    for (const p of S.food) drawMesh(ballMesh, mat4TRS(p, 0, 0, 0, 0.014), { emis: 0.15 });
+  }
   let tip = null;
   // from under the water the rod and the line above the surface are not drawn: without refraction they pointed off
   // at odd angles; the line is seen only from where it enters the water
