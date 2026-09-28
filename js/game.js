@@ -1759,10 +1759,12 @@ function updateCamera(dt){
       T = G.uwView ? orbitCam(f, 2.4 + L*2, 0.12, true) : orbitCam([f[0], 0, f[2]], Math.hypot(b, u), Math.atan2(u, b), false);
       k = ft < 0.8 ? 6 : 3.6; break; }
   }
-  // entering the cast / the fight faces the rig or the fish again; leaving it comes back out of the water
+  // entering the cast / the fight faces the rig or the fish again. The 🤿 under-water choice is remembered:
+  // after a retrieve, a lost fish or a catch, the next cast goes on under the water (between casts the camera is
+  // on the boat anyway; 물밖 보기 switches it back). Without goggles there is nothing to remember.
   if (G.state !== G.camState){
-    if (freeView() && G.state !== G.camState) { G.fYaw = G.fPitch = 0; G.orbit = 0; G.viewTilt = 0; }
-    if (!freeView()) G.uwView = false;
+    if (freeView()) { G.fYaw = G.fPitch = 0; G.orbit = 0; G.viewTilt = 0; }
+    if (!P.tier.goggles) G.uwView = false;
     G.camState = G.state;
   }
   // after switching boat ↔ fishing the camera glides slowly from its current angle to the new one
