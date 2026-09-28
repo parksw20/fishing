@@ -1,6 +1,6 @@
 {
   "title": "보트 낚시",
-  "version": "1.0.8",
+  "version": "1.0.9",
   "startScreen": "portal",
   "multiplayer": { "maxPlayers": 4, "capChoices": [2, 3, 4] },
   "sdkVersion": "1",

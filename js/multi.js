@@ -191,6 +191,7 @@
     if (M.tour && M.tour.id === id) return;
     closeResult();
     M.tour = { id: id, dur: dur, endsAt: now() + left * 1000, scores: {}, done: false };
+    M.open = true;   // 대회 중에는 순위를 펼쳐서 시작합니다 (접을 수 있음)
     say('🏆 낚시 대회 시작! ' + Math.round(dur / 60) + '분 동안 낚은 총 무게로 겨뤄요', 3.5);
     renderPanel();
   }
@@ -271,10 +272,15 @@
   css.textContent = [
     '#mp{position:fixed;left:50%;transform:translateX(-50%);top:calc(52px + env(safe-area-inset-top,0px));z-index:6;padding:6px 12px;font-size:13px;max-width:min(46vw,360px);text-align:center;color:#fff}',
     'body.touch #mp{top:calc(44px + env(safe-area-inset-top,0px));font-size:12px;max-width:44vw;padding:5px 9px}',
-    '#mp .row{display:flex;align-items:center;justify-content:center;gap:8px;white-space:nowrap}',
+    '#mp .row{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:4px 8px;white-space:nowrap}',
     '#mp b.t{color:#ffd84a;font-variant-numeric:tabular-nums}',
     '#mp button{font:700 12px var(--font,system-ui);padding:4px 9px;border-radius:8px;border:0;background:rgba(255,216,74,.9);color:#1b1b12;cursor:pointer}',
     '#mp button.g{background:rgba(255,255,255,.14);color:#fff}',
+    // 눌러서 펼친다는 걸 보이게: 패널 전체가 눌리고, 오른쪽에 "순위 ▾" 칩
+    '#mp{cursor:pointer;transition:background .15s}',
+    '#mp:hover{background:rgba(20,40,50,.72)}',
+    '#mp .more{display:inline-flex;align-items:center;gap:3px;padding:2px 8px;border-radius:999px;background:rgba(255,255,255,.16);font-size:11px;font-weight:700;color:#dff}',
+    '#mp:hover .more{background:rgba(255,255,255,.28)}',
     '#mp ol{margin:6px 0 0;padding:0;list-style:none;text-align:left}',
     '#mp li{display:flex;justify-content:space-between;gap:10px;padding:1px 0;font-variant-numeric:tabular-nums}',
     '#mp li.me{color:#8ff0a8}',
@@ -313,12 +319,12 @@
       var rk = ranking(), myI = -1;
       rk.forEach(function (r, i) { if (r.id === M.me) myI = i; });
       html = '<div class="row">🏆 대회 <b class="t">' + mmss(left) + '</b>' +
-        (myI >= 0 ? '<span>' + (myI + 1) + '위 · ' + kg(rk[myI].kg) + '</span>' : '') + '</div>';
+        (myI >= 0 ? '<span>' + (myI + 1) + '위 · ' + kg(rk[myI].kg) + '</span>' : '') + more('순위') + '</div>';
       if (M.open) html += list(rk.map(function (r) { return [r.name, kg(r.kg) + ' (' + r.n + ')', r.id === M.me]; }));
     } else {
       html = '<div class="row">🌐 같이 낚시 · ' + n + '명' +
         (M.host ? (M.pick ? ' <button data-min="5">5분</button><button data-min="10">10분</button><button data-min="15">15분</button><button class="g" data-a="pick">✕</button>'
-                          : ' <button data-a="pick">🏆 대회 열기</button>') : '') + '</div>';
+                          : ' <button data-a="pick">🏆 대회 열기</button>') : '') + more('참가자') + '</div>';
       if (M.open) {
         var ids = [M.me].concat(M.order.filter(function (id) { return id !== M.me; }));
         html += list(ids.map(function (id) {
@@ -329,6 +335,7 @@
     }
     if (html !== lastHtml) { panel.innerHTML = html; lastHtml = html; }
   }
+  function more(label) { return '<span class="more">' + label + ' ' + (M.open ? '▴' : '▾') + '</span>'; }
   function list(rows) {
     return '<ol>' + rows.map(function (r, i) { return '<li class="' + (r[2] ? 'me' : '') + '"><span>' + (i + 1) + '. ' + esc(r[0]) + '</span><span>' + r[1] + '</span></li>'; }).join('') + '</ol>';
   }
