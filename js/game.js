@@ -933,6 +933,7 @@ function landFish(){
   else netMsg = '살림망이 가득 차 방생했어요 — 판매하세요';
   fishes.splice(fishes.indexOf(f), 1);
   G.hooked = null; G.fight = null; G.state = 'result';
+  $('cardblock').hidden = false;   // nothing else can be pressed until the card is closed
   { const d = norm(sub(cam.look, cam.pos)); G.aimYaw = Math.atan2(d[0], -d[2]); G.aimPitch = -0.12; G.lookX = G.lookY = 0;   // the view settles on the catch and stays put
     const v = boatView(); cam.pos = v.pos.slice(); cam.look = v.look.slice(); }
   G.landed = { id: sp.id, len: f.len, weight: f.weight, t: 0, ph: 0, amp: 0.5, bend: 0, burst: 1, sw: 0, swV: 0, tw: rand(0, TAU) };   // hangs off the rod, flapping, while the card shows
@@ -965,7 +966,7 @@ function showCard(r, record, first){
   const pic = ph ? img : cv;
   const parts = [pic, cred, q('.sp'), q('.latin'), q('.stats'), q('.pts'), q('.badge'), q('.tipc'), q('.foot')];
   for (const el of parts) el.style.opacity = 0;
-  c.hidden = false; CARD.running = true;
+  c.hidden = false; CARD.running = true; $('cardblock').hidden = false;
   const K = CARD.slow;
   const show = (el, kf, dur) => { el.style.opacity = ''; el.animate(kf || [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: (dur || 320)*K, easing: 'cubic-bezier(.2,.8,.3,1)' }); };
   const at = (ms, fn) => CARD.timers.push(setTimeout(() => { if (CARD.seq === seq) fn(); }, ms*K));
@@ -1032,6 +1033,7 @@ function hideCard(){
   if (CARD.running && CARD.finish){ CARD.finish(); return; }
   CARD.timers.forEach(clearTimeout); CARD.timers = []; CARD.seq++;
   $('card').hidden = true; if (G.state === 'result') G.state = 'idle';
+  $('cardblock').hidden = true;
   G.landed = null;
   if (G.toNet){ G.toNet = false; playS('net', { gain: 0.8 }); }   // the catch goes into the keep net
 }
@@ -1218,7 +1220,7 @@ const HELP_TOUCH = {
   result: () => '탭하여 계속',
   boat: () => '<b>조그</b> 위: 전진 · 아래: 후진 · 좌우: 조향 · 드래그 시점 · 오른쪽 아래 🎣 낚시',
 };
-function updateHelp(){ const h = (TOUCH.on ? HELP_TOUCH : HELP)[G.state](); if (h !== lastHelp){ $('help').innerHTML = h; lastHelp = h; } }
+function updateHelp(){ if ($('cardblock').hidden === (G.state === 'result')) $('cardblock').hidden = G.state !== 'result'; const h = (TOUCH.on ? HELP_TOUCH : HELP)[G.state](); if (h !== lastHelp){ $('help').innerHTML = h; lastHelp = h; } }
 
 /* ---------------- input ---------------- */
 const hud = $('hud'), ctx = hud.getContext('2d');
@@ -1335,6 +1337,7 @@ window.addEventListener('keyup', e => {
   if (isEsc(e)){ if (!escSeen) onEsc(); escSeen = false; }
   keys[e.code] = false; if (e.code === 'Space' && mouse.down){ mouse.down = false; release(); } });
 $('card').addEventListener('pointerdown', e => { e.stopPropagation(); hideCard(); });
+$('cardblock').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); hideCard(); });
 $('retrieve').addEventListener('click', e => { e.stopPropagation(); retrieve(); });
 /* joystick (조그) */
 const JOY = { x: 0, y: 0, active: false, id: null, wasFight: false };
@@ -1882,7 +1885,7 @@ function drawFightRing(cx, cy){
     ctx.save(); ctx.font = `${Math.round(fs)}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
     ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff'; ctx.globalAlpha = 0.7;
     ctx.shadowColor = 'rgba(0,0,0,.75)'; ctx.shadowBlur = 10; ctx.shadowOffsetY = 2;
-    ctx.fillText('👆', cx, cy - R*0.42 + bob); ctx.restore();
+    ctx.fillText('👆', cx, cy + bob); ctx.restore();   // in the middle of the ring
   }
   // judgement feedback in the middle: the word, a shockwave in its colour, sparks for the best hits
   if (F.pop){

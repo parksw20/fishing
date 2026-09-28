@@ -59,7 +59,7 @@
   #msg.show { opacity:1; transform:translate(-50%, 0); }
   #msg.hot { color:#ffdf4a; font-size:34px; }
   #msg.bad { color:#ff9a8a; }
-  #card { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width:300px; padding:20px 22px; text-align:center; z-index:10; background:rgba(8,26,30,.78); box-shadow:0 20px 60px rgba(0,0,0,.4); cursor:pointer; }
+  #card { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width:300px; padding:20px 22px; text-align:center; z-index:17; background:rgba(8,26,30,.78); box-shadow:0 20px 60px rgba(0,0,0,.4); cursor:pointer; }
   #card[hidden] { display:none; }
   #card .t { font-size:12px; letter-spacing:.2em; opacity:.6; }
   #card .sp { font-size:30px; font-weight:900; margin-top:4px; }
@@ -71,6 +71,9 @@
   #card .pts { color:#ffd84a; font-size:20px; font-weight:800; margin-top:8px; }
   #card .badge { color:#8ff0a8; font-weight:700; font-size:13px; min-height:18px; margin-top:4px; }
   #card .foot { font-size:11px; opacity:.55; margin-top:10px; }
+  /* while the catch is shown (card, and the moment before it) nothing else can be pressed: a tap anywhere is a tap on the card */
+  #cardblock { position:fixed; inset:0; z-index:16; background:transparent; }
+  #cardblock[hidden] { display:none; }
   #loading { position:fixed; inset:0; display:grid; place-items:center; background:radial-gradient(ellipse at 50% 40%, #134040, #0a2222 70%); z-index:20; transition:opacity .8s; }
   #loading .ldbox { width:min(420px, 80vw); text-align:center; }
   #loading .ldicon { font-size:38px; margin-bottom:14px; animation:ldbob 2.2s ease-in-out infinite; }
@@ -495,6 +498,7 @@
   <div id="ginfo"></div>
 </div>
 <!-- centre: line tension (big and in view while fishing) -->
+<div id="cardblock" hidden></div>
 <div id="rotate"><div class="ic">📱</div><div>세로 모드로 돌려주세요</div><div style="font-weight:400;font-size:13px;opacity:.7">이 게임은 세로 화면만 지원해요</div></div>
 <div id="tcenter" hidden><div id="tlabel">장력 <b id="tval">0.0kg</b></div><div id="tbar"><div id="tfill"></div><div id="dragmark"></div></div></div>
 
