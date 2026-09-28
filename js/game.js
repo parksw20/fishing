@@ -1193,7 +1193,7 @@ function releaseAll(){
 const AQUA_SPOT = { id: 'aquarium', name: '🐠 내 수족관', country: '수족관', lat: 1, lon: -140, biome: 'trop_sea', water: 'sea_trop', aquarium: true };
 function aquaTier(){ return tierOf('aquarium'); }
 function aquaSpot(){ const S = aquaTier().size || 3; return Object.assign({}, AQUA_SPOT, { start: S, floor: [S, S, 'basin'] }); }
-function aquaFits(c){ return c.len <= aquaTier().size/2; }
+function aquaFits(c){ return c.len <= aquaTier().maxLen; }
 function aquaDefaultDist(){ return aquaTier().size*0.42; }   // from the middle toward the glass, inside the tank
 function aquaFishObj(c){
   const sp = BY_ID[c.id], S = aquaTier().size, h = Math.max(0.05, S/2 - Math.max(0.15, c.len*0.6)), D = toVis(S);
@@ -1260,15 +1260,25 @@ function updateFood(dt, h, D){
     if (p.t > 45) AQ.food.splice(i, 1);   // what nobody ate dissolves on the bottom
   }
 }
+/* satiety 0..1 drains over a day; kept as the time of a virtual full feed so the starving clock above is unchanged.
+   One sprinkle fills FEED_UNITS of appetite; each fish eats 0.7 + 0.2 × body length (m). A full Lv.1 tank of small
+   fish fills in 1–2 sprinkles, a big tank full of big fish takes 5–10. */
+const FEED_UNITS = 7.5;
+function aquaAppetite(){ let a = 0; for (const c of P.aqua) if (!c.dead) a += 0.7 + 0.2*c.len; return a; }
+function aquaSat(){ return P.aquaFedAt ? clamp(1 - (Date.now() - P.aquaFedAt)/DAY_MS, 0, 1) : 1; }
 function feedFish(){
   if (G.state !== 'aquarium') return;
+  const need = aquaAppetite();
+  if (need && aquaSat() >= 0.995){ say('🍤 다들 배불러요 — 포만도가 줄면 다시 주세요', 2); return; }
   if (!P.food){ confirmBox('🍤 물고기 밥이 없어요<br><span style="opacity:.8;font-size:12px">상점에서 살 수 있어요</span>', '🛒 상점', () => { closeModal(); openShop(); }); return; }
-  P.food--; P.aquaFedAt = Date.now();
-  const h = aquaTier().size/2, c = [rand(-h*0.35, h*0.35), 0, rand(-h*0.35, h*0.35)];
-  for (let i = 0; i < 16; i++) AQ.food.push({ pos: [c[0] + rand(-0.25, 0.25), -0.02, c[2] + rand(-0.25, 0.25)], vy: rand(0.05, 0.12), t: 0, ph: rand(0, TAU) });
+  P.food--;
+  const sat = need ? Math.min(1, aquaSat() + FEED_UNITS/need) : 1; P.aquaFedAt = Date.now() - (1 - sat)*DAY_MS;
+  // a bigger crowd gets a bigger handful, spread wider
+  const h = aquaTier().size/2, c = [rand(-h*0.35, h*0.35), 0, rand(-h*0.35, h*0.35)], n = Math.round(clamp(16 + need*2.5, 16, 120)), sp = Math.min(h*0.6, 0.25 + need*0.03);
+  for (let i = 0; i < n; i++) AQ.food.push({ pos: [c[0] + rand(-sp, sp), -0.02, c[2] + rand(-sp, sp)], vy: rand(0.05, 0.12), t: 0, ph: rand(0, TAU) });
   Rn.splash(c[0], c[2], 0.15, 0.03); playS('plunk');
   const alive = P.aqua.filter(f => !f.dead).length;
-  say(alive ? `🍤 밥을 줬어요 · 남은 밥 ${P.food}개` : '🍤 밥을 줬지만 살아 있는 물고기가 없어요', 2);
+  say(alive ? `🍤 밥을 줬어요 · 포만도 ${Math.round(sat*100)}%${sat < 1 ? ` · ${Math.ceil((1 - sat)*need/FEED_UNITS)}번 더 주면 가득` : ' · 가득!'} · 남은 밥 ${P.food}개` : '🍤 밥을 줬지만 살아 있는 물고기가 없어요', 2.4);
   save(); renderAquaHud(true);
 }
 function deathRate(days){ return days < 1 ? 0 : days < 3 ? 0.03 : Math.min(0.9, 0.25 + 0.2*(days - 3)); }   // chance per day
@@ -1298,8 +1308,10 @@ function removeDead(i){
 function hungerText(){
   if (!P.aqua.some(c => !c.dead)) return '';
   const hrs = (Date.now() - (P.aquaFedAt || Date.now()))/3600000;
-  const ago = hrs < 1 ? '방금' : hrs < 48 ? `${Math.floor(hrs)}시간 전` : `${Math.floor(hrs/24)}일 전`;
-  return hrs < 24 ? `🍤 ${ago} · 배불러요` : hrs < 72 ? `<span class="warn">🍤 ${ago} · 배고파요</span>` : `<span class="bad">⚠ 🍤 ${ago} · 굶어 죽을 수 있어요</span>`;
+  const s = aquaSat(), pc = Math.round(s*100), col = s > 0.5 ? '#6fe08a' : s > 0.2 ? '#ffd84a' : '#ff8a7a';
+  const bar = `<div class="sat"><span>포만도</span><i><b style="width:${pc}%;background:${col}"></b></i><em>${pc}%</em></div>`;
+  const hungry = hrs - 24;   // hours since the gauge ran dry
+  return bar + (s > 0.5 ? '' : s > 0 ? `<span class="warn">🍤 배고파지고 있어요</span>` : hungry < 48 ? `<span class="warn">🍤 배고파요 — 밥을 주세요</span>` : `<span class="bad">⚠ 🍤 ${Math.floor(hungry/24)}일 굶음 · 굶어 죽을 수 있어요</span>`);
 }
 function fade(then){
   const f = $('fade'); f.classList.add('on');
@@ -1332,7 +1344,7 @@ function askAqua(){
   const fit = P.net.map((f, i) => i).filter(i => aquaFits(P.net[i])).sort((a, b) => P.net[b].len - P.net[a].len);
   const idx = fit.slice(0, room), tooBig = P.net.length - fit.length, noRoom = fit.length - idx.length;
   if (!idx.length){
-    say(room ? `🐠 수족관(${t.size}m)에 넣기엔 너무 커요 — 몸길이 ${(t.size/2).toFixed(1)}m까지` : `🐠 수족관이 가득 찼어요 (${t.cap}마리) — 상점에서 업그레이드하세요`, 2.8, 'bad');
+    say(room ? `🐠 수족관(${t.size}m)에 넣기엔 너무 커요 — 몸길이 ${Math.round(t.maxLen*100)}cm까지` : `🐠 수족관이 가득 찼어요 (${t.cap}마리) — 상점에서 업그레이드하세요`, 2.8, 'bad');
     return;
   }
   const note = [tooBig ? `${tooBig}마리는 너무 커서` : '', noRoom ? `${noRoom}마리는 자리가 없어서` : ''].filter(Boolean).join(', ');
@@ -2773,8 +2785,7 @@ function tierList(s){
   const cur = P.tier[s.id], rows = s.tiers.map((t, i) => {
     if (s.id === 'aquarium' && i === 0) return '';
     const own = i <= cur, now = i === cur;
-    return `<li class="${now ? 'now' : own ? 'own' : ''}"><b>${s.id === 'aquarium' ? 'Lv.' + i : 'Lv.' + (i + 1)} ${t.name}</b>${now ? ' ◀ 현재' : ''}<br><span>${t.desc}</span>` +
-      `<em>${own ? (t.cost ? '✔ 보유' : '기본') : t.cost.toLocaleString() + '🪙'}</em></li>`;
+    return `<li class="${now ? 'now' : own ? 'own' : ''}"><b>${s.id === 'aquarium' ? 'Lv.' + i : 'Lv.' + (i + 1)} ${t.name}</b>${now ? ' ◀ 현재' : ''}<br><span>${t.desc}</span></li>`;
   }).join('');
   return `<details class="tl" data-tl="${s.id}"${SHOP_OPEN.has(s.id) ? ' open' : ''}><summary>단계별 내용 보기</summary><ol>${rows}</ol></details>`;
 }
@@ -3480,22 +3491,34 @@ $('rsp').addEventListener('change', () => { RANK.sp = $('rsp').value; renderRank
 
 /* ---------------- fish guide (도감): names shown, photos hidden until caught ---------------- */
 function openDex(){ openModal('dexm'); renderDex(); }
+const DEX_F = { f: 'all', pole: true, lure: true };   // 도감 filter: all / fresh / salt / obs (sightings only)
 function renderDex(){
   const photos = window.FISH_PHOTOS || {};
-  let got = 0;
-  const cards = SPECIES.map(sp => {
+  let got = 0, shown = 0;
+  // fresh water first, then sea, then the ones you only watch; smallest to biggest within each
+  const isSea = sp => Object.values(BIOMES).some(B => B.water === 'salt' && (B.fish.some(f => f[0] === sp.id) || (B.visitors || []).some(v => v[0] === sp.id)));
+  const grp = sp => sp.sight ? 2 : isSea(sp) ? 1 : 0;
+  const order = SPECIES.slice().sort((a, b) => grp(a) - grp(b) || a.maxLen - b.maxLen);
+  const cards = order.map(sp => {
     const n = P.caught[sp.id] || (G.best[sp.id] ? 1 : 0), seen = P.sightings[sp.id] || 0;
     const open = n > 0 || (sp.sight && seen > 0); if (open) got++;
     const b = G.best[sp.id], ph = photos[sp.id];
-    const salt = Object.values(BIOMES).some(B => B.water === 'salt' && (B.fish.some(f => f[0] === sp.id) || (B.visitors || []).some(v => v[0] === sp.id)));
+    const salt = isSea(sp);
+    // tackle checkboxes: keep the species a ticked rig can catch (watch-only ones aren't caught, they always stay)
+    const by = list => list.some(it => (sp.pref[it.id] || 0) >= 0.5);   // a rig it really takes (not just the odd bite)
+    if (!sp.sight && !(DEX_F.pole && by(BAITS) || DEX_F.lure && by(LURES))){ if (open) got--; return ''; }
+    const F = DEX_F.f; if (F === 'obs' ? !sp.sight : F === 'salt' ? sp.sight || !salt : F === 'fresh' ? sp.sight || salt : false){ if (open) got--; return ''; }
+    shown++;
     const info = sp.sight ? (seen ? `관찰 ${seen}회` : '관찰 대상 · 아직 못 봤어요')
       : n ? `최대 ${(b ? b.len*100 : 0).toFixed(1)}cm · ${b ? kg(b.weight) : '-'}<br>잡은 수 ${n}마리${seen ? ` · 목격 ${seen}` : ''}` : `아직 못 잡았어요${seen ? ` · 목격 ${seen}` : ''}`;
     return `<div class="dx${open ? '' : ' locked'}" data-sp="${sp.id}"><div class="ph">${ph ? `<img loading="lazy" src="${ph.file}" alt="">` : `<span style="font-size:34px">${open ? sp.icon || '🐟' : ''}</span>`}${open ? '' : '<b class="qm">?</b>'}</div>
       <div class="nm">${esc(sp.name)}<span class="tag${salt ? '' : ' fresh'}">${salt ? '바다' : '민물'}</span>${sp.sight ? '<span class="tag obs">관찰</span>' : ''}</div><div class="dd">${info}</div></div>`;
   });
   $('dexgrid').innerHTML = cards.join('');
-  $('dcount').textContent = `(${got}/${SPECIES.length})`; $('dsub').textContent = '';
-  $('dexgrid').hidden = false; $('dexdet').hidden = true; $('dexback').hidden = true;
+  $('dcount').textContent = `(${got}/${shown})`; $('dsub').textContent = '';
+  for (const b of $('dexfilt').querySelectorAll('button')){ b.classList.toggle('on', b.dataset.f === DEX_F.f); b.onclick = e => { e.stopPropagation(); DEX_F.f = b.dataset.f; renderDex(); $('dexgrid').scrollIntoView?.({ block: 'nearest' }); }; }
+  for (const c of $('dexfilt').querySelectorAll('input[data-m]')){ c.checked = DEX_F[c.dataset.m]; c.onclick = e => e.stopPropagation(); c.onchange = () => { DEX_F[c.dataset.m] = c.checked; renderDex(); }; }
+  $('dexfilt').hidden = false; $('dexgrid').hidden = false; $('dexdet').hidden = true; $('dexback').hidden = true;
   for (const c of $('dexgrid').querySelectorAll('[data-sp]')) c.onclick = e => { e.stopPropagation(); showDexEntry(c.dataset.sp); };
 }
 // one species in detail: photo and records once caught, plus where it lives and how to catch it
@@ -3513,7 +3536,7 @@ function showDexEntry(id){
   const ret = { slow: '느리게 (감다 멈추기)', medium: '보통', fast: '빠르게 계속' }[sp.retrieve] || '';
   const rec = sp.sight ? (seen ? `관찰 <b>${seen}</b>회` : '아직 못 봤어요')
     : n ? `최대 <b>${(b.len*100).toFixed(1)}cm</b> · <b>${kg(b.weight)}</b> · 잡은 수 <b>${n}</b>마리${seen ? ` · 목격 ${seen}` : ''}` : '아직 못 잡았어요';
-  $('dexgrid').hidden = true; const d = $('dexdet'); d.hidden = false;
+  $('dexgrid').hidden = true; $('dexfilt').hidden = true; const d = $('dexdet'); d.hidden = false;
   $('dexback').hidden = false;
   d.innerHTML = `<div class="dtop"><div class="dph${open ? '' : ' locked'}">${ph ? `<img src="${ph.file}" alt="">` : `<span>${sp.icon || '🐟'}</span>`}${open ? '' : '<b class="qm">?</b>'}</div>
       <div class="dhead"><h3>${esc(sp.name)}</h3><div class="latin">${esc(sp.latin || '')}</div>
@@ -3529,7 +3552,7 @@ function showDexEntry(id){
       <div class="wide"><h4>사는 곳</h4><p>${biomes.map(([, B]) => esc(B.name)).join(' · ') || '-'}${spots.length ? `<br><small>명소: ${spots.map(esc).join(', ')}</small>` : ''}</p></div>
       ${sp.tip ? `<div class="wide"><h4>💡 공략</h4><p>${esc(sp.tip)}</p></div>` : ''}
     </div>`;
-  $('dexback').onclick = e => { e.stopPropagation(); d.hidden = true; $('dexgrid').hidden = false; $('dexback').hidden = true; };
+  $('dexback').onclick = e => { e.stopPropagation(); d.hidden = true; $('dexgrid').hidden = false; $('dexfilt').hidden = false; $('dexback').hidden = true; };
   $('dexm').querySelector('.mbox').scrollTop = 0;
 }
 
@@ -3838,5 +3861,5 @@ window.__mapS = (lon, lat) => m2s(nearLon(lon), lat); window.__mapZ = () => MAP.
 window.__game = { tryPredator, SND, playS, qteTap, sprayBurst, toReal, toVis, showCard, questEvent, updateLog, G, fishes, cam, mouse, hookFish, hookSet, jerkLift, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID,
   // used by js/multi.js (online play)
   say, setWeather, WEATHERS, setClockTo, region: () => REGION, idleOnly, HULL,
-  checkAquaHealth, feedFish, AQ, useBait, loseLure, setItem, curItem, SHOP_TAB, renderShop };
+  checkAquaHealth, feedFish, AQ, aquaSat, hungerText, useBait, loseLure, setItem, curItem, SHOP_TAB, renderShop };
 })();

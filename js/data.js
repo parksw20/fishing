@@ -329,11 +329,12 @@ window.GameData = (function(){
       ['기본 살림망', '중형 살림망', '대형 살림망', '접이식 살림망', '고급 살림망', '소형 활어통', '중형 활어통', '대형 활어통', '산소 활어통', '대형 산소 활어통'], 0.5,
       (u, i) => { const cap = Math.round(12 + 38*u); return { cap, desc: `물고기 ${cap}마리 보관` }; }) },
     // aquarium: bought once (Lv.1, 3×3×3 m), then upgraded up to Lv.10 (30×30×30 m). Tier 0 = not owned.
-    // size = 3 m × level; it holds more fish as it grows, and a fish must be at most half the tank's width
+    // size = 3 m × level; it holds more fish as it grows, and the longest fish it takes grows 50 cm a level
     { id:'aquarium', name:'수족관', icon:'🐠', tiers: [{ name:'없음', cost:0, lv:0, size:0, cap:0, desc:'상점에서 구매하면 잡은 물고기를 넣어 둘 수 있어요' }].concat(
       [3000, 2500, 4000, 6000, 9000, 13000, 18000, 25000, 33000, 45000].map((cost, i) => {
-        const lv = i + 1, size = 3*lv, cap = 5 + 5*lv;
-        return { name:`${size}×${size}×${size}m 수족관`, cost, lv, size, cap, desc:`${size}×${size}×${size}m · 최대 ${cap}마리 · 몸길이 ${(size/2).toFixed(1)}m 이하` };
+        // longest fish it takes: 50 cm more each level (50 cm at Lv.1 … 5 m at Lv.10)
+        const lv = i + 1, size = 3*lv, cap = 5 + 5*lv, maxLen = 0.5*lv, ml = `${Math.round(maxLen*100)}cm`;
+        return { name:`${size}×${size}×${size}m 수족관`, cost, lv, size, cap, maxLen, desc:`물고기를 최대 ${cap}마리까지 넣을 수 있어요 · 몸길이 ${ml} 이하만 들어가요` };
       })) },
     // one-off gear: 2 "levels" (none / owned)
     { id:'goggles', name:'수경', icon:'🤿', tiers: [

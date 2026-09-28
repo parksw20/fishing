@@ -78,9 +78,8 @@
   details.tl { margin-top:8px; font-size:12px; }
   details.tl summary { cursor:pointer; opacity:.75; list-style:none; } details.tl summary::after { content:' ▾'; } details.tl[open] summary::after { content:' ▴'; }
   details.tl ol { list-style:none; margin:6px 0 0; padding:0; display:flex; flex-direction:column; gap:4px; max-height:240px; overflow:auto; }
-  details.tl li { position:relative; padding:5px 64px 5px 8px; border-radius:8px; background:rgba(255,255,255,.05); line-height:1.35; }
+  details.tl li { position:relative; padding:5px 8px; border-radius:8px; background:rgba(255,255,255,.05); line-height:1.35; }
   details.tl li span { opacity:.75; }
-  details.tl li em { position:absolute; right:8px; top:6px; font-style:normal; opacity:.8; white-space:nowrap; }
   details.tl li.own { opacity:.6; }
   details.tl li.now { background:rgba(255,216,74,.14); box-shadow:inset 0 0 0 1px rgba(255,216,74,.5); opacity:1; }
   #loading { position:fixed; inset:0; display:grid; place-items:center; background:radial-gradient(ellipse at 50% 40%, #134040, #0a2222 70%); z-index:20; transition:opacity .8s; }
@@ -196,6 +195,8 @@
   #aquahud .ah-btns #aquaout, #aquahud .ah-btns #aquafeed, #aquahud .ah-btns #aqualight { flex:1; }
   #aquastat { margin-top:6px; font-size:12px; opacity:.9; }
   #aquastat .warn { color:#ffd84a; } #aquastat .bad { color:#ff8a7a; font-weight:700; }
+  #aquastat .sat { display:flex; align-items:center; gap:6px; margin-bottom:3px; } #aquastat .sat i { flex:1; height:8px; border-radius:4px; background:rgba(255,255,255,.15); overflow:hidden; }
+  #aquastat .sat i b { display:block; height:100%; border-radius:4px; } #aquastat .sat em { font-style:normal; min-width:32px; text-align:right; }
   #aquafish li.dead b, #aquafish li.dead span { opacity:.55; }
   #aquafish { list-style:none; margin:8px 0 0; padding:0; overflow:auto; touch-action:pan-y; overscroll-behavior:contain; }
   #aquafish li { display:flex; align-items:center; gap:6px; padding:4px 0; border-top:1px solid rgba(255,255,255,.08); }
@@ -268,6 +269,7 @@
   #rlist tr.me td { background:rgba(255,216,74,.12); }
   #rlist .rk { width:36px; font-weight:800; color:#ffd84a; }
   #rlist .empty { opacity:.6; padding:20px 8px; font-size:13px; }
+  .dxchk { margin-left:auto; display:flex; gap:10px; font-size:13px; } .dxchk label { display:flex; align-items:center; gap:4px; cursor:pointer; white-space:nowrap; } .dxchk input { accent-color:#4fd1ff; width:15px; height:15px; margin:0; }
   #dexgrid { padding:0 14px; display:grid; grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:10px; }
   .dx { border-radius:12px; background:rgba(255,255,255,.06); overflow:hidden; font-size:12px; }
   .dx .ph { aspect-ratio:4/3; background:#0b2230; display:grid; place-items:center; overflow:hidden; position:relative; }
@@ -606,6 +608,7 @@
 <div id="dexm" class="modal" hidden>
   <div class="mbox glass">
     <div class="maphead"><b>📖 도감 <span id="dcount"></span></b><span class="sub" id="dsub"></span><button id="dexback" class="xbtn" aria-label="뒤로" hidden>←</button><button class="mclose xbtn" aria-label="닫기 (Esc)" title="닫기 (Esc)">✕</button></div>
+    <div id="dexfilt" class="rtabs"><button data-f="all" class="on">전체</button><button data-f="fresh">🏞️ 민물</button><button data-f="salt">🌊 바다</button><button data-f="obs">👀 관찰</button><span class="dxchk"><label><input type="checkbox" data-m="pole" checked> 찌낚시</label><label><input type="checkbox" data-m="lure" checked> 루어</label></span></div>
     <div id="dexgrid"></div>
     <div id="dexdet" hidden></div>
   </div>
