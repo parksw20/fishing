@@ -696,6 +696,7 @@ function hookFish(f){
   const tip = tipXZ();
   G.strike = null; G.engaged = null;
   G.hooked = f; f.state = 'hooked'; G.state = 'hooked'; padRumble(0.9, 0.7, 260);
+  if (TOUCH.on){ const C = fightC(); mouse.x = C[0]; mouse.y = C[1]; }
   fightFish(f, tip);
   const d = dist2(f.pos, tip);
   G.fight = { tension: 0.3, lineOut: d + 0.2, maxReach: G.mode === 'pole' ? Math.max(d + 3.0, 8) : 150, breakT: 0, slackT: 0, cq: 0, payout: 0, t: 0,
@@ -751,8 +752,9 @@ function predatorStrike(pred, prey){
 }
 function rodPressure(){
   const B = Rn.basis(); if (!B) return { w: [0, 0], m: 0 };
-  if (!isFinite(mouse.x) || !isFinite(mouse.y)){ mouse.x = innerWidth/2; mouse.y = innerHeight/2; }
-  const ox = mouse.x - innerWidth/2, oy = mouse.y - innerHeight/2;
+  const C = fightC();
+  if (!isFinite(mouse.x) || !isFinite(mouse.y)){ mouse.x = C[0]; mouse.y = C[1]; }
+  const ox = mouse.x - C[0], oy = mouse.y - C[1];
   const rad = ringRadius();
   let m = clamp(Math.hypot(ox, oy)/rad, 0, 1); if (m < 0.12) m = 0;
   const rh = Math.hypot(B.r[0], B.r[2]) || 1, fh = Math.hypot(B.f[0], B.f[2]) || 1;
@@ -761,7 +763,9 @@ function rodPressure(){
   return { w: [wx/wl, wz/wl], m };
 }
 const LAND_ST = 0.4;   // fish strength below which it can be landed (marked on the gauge)
-function ringRadius(){ return 0.2*Math.min(innerWidth, innerHeight); }
+// the fight ring's centre (touch screens: the gauges go to the top centre, so nothing sits over the joystick below)
+function fightC(){ return [innerWidth/2, innerHeight*(TOUCH.on ? 0.52 : 0.5)]; }
+function ringRadius(){ return (TOUCH.on ? 0.16 : 0.2)*Math.min(innerWidth, innerHeight); }
 /* timing taps during the fight: a white ring closes in on the dashed "pull here" circle; tap (click, Space, touch)
    the moment it touches it. The closer the timing, the more of the fish's strength it takes and the harder the
    camera shakes. PERFECT / GREAT / GOOD hurt the fish, BAD (or no tap) lets it recover a little. */
@@ -1195,7 +1199,7 @@ const HELP_TOUCH = {
   charge: () => '손을 떼면 던집니다',
   fly: () => '',
   wait: () => G.mode === 'pole' ? '찌가 <b>쑥 잠기거나 올라오면 챔질</b> (화면 탭도 가능) · +/− 수심' : '<b>감기</b>를 누르고 있기 · 감다 멈추기로 액션 · +/− 드랙',
-  hooked: () => `가운데 조그를 <b>누른 채</b> ${G.mode === 'pole' ? '들기' : '감기'} · <b>물고기 반대쪽</b>으로 밀기`,
+  hooked: () => G.fight && G.fight.t > 3 ? '' : `가운데 조그를 <b>누른 채</b> ${G.mode === 'pole' ? '들기' : '감기'} · <b>물고기 반대쪽</b>으로 밀기`,   // shown for the first seconds only
   result: () => '탭하여 계속',
   boat: () => '<b>조그</b> 위: 전진 · 아래: 후진 · 좌우: 조향 · 드래그 시점 · 오른쪽 아래 🎣 낚시',
 };
@@ -1340,7 +1344,7 @@ joyEl.addEventListener('pointerup', joyUp); joyEl.addEventListener('pointercance
 function applyJoy(dt){
   if (G.state !== 'hooked' && !JOY.active && (JOY.x || JOY.y)){ JOY.x = JOY.y = 0; knob.style.transform = ''; }   // the fight is over: recentre the held knob
   if (G.state === 'hooked'){
-    if (JOY.active){ const R = ringRadius(); mouse.x = innerWidth/2 + JOY.x*R; mouse.y = innerHeight/2 + JOY.y*R; }
+    if (JOY.active){ const R = ringRadius(), C = fightC(); mouse.x = C[0] + JOY.x*R; mouse.y = C[1] + JOY.y*R; }
     return;
   }
   if (!JOY.active || G.state === 'boat') return;
@@ -1604,12 +1608,14 @@ function landedPose(){
   const tf = Math.tan(Math.PI/6), asp = innerWidth/innerHeight;
   const hand = add(add(add(e, mul(rgt, pole ? 0.26 : 0.2)), [0, pole ? -0.42 : -0.24, 0]), mul(norm([f[0], 0, f[2]]), pole ? 0.32 : 0.48));
   const elDes = pole ? 1.13 : 0.96;
-  const dh = Math.min(R*0.92, Math.max(R*Math.cos(elDes), L.len*1.7));   // horizontal reach of the tip from the hand
+  const hf = pole ? 0.32 : 0.48;   // the hand is this far ahead of the eye
+  // horizontal reach of the tip from the hand; held 1.5x closer to the eye than a relaxed reach so the fish looks big
+  const dh = Math.max(0.3, Math.min(R*0.92, (Math.max(R*Math.cos(elDes), L.len*1.7) + hf)/1.5 - hf));
   const el = Math.acos(dh/R);
   // azimuth: the tip (and the fish) at the screen spot left of the card, at the tip's distance
   // PC: just left of the card; touch screens: the middle of the view
   const px = 160 + clamp(0.18*innerWidth, 140, 340), nx = TOUCH.on ? 0 : -Math.min(0.8, px/(innerWidth/2));
-  const fh = norm([f[0], 0, f[2]]), Dc = dh + (pole ? 0.32 : 0.48);
+  const fh = norm([f[0], 0, f[2]]), Dc = dh + hf;
   const C = add(add(e, mul(fh, Dc)), mul(rgt, nx*asp*tf*Dc));
   const yaw = Math.atan2(C[0] - hand[0], -(C[2] - hand[2]));
   const pitch = Math.asin(clamp(f[1], -0.9, 0.9));
@@ -1821,7 +1827,7 @@ function drawHUD(){
       sideLabels(`수심 ${fmtD(-L.pos[1])}m`, `거리 ${dist2(L.pos, BOAT.pos).toFixed(1)}m`, s[0], s[1] + 4, 34, 'rgba(255,255,255,.85)', 12); }
     if (G.strike){ const q = Rn.project([L.pos[0], 0.2, L.pos[2]]); if (q) label('바이트!', q[0], q[1] - 10, '#ffdf4a', 22); }
   }
-  if (G.state === 'hooked') drawFightRing(cx, cy);
+  if (G.state === 'hooked'){ const C = fightC(); drawFightRing(C[0], C[1]); }
   updateGauges();
 }
 function drawFightRing(cx, cy){
@@ -1839,7 +1845,7 @@ function drawFightRing(cx, cy){
     ctx.strokeStyle = 'rgba(255,90,70,.95)'; ctx.fillStyle = 'rgba(255,90,70,.95)'; ctx.lineWidth = 5;
     ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(x1 + dx*14, y1 + dy*14); ctx.lineTo(x1 - dy*10, y1 + dx*10); ctx.lineTo(x1 + dy*10, y1 - dx*10); ctx.fill();
-    label('물고기', x1 + dx*34, y1 + dy*34 + 5, '#ff8a70', 13);
+    const lo = TOUCH.on ? 20 : 34; label('물고기', x1 + dx*lo, y1 + dy*lo + 5, '#ff8a70', 13);
     // ideal counter direction hint
     const tx = cx - dx*R, ty = cy - dy*R;
     ctx.setLineDash([4, 6]); ctx.strokeStyle = F.qte ? 'rgba(255,255,255,.95)' : 'rgba(110,230,140,.6)'; ctx.lineWidth = 2;
@@ -1876,7 +1882,7 @@ function drawFightRing(cx, cy){
   ctx.strokeStyle = `rgba(${col},.9)`; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + ox, cy + oy); ctx.stroke();
   ctx.fillStyle = `rgba(${col},1)`; ctx.beginPath(); ctx.arc(cx + ox, cy + oy, 9, 0, TAU); ctx.fill();
   // stamina
-  const w = R*1.4, x = cx - w/2, y = cy + R + 26;
+  const w = TOUCH.on ? Math.min(260, innerWidth*0.4) : R*1.4, x = cx - w/2, y = TOUCH.on ? 40 : cy + R + 26;   // touch: at the top centre
   ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(x-2, y-2, w+4, 10);
   // action-game HP bar: the lost chunk shows yellow and drains after the red front
   ctx.fillStyle = '#ffd84a'; ctx.fillRect(x, y, w*(F.hpLag ?? f.stamina), 6);
