@@ -1693,21 +1693,28 @@ function toggleUnderView(){
   G.uwView = !G.uwView; G.fYaw = G.fPitch = 0;   // face the rig again on the other side of the surface
   say(G.uwView ? '🤿 물속 보기' : '🌤 물밖 보기', 1.2);
 }
-/** where the camera sits under the water: a couple of metres from the target, toward the boat, near its depth */
-function underAnchor(target){
-  const e = eyeWorld(); let dx = target[0] - e[0], dz = target[2] - e[2]; const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
-  const px = target[0] - dx*2.6, pz = target[2] - dz*2.6;
-  const y = clamp(target[1] + 0.35, -(floorDepth(px, pz) - 0.35), -0.3);
-  return [px, y, pz];
-}
-/** camera from an anchor looking toward target, turned by the free-look offsets */
-function freeLook(pos, target){
-  let dx = target[0] - pos[0], dy = target[1] - pos[1], dz = target[2] - pos[2];
-  const dh = Math.hypot(dx, dz) || 1e-3;
+/**
+ * Camera circling the rig: it always looks at `target` (float / lure / bait / fish) and orbits it at distance R.
+ * Left-right goes all the way round; up-down is free within the side of the surface the view is on — above the
+ * water from just over the surface to straight overhead (never dipping under), under the water from below the
+ * target looking up to above it (between the bed and the surface). `elev0` is the resting elevation.
+ */
+function orbitCam(target, R, elev0, under){
+  const e = eyeWorld();
+  let bx = e[0] - target[0], bz = e[2] - target[2]; const bl = Math.hypot(bx, bz) || 1; bx /= bl; bz /= bl;   // rest: on the boat's side
   const yaw = (G.fYaw || 0) + (G.lookX || 0), c = Math.cos(yaw), s = Math.sin(yaw);
-  const hx = (dx*c - dz*s)/dh, hz = (dx*s + dz*c)/dh;
-  const pitch = clamp(Math.atan2(dy, dh) + (G.fPitch || 0) + (G.lookY || 0), -1.52, 1.52), cp = Math.cos(pitch);
-  return { pos, look: [pos[0] + hx*cp*10, pos[1] + Math.sin(pitch)*10, pos[2] + hz*cp*10] };
+  const dx = bx*c - bz*s, dz = bx*s + bz*c;
+  const lo = under ? -1.35 : 0.06, hi = under ? 1.35 : 1.5;
+  const el = clamp(elev0 - (G.fPitch || 0) + (G.lookY || 0), lo, hi);
+  G.fPitch = elev0 - el + (G.lookY || 0);   // no dead zone past the ends
+  const ce = Math.cos(el);
+  const pos = [target[0] + dx*ce*R, target[1] + Math.sin(el)*R, target[2] + dz*ce*R];
+  if (under) pos[1] = clamp(pos[1], -(floorDepth(pos[0], pos[2]) - 0.35), -0.3);
+  else {
+    pos[1] = Math.max(pos[1], 0.35);
+    if (insideHull(pos[0], pos[2], 0.35)) pos[1] = Math.max(pos[1], SEAT[1] + 0.2);   // never inside the boat
+  }
+  return { pos, look: target };
 }
 function boatView(){
   const e = eyeWorld(), yw = viewYaw(), pt = viewPitch(), cp = Math.cos(pt);
@@ -1733,21 +1740,24 @@ function updateCamera(dt){
     case 'wait': {
       // a bite (float: nibble/take · lure: strike) pulls the camera halfway in — above the water toward the
       // float / the lure's spot on the surface (never dipping under), under the water toward the bait / lure
-      const bite = G.rig ? !!(G.engaged && /^(nibble|take)$/.test(G.engaged.state)) : !!G.strike;
-      const closer = (pos, to) => { if (!bite) return pos; const p = vlerp(pos, to, 0.5); if (!G.uwView) p[1] = Math.max(p[1], 0.35); return p; };
+      const bite = G.rig ? !!(G.engaged && /^(nibble|take)$/.test(G.engaged.state)) : !!G.strike, near = bite ? 0.5 : 1;
       if (G.rig){
-        const bob = [G.rig.pos[0], G.rig.bobY, G.rig.pos[2]], tgt = G.uwView ? G.rig.bait : bob;
-        T = freeLook(closer(G.uwView ? underAnchor(G.rig.bait) : baitView(G.rig.pos, 3.4, 2.3).pos, tgt), tgt); k = bite ? 5 : 3.5; break;
+        // above: circle the float · under (🤿): circle the bait
+        T = G.uwView ? orbitCam(G.rig.bait, 2.6*near, 0.12, true)
+                     : orbitCam([G.rig.pos[0], G.rig.bobY, G.rig.pos[2]], Math.hypot(3.4, 2.3)*near, Math.atan2(2.3, 3.4), false);
+        k = bite ? 5 : 3.5; break;
       }
+      // lure: above, circle the point on the surface over it; under, circle the lure itself
       const L = G.lure.pos, dp = Math.min(-L[1], 7);
-      const above = baitView([L[0], 0, L[2]], 3.0 + dp*0.25, 2.2 + dp*0.25).pos;
-      T = freeLook(closer(G.uwView ? underAnchor(L) : above, G.uwView ? L : [L[0], 0, L[2]]), G.uwView ? L : [L[0], -dp*0.9 - 0.2, L[2]]); k = bite ? 5 : 3.5; break; }
+      T = G.uwView ? orbitCam(L, 2.6*near, 0.12, true)
+                   : orbitCam([L[0], 0, L[2]], Math.hypot(3.0 + dp*0.25, 2.2 + dp*0.25)*near, Math.atan2(2.2 + dp*0.25, 3.0 + dp*0.25), false);
+      k = bite ? 5 : 3.5; break; }
     case 'hooked': {
       const f = G.hooked.pos;
-      // hook set: the camera pulls in a little (quick at first, then settles)
-      const L = G.hooked.len, ft = G.fight ? G.fight.t : 9;
-      const above = baitView([f[0], 0, f[2]], (2.6 + L*4)*0.72, (1.8 + L*3)*0.8, G.fightSide);
-      T = freeLook(G.uwView ? underAnchor(f) : above.pos, G.uwView ? f : above.look); k = ft < 0.8 ? 6 : 3.6; break; }
+      // hook set: the camera pulls in a little (quick at first, then settles); it circles the fish
+      const L = G.hooked.len, ft = G.fight ? G.fight.t : 9, b = (2.6 + L*4)*0.72, u = (1.8 + L*3)*0.8;
+      T = G.uwView ? orbitCam(f, 2.4 + L*2, 0.12, true) : orbitCam([f[0], 0, f[2]], Math.hypot(b, u), Math.atan2(u, b), false);
+      k = ft < 0.8 ? 6 : 3.6; break; }
   }
   // entering the cast / the fight faces the rig or the fish again; leaving it comes back out of the water
   if (G.state !== G.camState){
