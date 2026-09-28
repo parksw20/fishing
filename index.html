@@ -136,8 +136,10 @@
   #status .neth { display:flex; justify-content:space-between; font-weight:700; padding-top:6px; border-top:1px solid rgba(255,255,255,.12); }
   #netval { color:#ffd84a; }
   #catches { list-style:none; margin:4px 0 0; padding:0; max-height:170px; overflow:auto; }
-  #catches li { display:flex; justify-content:space-between; gap:6px; padding:3px 0; border-top:1px solid rgba(255,255,255,.06); }
-  #catches li span { opacity:.75; }
+  #catches li { display:flex; align-items:center; gap:6px; padding:3px 0; border-top:1px solid rgba(255,255,255,.06); }
+  #catches li b { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #catches li span { opacity:.75; white-space:nowrap; }
+  #catches li .sell1 { font-size:10px; padding:2px 7px; border-radius:7px; flex:none; }
   .netbtns { display:flex; gap:6px; margin-top:6px; }
   .netbtns button { flex:1; font-size:11px; padding:4px 8px; }
   #gauges { position:fixed; left:14px; bottom:calc(14px + env(safe-area-inset-bottom,0px)); width:164px; padding:10px 12px; display:flex; flex-direction:column; gap:8px; z-index:5; }
@@ -174,6 +176,23 @@
   #bottombar { position:relative; display:flex; gap:10px; align-items:center; }
   body.casting #bottombar { display:none; }
   body.boating #modes, body.boating #itempop { display:none !important; }
+  /* aquarium: its own HUD; fishing controls, keep net, quests and the fish finder step aside */
+  #aquahud { position:fixed; left:14px; top:calc(60px + env(safe-area-inset-top,0px)); z-index:6; padding:10px 12px; font-size:13px; width:min(300px, calc(100vw - 28px)); box-sizing:border-box; }
+  body.touch #aquahud { left:10px; top:calc(50px + env(safe-area-inset-top,0px)); width:min(260px, calc(100vw - 20px)); font-size:12px; }
+  body:not(.touch) #aquahud { zoom:1.25; }
+  #aquahud .ah-top { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
+  #aquahud .ah-top span { opacity:.75; font-variant-numeric:tabular-nums; }
+  #aquahud .ah-btns { display:flex; gap:6px; margin-top:8px; }
+  #aquahud .ah-btns button { font-size:12px; padding:5px 9px; }
+  #aquahud .ah-btns #aquaout { flex:1; }
+  #aquafish { list-style:none; margin:8px 0 0; padding:0; overflow:auto; touch-action:pan-y; overscroll-behavior:contain; }
+  #aquafish li { display:flex; align-items:center; gap:6px; padding:4px 0; border-top:1px solid rgba(255,255,255,.08); }
+  #aquafish li b { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #aquafish li span { opacity:.75; white-space:nowrap; font-variant-numeric:tabular-nums; }
+  #aquafish li.empty { opacity:.65; display:block; }
+  #aquafish .sell1 { font-size:11px; padding:2px 8px; border-radius:7px; flex:none; }
+  body.aqua #qtrack, body.aqua #status, body.aqua #bottombar, body.aqua #gauges, body.aqua #retrieve, body.aqua #uwview,
+  body.aqua #tctl, body.aqua #joy, body.aqua #tnet, body.aqua #power, body.aqua #target, body.aqua #mp { display:none !important; }
   #bottombar.locked #modes, #bottombar.locked #navtoggle { opacity:.5; }
   #itempop { position:absolute; bottom:calc(100% + 6px); left:0; width:max-content; max-width:240px; padding:5px; display:flex; flex-direction:column; background:rgba(8,26,30,.9); border-radius:12px; }
   #items { display:flex; flex-direction:column; align-items:stretch; gap:2px; }
@@ -491,12 +510,19 @@
 <!-- very top: time · weather · buff · coins on one line -->
 <div id="topline"><div class="tl-l"><span id="place"></span><span id="clock">06:00 새벽</span><span id="wicon">☀️ 맑음</span><span id="luck" hidden></span></div><b id="coins">🪙 0</b><b id="score" hidden>0</b></div>
 
+<!-- aquarium: title, size/count, back to the fishing spot, fish list, zoom -->
+<div id="aquahud" class="glass" hidden>
+  <div class="ah-top"><b>🐠 내 수족관</b><span id="aquasub"></span></div>
+  <div class="ah-btns"><button id="aquaout">⛵ 낚시터로</button><button id="aqualist">목록 ▾</button><button id="aquazin" aria-label="가까이">＋</button><button id="aquazout" aria-label="멀리">－</button></div>
+  <ol id="aquafish" hidden></ol>
+</div>
+
 <!-- under it, right: keep net (only while it holds fish) -->
 <div id="status" class="glass">
   <div class="net">
     <div class="neth"><span>🧺 살림망 <b id="count">0</b>/<span id="cap">12</span></span><span id="netval"></span></div>
     <ul id="catches"></ul>
-    <div class="netbtns"><button id="sellall">모두 판매</button><button id="releaseall">모두 방생</button></div>
+    <div class="netbtns"><button id="sellall">판매</button><button id="releaseall">방생</button><button id="toaqua">수족관</button></div>
   </div>
 </div>
 
@@ -529,6 +555,7 @@
   <button data-m="rank">🏆 랭킹 <kbd>K</kbd></button>
   <button data-m="dex">📖 도감 <kbd>I</kbd></button>
   <button data-m="time">⏩ 다음 시간대 <kbd>T</kbd></button>
+  <button data-m="aqua">🐠 수족관</button>
   <button data-m="online">🌐 같이 낚시 · 대회</button>
   <button data-m="set">⚙️ 환경설정 <kbd>O</kbd></button>
   <button data-m="dbg">🛠 디버그</button>
@@ -580,7 +607,7 @@
   <div class="mbox glass nbox">
     <div class="maphead"><b>🧺 살림망</b><span class="sub" id="netsub"></span><button class="mclose xbtn" aria-label="닫기 (Esc)" title="닫기 (Esc)">✕</button></div>
     <div id="netlist"></div>
-    <div class="nbtns"><button id="nsell">모두 판매</button><button id="nrel">방생 <small>+25% · 🍀</small></button></div>
+    <div class="nbtns"><button id="nsell">판매</button><button id="nrel">방생 <small>+25% · 🍀</small></button><button id="naqua">🐠 수족관</button></div>
   </div>
 </div>
 <div id="dbgm" class="modal" hidden>

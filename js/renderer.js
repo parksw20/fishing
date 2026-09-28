@@ -2473,7 +2473,8 @@ function render(S){
   const wk = S.wake || [];
   wakeBuf.fill(0); for (let i = 0; i < Math.min(20, wk.length); i++) wakeBuf.set(wk[i], i*4);
   gl.uniform4fv(u.uWake, wakeBuf); gl.uniform1i(u.uWakeN, Math.min(20, wk.length));
-  const bt = S.boat, boatM = mat4TRS(bt.pos, bt.heading, bt.pitch, bt.roll);
+  // aquarium: no boat — park the traced hull far away so no water is cut out and no hull shadow falls
+  const bt = S.noBoat ? { pos: [1e4, 0, 1e4], heading: 0, pitch: 0, roll: 0 } : S.boat, boatM = mat4TRS(bt.pos, bt.heading, bt.pitch, bt.roll);
   updateLamps(boatM); setLamps(pMain);
   gl.uniform4f(u.uBoat, bt.pos[0], 0.02 + bt.pos[1], bt.pos[2], bt.heading); gl.uniform3fv(u.uHullR, ENV.hull);
   // online: up to three other boats traced too (no water inside their hulls, their shadow and underwater hull)
@@ -2496,7 +2497,20 @@ function render(S){
     if (m){ const up = cross3(h.side, h.f), mo = m.mouth || [0.5, 0], L = h.len;   // hung by the mouth: the hook point is the snout
       const c = [h.hook[0] - (h.f[0]*mo[0] + up[0]*mo[1])*L, h.hook[1] - (h.f[1]*mo[0] + up[1]*mo[1])*L, h.hook[2] - (h.f[2]*mo[0] + up[2]*mo[1])*L];
       drawFishModel(m, B, c, h.f, h.side, L, h.ph, h.amp, h.bend, 1); } }
-  drawBoat(boatM);
+  if (!S.noBoat) drawBoat(boatM);
+  if (S.tank){   // aquarium glass: the tank's twelve edges plus a rim at the waterline, drawn as bright lines
+    const h = S.tank.h, d = -S.tank.d, top = 0.12, pts = [];
+    const C = [[-h,-h],[h,-h],[h,h],[-h,h]];
+    for (let i = 0; i < 4; i++){ const a = C[i], b = C[(i+1)%4];
+      pts.push(a[0],top,a[1], b[0],top,b[1]);   // top frame
+      pts.push(a[0],d,a[1], b[0],d,b[1]);       // bottom frame
+      pts.push(a[0],top,a[1], a[0],d,a[1]);     // corner post
+      pts.push(a[0],-0.02,a[1], b[0],-0.02,b[1]); }   // waterline
+    gl.useProgram(pLine.p); setCamUniforms(pLine, B); gl.uniform3f(pLine.u.uCol, 1.1, 1.5, 1.6);
+    gl.bindVertexArray(lineVAO); gl.bindBuffer(gl.ARRAY_BUFFER, lineVB); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pts), gl.DYNAMIC_DRAW);
+    gl.drawArrays(gl.LINES, 0, pts.length/3);
+    gl.useProgram(pMesh.p);
+  }
   for (const o of others){   // online: the other players — boat, float and a line from where their rod would be
     drawBoat(mat4TRS(o.pos, o.heading, o.pitch || 0, o.roll || 0));
     if (o.bob){

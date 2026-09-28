@@ -327,6 +327,13 @@ window.GameData = (function(){
     { id:'goggles', name:'수경', icon:'🤿', tiers: [
       { name:'없음', cost:0, lv:1, desc:'물 위만 볼 수 있어요' },
       { name:'수경', cost:3000, lv:2, desc:'캐스팅 후 시점을 내려 물속을 볼 수 있어요' } ] },
+    // aquarium: bought once (Lv.1, 3×3×3 m), then upgraded up to Lv.10 (30×30×30 m). Tier 0 = not owned.
+    // size = 3 m × level; it holds more fish as it grows, and a fish must be at most half the tank's width
+    { id:'aquarium', name:'수족관', icon:'🐠', tiers: [{ name:'없음', cost:0, lv:0, size:0, cap:0, desc:'상점에서 구매하면 잡은 물고기를 넣어 둘 수 있어요' }].concat(
+      [3000, 2500, 4000, 6000, 9000, 13000, 18000, 25000, 33000, 45000].map((cost, i) => {
+        const lv = i + 1, size = 3*lv, cap = 5 + 5*lv;
+        return { name:`${size}×${size}×${size}m 수족관`, cost, lv, size, cap, desc:`${size}×${size}×${size}m · 최대 ${cap}마리 · 몸길이 ${(size/2).toFixed(1)}m 이하` };
+      })) },
     { id:'engine', name:'엔진', icon:'⚙️', tiers: tiers(
       ['5마력 선외기', '8마력 선외기', '10마력 선외기', '15마력 선외기', '20마력 선외기', '30마력 선외기', '40마력 선외기', '60마력 선외기', '90마력 선외기', '150마력 선외기'], 0.9,
       (u, i) => { const speed = 8 + 10*u; return { speed, desc: `최고 ${Math.round(speed*1.9)}노트` }; }) },

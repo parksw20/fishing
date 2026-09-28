@@ -480,6 +480,7 @@
     boatContact: boatContact,
     hud: hud,
     isGuest: function () { return M.active && !M.host; },
+    active: function () { return M.active; },
     canTravel: function () {
       if (!M.active || M.host) return true;
       say('🌐 온라인에서는 방장만 낚시터를 옮길 수 있어요', 2.2); return false;

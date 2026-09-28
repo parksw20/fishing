@@ -533,6 +533,7 @@ function scareAround(p, r, except){
   for (const f of fishes) if (f !== except && f.state !== 'hooked' && dist3(f.pos, p) < r) flee(f, p, rand(6, 14));
 }
 function manageFish(dt){
+  if (G.state === 'aquarium'){ updateAqua(dt); return; }   // only your own fish, inside the glass
   const c = focusPoint();
   for (let i = fishes.length-1; i >= 0; i--){
     const f = fishes[i];
@@ -1089,12 +1090,15 @@ function updateLog(){
   $('releaseall').title = '방생: 판매가의 25% + 🍀 한 마리당 1분간 입질 +20% (최대 20분)';
   const ul = $('catches'); ul.innerHTML = '';
   for (const [i, c] of P.net.entries()){
+    // each row: name · size · weight, and its own 판매 button on the right (the row itself no longer sells on a click)
     const li = document.createElement('li'); const sp = BY_ID[c.id];
-    li.innerHTML = `<b></b><span>${(c.len*100).toFixed(1)}cm · ${kg(c.weight)}</span>`; li.firstChild.textContent = sp.name;
-    li.title = `클릭: ${c.price}🪙에 판매`; li.style.cursor = 'pointer';
-    li.onclick = e => { e.stopPropagation(); askNet('sell', [i]); };
+    li.innerHTML = `<b></b><span>${(c.len*100).toFixed(1)}cm · ${kg(c.weight)}</span><button class="sell1" title="${c.price}🪙에 판매">판매</button>`; li.firstChild.textContent = sp.name;
+    li.querySelector('button').onclick = e => { e.stopPropagation(); askNet('sell', [i]); };
     ul.appendChild(li);
   }
+  // show five rows, scroll for the rest
+  ul.style.maxHeight = '';
+  if (P.net.length > 5) requestAnimationFrame(() => { const r = ul.children; if (r[5]) ul.style.maxHeight = (r[5].offsetTop - r[0].offsetTop) + 'px'; });
   $('status').hidden = !P.net.length;   // an empty keep net takes no space
   $('tnetn').textContent = P.net.length || '';
   if (!$('netm').hidden) renderNet();
@@ -1134,7 +1138,10 @@ function renderNet(){
     row.querySelector('button').onclick = e => { e.stopPropagation(); askNet('sell', [i]); };
     el.appendChild(row);
   }
-  $('nsell').disabled = $('nrel').disabled = !P.net.length;
+  $('nsell').disabled = $('nrel').disabled = $('naqua').disabled = !P.net.length;
+  // five rows visible, then scroll
+  el.style.maxHeight = ''; el.style.overflowY = '';
+  if (P.net.length > 5) requestAnimationFrame(() => { const r = el.children; if (r[5]){ el.style.maxHeight = (r[5].offsetTop - r[0].offsetTop) + 'px'; el.style.overflowY = 'auto'; } });
 }
 $('nsell').addEventListener('click', e => { e.stopPropagation(); askNet('sell', P.net.map((f, i) => i)); });
 $('nrel').addEventListener('click', e => { e.stopPropagation(); askNet('release'); });
@@ -1162,9 +1169,131 @@ function releaseAll(){
   if (kept) setTimeout(() => say(`🍀 행운이 최대(20분)라 ${kept}마리는 살림망에 남겨뒀어요`, 3), 1600);
   updateLog(); save();
 }
+/* ---------------- aquarium ----------------
+   Bought in the shop (Lv.1 = 3×3×3 m, +3 m a level up to Lv.10 = 30×30×30 m). Catches go in from the keep net;
+   the menu takes you there. It is its own place: calm, clear water with a flat sand bed at the tank's depth, the
+   glass drawn as edges, no boat, and only your own fish, swimming inside the glass. The camera circles the tank
+   and can rise above the surface to look down into it. */
+const AQUA_SPOT = { id: 'aquarium', name: '🐠 내 수족관', country: '수족관', lat: 1, lon: -140, biome: 'trop_sea', water: 'sea_trop', aquarium: true };
+function aquaTier(){ return tierOf('aquarium'); }
+function aquaSpot(){ const S = aquaTier().size || 3; return Object.assign({}, AQUA_SPOT, { start: S, floor: [S, S, 'basin'] }); }
+function aquaFits(c){ return c.len <= aquaTier().size/2; }
+function aquaDefaultDist(){ return aquaTier().size*0.95 + 1.6; }
+function aquaFishObj(c){
+  const sp = BY_ID[c.id], S = aquaTier().size, h = Math.max(0.05, S/2 - Math.max(0.15, c.len*0.6)), D = toVis(S);
+  return { sp, len: c.len, weight: c.weight, aqua: true, pos: [rand(-h, h), -rand(0.3, Math.max(0.35, D - 0.3)), rand(-h, h)],
+    heading: rand(-Math.PI, Math.PI), pitch: 0, speed: sp.speed*0.3, tailPh: rand(0, TAU), tail: 0, state: 'aqua', target: null, ty: 0, timer: 0 };
+}
+function spawnAqua(){ fishes.length = 0; for (const c of P.aqua) fishes.push(aquaFishObj(c)); }
+// fish in the tank: wander between random points inside the glass, burst-and-glide like wild fish
+function updateAqua(dt){
+  const S = aquaTier().size, D = toVis(S);
+  for (const f of fishes){
+    const h = Math.max(0.05, S/2 - Math.max(0.15, f.len*0.6));
+    f.timer -= dt;
+    if (!f.target || f.timer <= 0 || dist2(f.pos, f.target) < Math.max(0.3, f.len)){
+      f.target = [rand(-h, h), 0, rand(-h, h)];
+      f.ty = -rand(0.25 + f.len*0.2, Math.max(0.35 + f.len*0.2, D - 0.25 - f.len*0.2));
+      f.timer = rand(4, 10); f.cruise = f.sp.speed*rand(0.25, 0.55);
+    }
+    f.gaitT = (f.gaitT || 0) - dt;
+    if (f.gaitT <= 0){ f.burst = !f.burst; f.gaitT = f.burst ? rand(0.5, 1.1) : rand(0.8, 2.2); }
+    swim(f, f.target[0], f.ty, f.target[2], f.cruise*(f.burst ? 1.4 : 0.5), dt, 1.6);
+    f.pos[0] = clamp(f.pos[0], -h, h); f.pos[2] = clamp(f.pos[2], -h, h);   // the glass
+    animFish(f, dt, clamp(f.speed/(f.sp.speed*1.5), 0, 1)*(f.burst ? 1 : 0.4), 1);
+  }
+}
+function fade(then){
+  const f = $('fade'); f.classList.add('on');
+  setTimeout(() => { then(); setTimeout(() => f.classList.remove('on'), 150); }, 650);
+}
+function openAquarium(){
+  if (G.state === 'aquarium'){ exitAquarium(); return; }
+  if (!P.tier.aquarium){ say('🐠 수족관은 상점에서 구매할 수 있어요', 2.4); return; }
+  if (window.DopaMulti && DopaMulti.active && DopaMulti.active()){ say('🌐 온라인 중에는 수족관에 갈 수 없어요', 2.4); return; }
+  if (!idleOnly('수족관에 갈 수 있어요')) return;
+  G.aquaFrom = REGION.spot; G.boatV = 0;
+  G.aquaView = { yaw: 0.55, pitch: -0.12, dist: null };
+  fade(() => applyRegion(aquaSpot()));
+}
+function exitAquarium(){
+  const back = G.aquaFrom || SPOTS[0];
+  fade(() => applyRegion(back));
+}
+// upgraded while inside: rebuild the tank at its new size
+function applyAquaSize(){ if (G.state === 'aquarium') applyRegion(aquaSpot()); }
+// keep net → aquarium: as many as fit (size and room), biggest first
+function askAqua(){
+  if (!P.net.length) return;
+  const fromNet = !$('netm').hidden, back = () => { if (fromNet && P.net.length) openNet(); else closeModal(); };
+  if (!P.tier.aquarium){
+    confirmBox('🐠 아직 수족관이 없어요<br><span style="opacity:.8;font-size:12px">상점에서 구매하면 잡은 물고기를 넣어 두고 볼 수 있어요</span>', '🛒 상점', () => { closeModal(); openShop(); }, back);
+    return;
+  }
+  const t = aquaTier(), room = Math.max(0, t.cap - P.aqua.length);
+  const fit = P.net.map((f, i) => i).filter(i => aquaFits(P.net[i])).sort((a, b) => P.net[b].len - P.net[a].len);
+  const idx = fit.slice(0, room), tooBig = P.net.length - fit.length, noRoom = fit.length - idx.length;
+  if (!idx.length){
+    say(room ? `🐠 수족관(${t.size}m)에 넣기엔 너무 커요 — 몸길이 ${(t.size/2).toFixed(1)}m까지` : `🐠 수족관이 가득 찼어요 (${t.cap}마리) — 상점에서 업그레이드하세요`, 2.8, 'bad');
+    return;
+  }
+  const note = [tooBig ? `${tooBig}마리는 너무 커서` : '', noRoom ? `${noRoom}마리는 자리가 없어서` : ''].filter(Boolean).join(', ');
+  confirmBox(`<b>${idx.length}마리</b>를 수족관으로 옮길까요?<br><span style="opacity:.8;font-size:12px">${P.aqua.length + idx.length}/${t.cap}마리${note ? ` · ${note} 살림망에 남아요` : ''}</span>`, '🐠 수족관으로', () => {
+    for (const i of idx){ const c = P.net[i]; P.aqua.push({ id: c.id, len: c.len, weight: c.weight, price: c.price }); }
+    P.net = P.net.filter((f, i) => !idx.includes(i));
+    if (G.state === 'aquarium') spawnAqua();
+    playS('plunk'); say(`🐠 ${idx.length}마리를 수족관에 넣었어요 — 메뉴 → 수족관에서 볼 수 있어요`, 3, 'hot');
+    updateLog(); save(); back();
+  }, back);
+}
+function sellAqua(i){
+  const c = P.aqua[i]; if (!c) return;
+  confirmBox(`<b>${esc(BY_ID[c.id].name)}</b> ${(c.len*100).toFixed(1)}cm 판매할까요?<br><span style="color:#ffd84a;font-weight:700">+${c.price.toLocaleString()}🪙</span>`, '🪙 판매', () => {
+    P.aqua.splice(i, 1); P.coins += c.price; if (G.state === 'aquarium') spawnAqua();
+    say(`🪙 +${c.price.toLocaleString()}🪙`, 1.6); if (!playS('reward')) sfx.win(); updateLog(); save(); renderAquaHud(true); closeModal();
+  });
+}
+// aquarium HUD: title, count, back to the fishing spot, list (5 rows, then scroll) with 판매, zoom
+let aquaHudKey = '';
+function renderAquaHud(force){
+  const on = G.state === 'aquarium', el = $('aquahud');
+  if (el.hidden === on) el.hidden = !on;
+  if (!on) return;
+  const t = aquaTier(), key = `${t.size}|${P.aqua.length}|${G.aquaList ? 1 : 0}`;
+  if (!force && key === aquaHudKey) return; aquaHudKey = key;
+  $('aquasub').textContent = `${t.size}×${t.size}×${t.size}m · ${P.aqua.length}/${t.cap}마리`;
+  $('aqualist').textContent = `목록 ${G.aquaList ? '▴' : '▾'}`;
+  const ol = $('aquafish'); ol.hidden = !G.aquaList; ol.innerHTML = '';
+  if (!P.aqua.length) ol.innerHTML = '<li class="empty">비어 있어요 — 살림망의 "수족관" 버튼으로 넣으세요</li>';
+  for (const [i, c] of P.aqua.entries()){
+    const li = document.createElement('li');
+    li.innerHTML = `<b></b><span>${(c.len*100).toFixed(1)}cm · ${kg(c.weight)}</span><button class="sell1">판매</button>`;
+    li.querySelector('b').textContent = BY_ID[c.id].name;
+    li.querySelector('button').onclick = e => { e.stopPropagation(); sellAqua(i); };
+    ol.appendChild(li);
+  }
+  ol.style.maxHeight = '';
+  if (G.aquaList && P.aqua.length > 5) requestAnimationFrame(() => { const r = ol.children; if (r[5]) ol.style.maxHeight = (r[5].offsetTop - r[0].offsetTop) + 'px'; });
+}
+$('aquaout').addEventListener('click', e => { e.stopPropagation(); exitAquarium(); });
+$('aqualist').addEventListener('click', e => { e.stopPropagation(); G.aquaList = !G.aquaList; renderAquaHud(true); });
+$('aquazin').addEventListener('click', e => { e.stopPropagation(); wheel(1); });
+$('aquazout').addEventListener('click', e => { e.stopPropagation(); wheel(-1); });
+for (const ev of ['pointerdown', 'mousedown', 'touchstart']) $('aquahud').addEventListener(ev, e => e.stopPropagation(), { passive: true });
+// names over the fish in the tank (nearest first, a handful at a time so the glass doesn't fill with text)
+function drawAquaLabels(){
+  if (G.state !== 'aquarium') return;
+  const near = fishes.slice().sort((a, b) => dist3(a.pos, cam.pos) - dist3(b.pos, cam.pos)).slice(0, 14);
+  for (const f of near){
+    const s = projectSeen([f.pos[0], f.pos[1] + Math.max(0.12, f.len*0.35), f.pos[2]]);
+    if (s && s[0] > 0 && s[0] < hudW && s[1] > 0 && s[1] < hudH) label(`${f.sp.name} ${(f.len*100).toFixed(0)}cm`, s[0], s[1], 'rgba(255,255,255,.85)', 12);
+  }
+}
 $('status').querySelector('.neth').addEventListener('click', e => { if (!TOUCH.on) return; e.stopPropagation(); $('status').querySelector('.net').classList.toggle('open'); });
 $('sellall').addEventListener('click', e => { e.stopPropagation(); askNet('sell', P.net.map((f, i) => i)); });
 $('releaseall').addEventListener('click', e => { e.stopPropagation(); askNet('release'); });
+$('toaqua').addEventListener('click', e => { e.stopPropagation(); askAqua(); });
+$('naqua').addEventListener('click', e => { e.stopPropagation(); askAqua(); });
 function buildToolbar(){
   const modes = $('modes'); modes.innerHTML = '';
   for (const k of ['pole', 'lure']){
@@ -1207,6 +1336,7 @@ const HELP = {
     ? '<b>좌클릭 길게</b> 캐스팅 · <b>우클릭 드래그 / A·D</b> 방향 · <b>휠</b> 찌 수심 · <b>1/2</b> 채비 · <b>B</b> 미끼'
     : '<b>좌클릭 길게</b> 캐스팅 · <b>우클릭 드래그 / A·D</b> 방향 · <b>휠</b> 드랙 · <b>1/2</b> 채비 · <b>B</b> 루어') + ' · <b>Tab</b> 보트 · <b>M</b> 지도 · <b>Q</b> 퀘스트 · <b>P</b> 상점 · <b>T</b> 시간',
   boat: () => '<b>W/S</b> 전진·후진 · <b>A/D</b> 방향 · <b>드래그</b> 시점 · <b>휠</b> 줌 · 어탐기로 수심·어군 확인 · <b>Tab</b> 낚시 · <b>M</b> 지도',
+  aquarium: () => '<b>드래그 / A·D·W·S</b> 수조 둘러보기 · <b>휠</b> 가까이·멀리 · 위로 올리면 물 위에서 내려다봐요',
   charge: () => '버튼을 놓으면 던집니다',
   fly: () => '',
   wait: () => G.mode === 'pole'
@@ -1226,6 +1356,7 @@ const HELP_TOUCH = {
   hooked: () => G.fight && G.fight.t > 3 ? '' : `조그를 <b>누른 채</b> ${G.mode === 'pole' ? '들기' : '감기'} · <b>물고기 반대쪽</b>으로 밀기 · 원이 겹칠 때 <b>터치</b>`,   // shown for the first seconds only
   result: () => '탭하여 계속',
   boat: () => '<b>조그</b> 위: 전진 · 아래: 후진 · 좌우: 조향 · 드래그 시점 · 오른쪽 아래 🎣 낚시',
+  aquarium: () => '화면 드래그로 수조 둘러보기 · 두 손가락으로 가까이·멀리',
 };
 function updateHelp(){ if ($('cardblock').hidden === (G.state === 'result')) $('cardblock').hidden = G.state !== 'result'; const h = (TOUCH.on ? HELP_TOUCH : HELP)[G.state](); if (h !== lastHelp){ $('help').innerHTML = h; lastHelp = h; } }
 
@@ -1279,7 +1410,7 @@ hud.addEventListener('pointermove', e => {
       else if (!(e.buttons & 1) && mouse.down){ mouse.down = false; release(); }
     }
   }
-  if (mouse.rdown || (mouse.down && G.state === 'boat')){
+  if (mouse.rdown || (mouse.down && (G.state === 'boat' || G.state === 'aquarium'))){
     const dx = e.clientX - mouse.lx, dy = e.clientY - mouse.ly; mouse.lx = e.clientX; mouse.ly = e.clientY;
     const lk = LOOK(), iy = INV(), ix = INVX();
     if (G.state === 'boat'){ G.orbit += dx*0.006*lk*ix; G.camPitch = clamp((G.camPitch ?? 0.32) + dy*0.004*lk*iy, -0.8, 1.2); }
@@ -1421,7 +1552,7 @@ function updateTouchUI(){
   const cj = G.state === 'boat' || G.state === 'hooked';
   if (cj !== G.centerJoy){ G.centerJoy = cj; document.body.classList.toggle('tc-joy', cj); }
   const f = G.engaged, pole = G.mode === 'pole';
-  const lbl = { idle: '던지기', charge: '놓으면<br>던짐', fly: '…', result: '계속', boat: '⚓<br>낚시',
+  const lbl = { idle: '던지기', charge: '놓으면<br>던짐', fly: '…', result: '계속', boat: '⚓<br>낚시', aquarium: '',
     wait: pole ? '챔질' : '감기', hooked: pole ? '들기' : '감기' }[G.state];
   const hot = (G.state === 'wait' && pole && f && f.state === 'take') || (G.state === 'wait' && G.strike);
   const adj = G.state === 'boat' ? '줌' : pole ? '수심' : '드랙';
@@ -1442,7 +1573,7 @@ for (const b of document.querySelectorAll('#menu button')) b.addEventListener('c
   if (b.classList.contains('dis')){ e.stopPropagation(); say('채비를 회수한 뒤 이용할 수 있어요 (R)', 1.8); return; }
   e.stopPropagation(); $('menu').hidden = true;
   ({ shop: openShop, quest: openQuests, map: openMap, rank: openRank, dex: openDex, time: skipTime, set: openSettings, dbg: () => openModal('dbgm'),
-     online: () => window.DopaMulti && DopaMulti.openLobby() })[b.dataset.m]();
+     online: () => window.DopaMulti && DopaMulti.openLobby(), aqua: openAquarium })[b.dataset.m]();
 });
 $('qtrack').addEventListener('click', e => { e.stopPropagation(); openQuests(); });
 document.addEventListener('pointerdown', e => {
@@ -1487,6 +1618,7 @@ function release(){
 }
 function wheel(s){
   if (G.state === 'boat'){ G.camDist = clamp(G.camDist*(s > 0 ? 0.88 : 1.14), 4.5, 30); return; }
+  if (G.state === 'aquarium'){ const S = aquaTier().size, V = G.aquaView; V.dist = clamp((V.dist ?? aquaDefaultDist())*(s > 0 ? 0.88 : 1.14), 1.2, S*2.2 + 6); return; }
   if (G.mode === 'lure'){ G.dragShowT = G.time + 1.8; G.drag = clamp(Math.round((G.drag + s*0.05)*100)/100, 0.05, 1.2); say(`드랙 ${s > 0 ? '조임' : '풀기'} · ${(G.drag*lineKg()).toFixed(1)}kg${G.drag >= 1 ? ' (잠김!)' : ''}`, 1); sfx.click(0.05); }
   else {
     // step in real metres: 0.1 m near the surface, coarser when fishing deep
@@ -1551,6 +1683,7 @@ function tiltView(d){
 function freeView(){ return G.state === 'wait' || G.state === 'hooked'; }
 /** turn the view: yaw right +, tilt down + (same sense as the orbit / tilt it replaces) */
 function turnView(yaw, tilt){
+  if (G.state === 'aquarium'){ const V = G.aquaView; V.yaw += yaw; V.pitch = clamp(V.pitch + tilt, -1.25, 1.35); return; }   // orbit the tank
   if (freeView()){ G.fYaw = (G.fYaw || 0) + yaw; G.fPitch = clamp((G.fPitch || 0) - tilt, -1.5, 1.5); }
   else { G.orbit += yaw; tiltView(tilt); }
 }
@@ -1584,6 +1717,10 @@ function updateCamera(dt){
   let T, k;
   switch (G.state){
     case 'idle': case 'charge': case 'result': T = boatView(); k = G.state === 'result' ? 3 : 10; break;
+    case 'aquarium': {   // circle the tank; high enough and the camera looks down into it from above the water
+      const S = aquaTier().size, D = toVis(S), V = G.aquaView, R = V.dist ?? aquaDefaultDist();
+      const c = [0, -D*0.5, 0], cp = Math.cos(V.pitch);
+      T = { pos: [Math.sin(V.yaw)*cp*R, c[1] + Math.sin(V.pitch)*R, -Math.cos(V.yaw)*cp*R], look: c }; k = 4; break; }
     case 'boat': {
       // below the lowest camera angle the view turns up to the sky instead
       const a = BOAT.heading + G.orbit + (G.lookX || 0), cp0 = G.camPitch ?? 0.32, cp = Math.max(cp0, 0.08), sky = Math.max(0, 0.08 - cp0), D = G.camDist;
@@ -1594,13 +1731,17 @@ function updateCamera(dt){
       T = { pos: vlerp(a.pos, b.pos, s), look: vlerp(a.look, b.look, s) }; k = 8; break; }
     // after the cast: the camera sits by the rig (above the water, or under it with 🤿) and looks around freely
     case 'wait': {
+      // a bite (float: nibble/take · lure: strike) pulls the camera halfway in — above the water toward the
+      // float / the lure's spot on the surface (never dipping under), under the water toward the bait / lure
+      const bite = G.rig ? !!(G.engaged && /^(nibble|take)$/.test(G.engaged.state)) : !!G.strike;
+      const closer = (pos, to) => { if (!bite) return pos; const p = vlerp(pos, to, 0.5); if (!G.uwView) p[1] = Math.max(p[1], 0.35); return p; };
       if (G.rig){
-        const tgt = G.uwView ? G.rig.bait : [G.rig.pos[0], G.rig.bobY, G.rig.pos[2]];
-        T = freeLook(G.uwView ? underAnchor(G.rig.bait) : baitView(G.rig.pos, 3.4, 2.3).pos, tgt); k = 3.5; break;
+        const bob = [G.rig.pos[0], G.rig.bobY, G.rig.pos[2]], tgt = G.uwView ? G.rig.bait : bob;
+        T = freeLook(closer(G.uwView ? underAnchor(G.rig.bait) : baitView(G.rig.pos, 3.4, 2.3).pos, tgt), tgt); k = bite ? 5 : 3.5; break;
       }
       const L = G.lure.pos, dp = Math.min(-L[1], 7);
       const above = baitView([L[0], 0, L[2]], 3.0 + dp*0.25, 2.2 + dp*0.25).pos;
-      T = freeLook(G.uwView ? underAnchor(L) : above, G.uwView ? L : [L[0], -dp*0.9 - 0.2, L[2]]); k = 3.5; break; }
+      T = freeLook(closer(G.uwView ? underAnchor(L) : above, G.uwView ? L : [L[0], 0, L[2]]), G.uwView ? L : [L[0], -dp*0.9 - 0.2, L[2]]); k = bite ? 5 : 3.5; break; }
     case 'hooked': {
       const f = G.hooked.pos;
       // hook set: the camera pulls in a little (quick at first, then settles)
@@ -1621,7 +1762,7 @@ function updateCamera(dt){
   if (![...T.pos, ...T.look].every(isFinite)){ T = boatView(); }            // never feed NaN to the renderer
   cam.pos = vlerp(cam.pos, T.pos, a); cam.look = vlerp(cam.look, T.look, a);
   if (![...cam.pos, ...cam.look].every(isFinite)){ const e = eyeWorld(); cam.pos = e.slice(); cam.look = add(e, [0, -2, -10]); }
-  if (G.state === 'wait' || G.state === 'hooked') cam.pos[1] = Math.max(cam.pos[1], -(floorDepth(cam.pos[0], cam.pos[2]) - 0.3));
+  if (G.state === 'wait' || G.state === 'hooked' || G.state === 'aquarium') cam.pos[1] = Math.max(cam.pos[1], -(floorDepth(cam.pos[0], cam.pos[2]) - 0.3));
   else cam.pos[1] = Math.max(cam.pos[1], Math.min(0.45, cam.pos[1] + dt*4));   // back above the water after retrieving
   const uw = cam.pos[1] < -0.03;
   if (uw !== G.camUnder){ G.camUnder = uw; if (uw && !G.underTold){ G.underTold = true; say('🤿 물속 시점 — 🌤 물밖 보기(V)로 나올 수 있어요', 2.2); } }
@@ -1774,10 +1915,11 @@ function scene(dt){
   const S = { t: G.time, dt, cam: { pos: add(cam.pos, sh.pos), look: add(cam.look, sh.look) }, boat: BOAT, fish: [], lure: null, bobber: null, lineUnder: null, lineTo: null, lineSag: 0, flyObj: null };
   S.others = window.DopaMulti ? DopaMulti.others() : null;   // online: the other players' boats and floats
   const byDist = fishes.slice().sort((a, b) => dist3(a.pos, cam.pos) - (a.visitor ? 25 : 0) - dist3(b.pos, cam.pos) + (b.visitor ? 25 : 0));
-  S.fish = byDist.slice(0, 12).map(f => ({ id: f.sp.id, pos: f.pos, len: f.len, dir: fishDir(f), tail: f.tail, tailPh: f.tailPh, tailAmp: f.tailAmp, bend: f.bend, back: f.sp.back, belly: f.sp.belly, pattern: f.sp.pattern, hr: f.sp.hr, shape: f.sp.shape }));
-  const rod = rodSpec(); S.rod = G.state === 'boat' ? null : rod;
+  S.fish = byDist.slice(0, G.state === 'aquarium' ? 60 : 12).map(f => ({ id: f.sp.id, pos: f.pos, len: f.len, dir: fishDir(f), tail: f.tail, tailPh: f.tailPh, tailAmp: f.tailAmp, bend: f.bend, back: f.sp.back, belly: f.sp.belly, pattern: f.sp.pattern, hr: f.sp.hr, shape: f.sp.shape }));
+  const rod = rodSpec(); S.rod = G.state === 'boat' || G.state === 'aquarium' ? null : rod;
   S.hideRod = false;   // the rod is always drawn (only hidden with the camera under the water)
   S.wake = wakeTrack(); S.particles = PART; S.rain = RAIN;
+  if (G.state === 'aquarium'){ const sz = aquaTier().size; S.noBoat = true; S.tank = { h: sz/2, d: toVis(sz) }; return S; }
   if (G.state === 'boat') return S;
   const it = curItem();
   const tip = G.tip;
@@ -2060,7 +2202,7 @@ function updateClock(dt){
 }
 function skipTime(){
   if (G.state === 'result') hideCard();
-  if (G.state !== 'idle' && G.state !== 'boat'){ say('채비를 회수한 뒤 이용할 수 있어요 (R)', 1.8); return; }
+  if (G.state !== 'idle' && G.state !== 'boat' && G.state !== 'aquarium'){ say('채비를 회수한 뒤 이용할 수 있어요 (R)', 1.8); return; }
   if (window.DopaMulti && !DopaMulti.canSkipTime()) return;   // online: the host keeps everyone's clock
   const order = [['dawn', 5], ['day', 10], ['dusk', 17.5], ['night', 21]];
   const i = order.findIndex(o => o[0] === period());
@@ -2097,6 +2239,7 @@ function updateWeather(dt){
   G.weatherT -= dt/GAME_HOUR;
   // online guests don't roll their own weather: the host's arrives with its sync (DopaMulti)
   if (G.weatherT <= 0 && window.DopaMulti && DopaMulti.isGuest()) G.weatherT = 1;
+  if (G.state === 'aquarium'){ G.weatherT = 1; if (G.weather !== 'clear') setWeather('clear'); }   // the aquarium stays clear
   if (G.weatherT <= 0){ const prev = G.weather; setWeather(pickWeather()); if (G.weather !== prev) say(`${WEATHERS[G.weather].icon} 날씨가 바뀌었어요: ${WEATHERS[G.weather].name}`, 2.5); }
   // weather drifts over ~20-40 s; a change asked for by hand blends in over ~8 s
   G.wFastT = Math.max(0, (G.wFastT || 0) - dt);
@@ -2167,11 +2310,11 @@ function matchRating(sp){
 
 /* ---------------- save data ---------------- */
 const SAVE_KEY = 'boatfish.v2';
-const P = { coins: 200, tierV: 2, owned: {}, tier: { rod: 0, reel: 0, line: 0, hook: 0, sonar: 0, engine: 0, boat: 0, net: 0, goggles: 0 }, sightings: {}, quests: [], done: 0,
-  net: [], caught: {}, daily: {}, luckUntil: 0, att: { last: '', streak: 0, log: [] }, week: { key: '', issued: 0, done: 0 } };
+const P = { coins: 200, tierV: 2, owned: {}, tier: { rod: 0, reel: 0, line: 0, hook: 0, sonar: 0, engine: 0, boat: 0, net: 0, goggles: 0, aquarium: 0 }, sightings: {}, quests: [], done: 0,
+  net: [], aqua: [], caught: {}, daily: {}, luckUntil: 0, att: { last: '', streak: 0, log: [] }, week: { key: '', issued: 0, done: 0 } };
 for (const it of [...BAITS, ...LURES]) if (!it.cost) P.owned[it.id] = true;
 function save(){
-  try { localStorage.setItem(SAVE_KEY, JSON.stringify({ P, best: G.best, score: G.score, catches: G.catches.slice(0, 30).map(c => ({ id: c.sp.id, len: c.len, weight: c.weight, pts: c.pts })), clock: G.clock, spot: REGION && REGION.spot })); } catch(e){}
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify({ P, best: G.best, score: G.score, catches: G.catches.slice(0, 30).map(c => ({ id: c.sp.id, len: c.len, weight: c.weight, pts: c.pts })), clock: G.clock, spot: G.aquaFrom || (REGION && REGION.spot) })); } catch(e){}   // in the aquarium: come back to the fishing spot
 }
 function load(){
   try {
@@ -2185,7 +2328,7 @@ function load(){
     P.tierV = 2;
     for (const it of SHOP) P.tier[it.id] = clamp(P.tier[it.id] || 0, 0, it.tiers.length - 1);
     P.sightings = d.P.sightings || {};
-    P.net = (d.P.net || []).filter(f => BY_ID[f.id]); P.caught = d.P.caught || {}; P.daily = d.P.daily || {}; P.luckUntil = d.P.luckUntil || 0;
+    P.net = (d.P.net || []).filter(f => BY_ID[f.id]); P.aqua = (d.P.aqua || []).filter(f => BY_ID[f.id]); P.caught = d.P.caught || {}; P.daily = d.P.daily || {}; P.luckUntil = d.P.luckUntil || 0;
     Object.assign(P.att, d.P.att || {}); Object.assign(P.week, d.P.week || {});
     if (!d.P.caught) for (const c of d.catches || []) if (BY_ID[c.id]) P.caught[c.id] = (P.caught[c.id] || 0) + 1;
     P.quests = (d.P.quests || []).filter(q => q.sp ? BY_ID[q.sp] : true); P.done = d.P.done || 0;
@@ -2208,6 +2351,7 @@ function boatMax(){ return tierOf('engine').speed; }
 
 /* ---------------- rare visitors: whales, sharks, sunfish … sometimes just swim past ---------------- */
 function updateVisitors(dt){
+  if (G.state === 'aquarium') return;   // no whales passing through the tank
   G.visitT = (G.visitT ?? 8) - dt;
   if (G.visitT > 0) return;
   G.visitT = 10;
@@ -2237,7 +2381,7 @@ function luckFactor(){ return luckLeft() > 0 ? 1.2 : 1; }
 // this water (murky lakes hide a whale a few metres down), and in view for a moment
 function waterVis(){ const W = WATERS[REGION.spot.water], k = (W.sigA[1] + W.sigS[1] + W.sigA[2] + W.sigS[2])/2; return clamp(2.2/k, 3, 30); }
 function checkSightings(dt){
-  if (G.mapOpen) return;
+  if (G.mapOpen || G.state === 'aquarium') return;
   const vis = waterVis();
   for (const f of fishes){
     if (!f.visitor || f.seen) continue;
@@ -2405,7 +2549,7 @@ function closeModal(){
   G.mapOpen = false;
   if (shop) buildToolbar();
 }
-function idleOnly(what){ if (G.state === 'result') hideCard(); if (G.state === 'idle' || G.state === 'boat' || G.state === 'result') return true; say(`채비를 회수한 뒤 ${what} (R)`, 1.8); playS('deny'); return false; }
+function idleOnly(what){ if (G.state === 'aquarium') return true; if (G.state === 'result') hideCard(); if (G.state === 'idle' || G.state === 'boat' || G.state === 'result') return true; say(`채비를 회수한 뒤 ${what} (R)`, 1.8); playS('deny'); return false; }
 for (const b of document.querySelectorAll('.mclose')) b.addEventListener('click', e => { e.stopPropagation(); closeModal(); });
 for (const id of ['questm', 'rankm', 'dexm', 'setm', 'netm', 'dbgm']) $(id).addEventListener('pointerdown', e => { if (e.target === $(id)) closeModal(); });
 $('confirm').addEventListener('pointerdown', e => { if (e.target === $('confirm')) $('cno').click(); });
@@ -2494,6 +2638,14 @@ function renderShop(){
   $('coins2').textContent = P.coins.toLocaleString();
   const up = SHOP.map(s => {
     const cur = s.tiers[P.tier[s.id]], next = s.tiers[P.tier[s.id] + 1];
+    if (s.id === 'aquarium'){   // bought once, then Lv.1 → Lv.10
+      const lv = P.tier[s.id], last = s.tiers.length - 1;
+      return `<div class="card"><div class="ct">${s.icon} ${s.name}${lv ? ` <span class="lv">Lv.${lv}/${last}</span>` : ''}</div>` +
+        `<div class="cur">${lv ? `현재: <b>${cur.name}</b><br><span>${cur.desc} · ${P.aqua.length}마리 있음</span>` : `<span>${cur.desc}</span>`}</div>` +
+        (next ? `${lv ? `<div class="nx">다음: <b>${next.name}</b><br><span>${next.desc}</span></div>` : `<div class="nx"><span>${next.desc}</span></div>`}` +
+                `<button data-up="${s.id}" ${P.coins < next.cost ? 'disabled' : ''}>${next.cost.toLocaleString()}🪙 ${lv ? '업그레이드' : '구매'}</button>`
+              : `<div class="nx max">최고 등급</div>`) + `</div>`;
+    }
     if (s.tiers.length === 2){   // one-off gear (goggles): buy once
       const have = P.tier[s.id] > 0, it = s.tiers[1];
       return `<div class="card"><div class="ct">${s.icon} ${s.name}</div><div class="cur"><span>${it.desc}</span></div>` +
@@ -2512,7 +2664,9 @@ function renderShop(){
   for (const b of document.querySelectorAll('#shoptabs button')) b.classList.toggle('on', b.dataset.t === T);
   for (const b of $('shopgrid').querySelectorAll('[data-up]')) b.onclick = () => {
     const s = shopItem(b.dataset.up), next = s.tiers[P.tier[s.id] + 1]; if (!next) return; if (P.coins < next.cost){ playS('deny'); return; }
-    P.coins -= next.cost; P.tier[s.id]++; if (s.id === 'boat') applyBoatModel(); if (!playS('buy')) sfx.win(); say(s.tiers.length === 2 ? `${s.icon} ${s.name} 구매!${s.id === 'goggles' ? ' 캐스팅 후 시점을 내려 물속을 볼 수 있어요' : ''}` : `${s.name} → ${next.name}`, 2.2); save(); renderShop(); updateLog();
+    P.coins -= next.cost; P.tier[s.id]++; if (s.id === 'boat') applyBoatModel(); if (!playS('buy')) sfx.win();
+    if (s.id === 'aquarium'){ say(P.tier[s.id] === 1 ? '🐠 수족관 구매! 살림망의 "수족관" 버튼으로 물고기를 넣고, 메뉴 → 수족관에서 보세요' : `🐠 수족관 → ${next.name}`, 3); save(); renderShop(); updateLog(); if (G.state === 'aquarium') applyAquaSize(); return; }
+    say(s.tiers.length === 2 ? `${s.icon} ${s.name} 구매!${s.id === 'goggles' ? ' 캐스팅 후 시점을 내려 물속을 볼 수 있어요' : ''}` : `${s.name} → ${next.name}`, 2.2); save(); renderShop(); updateLog();
   };
   for (const b of $('shopgrid').querySelectorAll('[data-buy]')) b.onclick = () => {
     const it = [...BAITS, ...LURES].find(i => i.id === b.dataset.buy); if (P.coins < it.cost){ playS('deny'); return; }
@@ -2792,7 +2946,7 @@ function applyRegion(spot, first){
     else if (z === 3){ const b = clamp(800 + km*3, 800, 4500); dp = [b, b*0.15, b*0.6, b*1.3]; start = b; }
   }
   // how far the underwater hills rise toward the surface (fraction of the local depth)
-  depthS[3] = spot.floor ? ({ valley: 0.38, dropoff: 0.32, basin: 0.3, reef: 0.25, bank: 0.15, river: 0.15 })[spot.floor[2]] ?? 0.25 : 0.25;
+  depthS[3] = spot.aquarium ? 0 : spot.floor ? ({ valley: 0.38, dropoff: 0.32, basin: 0.3, reef: 0.25, bank: 0.15, river: 0.15 })[spot.floor[2]] ?? 0.25 : 0.25;   // the tank has a flat sand floor
   REGION = { spot, biome: spot.biome, water: spot.water, depthP: dp, depthS, depthQ: [W.scale, seedA, seedB, start] };
   const sunEl = clamp(72 - Math.abs(spot.lat)*0.72, 18, 68), sunAz = (hashf(spot.lon) - 0.5)*40;
   Rn.setEnv(computeHorizon(spot));
@@ -2802,8 +2956,17 @@ function applyRegion(spot, first){
   if (G.state !== 'boat') G.state = 'idle';
   G.depthSet = Math.min(G.depthSet, toVis(spot.start || 2));
   SONAR.cols.length = 0; TRAIL.length = 0; PART.list.length = 0; RAIN.drops.length = 0;
-  if (!first) setWeather(pickWeather(), true);
   fishes.length = 0;
+  if (spot.aquarium){
+    // the aquarium: calm clear water, your own fish only, no boat; the camera circles the tank
+    G.state = 'aquarium'; setWeather('clear', true); Rn.setWaves(0.3); spawnAqua();
+    const e = eyeWorld(); cam.pos = e.slice(); cam.look = add(e, [0, -2, -10]);
+    $('place').textContent = spot.name; buildToolbar(); updateLog(); renderAquaHud(true);
+    if (!first) say(`🐠 내 수족관 · ${P.aqua.length}마리`, 2.4);
+    return;
+  }
+  G.aquaFrom = null; Rn.setWaves(G.waveK || 1);   // (leaving the aquarium: back to normal seas)
+  if (!first) setWeather(pickWeather(), true);
   for (let i = 0; i < FISH_N; i++) fishes.push(newFish([0, 0, -6], 3, 20));
   const e = eyeWorld(); cam.pos = e.slice(); cam.look = add(e, [0, -2, -10]);
   $('place').textContent = spot.name;
@@ -3449,6 +3612,11 @@ function update(dt){
   { const c = ['charge', 'fly', 'wait', 'hooked', 'result'].includes(G.state); if (c !== G.castingUI){ G.castingUI = c; document.body.classList.toggle('casting', c); if (c) $('itempop').hidden = true; } }
   // driving the boat: the tackle picker (찌낚시 / 루어) has nothing to do — hide it
   { const b = G.state === 'boat'; if (b !== G.boatUI){ G.boatUI = b; document.body.classList.toggle('boating', b); if (b) $('itempop').hidden = true; } }
+  // aquarium: its own HUD; the fishing controls, keep net and quest list step aside
+  { const a = G.state === 'aquarium';
+    if (a !== G.aquaUI){ G.aquaUI = a; document.body.classList.toggle('aqua', a); $('itempop').hidden = true;
+      const mb = document.querySelector('#menu [data-m="aqua"]'); if (mb) mb.textContent = a ? '⛵ 낚시터로 돌아가기' : '🐠 수족관'; }
+    renderAquaHud(); }
   // casting power gauge sits where the tackle buttons were
   { const ch = G.state === 'charge'; if (ch !== G.powerUI){ G.powerUI = ch; $('power').hidden = !ch; } if (ch) $('pwfill').style.width = ((1 - G.power)*100).toFixed(1) + '%'; }
   if (G.state === 'charge'){ G.chargeT += dt; const p = (G.chargeT/1.15) % 2; G.power = p < 1 ? p : 2 - p; }
@@ -3476,6 +3644,7 @@ function frame(now){
     const res = Rn.render(scene(dt));
     if (res && res.tip){ G.tip = res.tip; G.tipS = vlerp(G.tipS, res.tip, Math.min(1, dt*(G.state === 'hooked' ? 2.5 : 20))); }
     drawHUD();
+    drawAquaLabels();
     if (window.DopaMulti) DopaMulti.hud(ctx, p => Rn.project(p), label);   // name tags over the other boats
   }
   requestAnimationFrame(frame);
