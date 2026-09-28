@@ -764,8 +764,13 @@ function rodPressure(){
 }
 const LAND_ST = 0.4;   // fish strength below which it can be landed (marked on the gauge)
 // the fight ring's centre (touch screens: the gauges go to the top centre, so nothing sits over the joystick below)
-function fightC(){ return [innerWidth/2, innerHeight*(TOUCH.on ? 0.52 : 0.5)]; }
-function ringRadius(){ return (TOUCH.on ? 0.16 : 0.2)*Math.min(innerWidth, innerHeight); }
+function fightC(){ return [innerWidth/2, innerHeight*(TOUCH.on ? 0.4 : 0.5)]; }
+// touch (portrait only): the gauges sit in rows right under the ring, the name at the left of each bar (the top stays clear)
+function fightRows(){
+  const C = fightC(), R = ringRadius(), w = Math.min(innerWidth - 32, 330), lw = 84;
+  return { x: C[0] - w/2, w, lw, y1: C[1] + R + 26, y2: C[1] + R + 50 };
+}
+function ringRadius(){ return (TOUCH.on ? 0.19 : 0.2)*Math.min(innerWidth, innerHeight); }
 /* timing taps during the fight: a white ring closes in on the dashed "pull here" circle; tap (click, Space, touch)
    the moment it touches it. The closer the timing, the more of the fish's strength it takes and the harder the
    camera shakes. PERFECT / GREAT / GOOD hurt the fish, BAD (or no tap) lets it recover a little. */
@@ -1205,7 +1210,8 @@ const hud = $('hud'), ctx = hud.getContext('2d');
 hud.addEventListener('contextmenu', e => e.preventDefault());
 /* touch: one finger on the scene looks around (or leans on the rod while fighting); tap = hook set / continue */
 const TOUCH = { on: false, id: null, x0: 0, y0: 0, t0: 0, moved: false };
-function enableTouch(){ if (TOUCH.on) return; TOUCH.on = true; document.body.classList.add('touch'); lastHelp = ''; }
+function enableTouch(){ if (TOUCH.on) return; TOUCH.on = true; document.body.classList.add('touch'); lastHelp = '';
+  try { screen.orientation && screen.orientation.lock && screen.orientation.lock('portrait').catch(() => {}); } catch(e){} }
 if (matchMedia('(pointer: coarse)').matches) enableTouch();
 function touchDown(e){
   hud.setPointerCapture(e.pointerId);
@@ -1216,6 +1222,7 @@ function touchDown(e){
 function touchUp(e){
   if (e.pointerId !== TOUCH.id) return;
   TOUCH.id = null; mouse.rdown = false;
+  if (G.state === 'hooked' && !JOY.active){ const C = fightC(); mouse.x = C[0]; mouse.y = C[1]; }
   if (!TOUCH.moved && performance.now() - TOUCH.t0 < 350){
     if (G.state === 'wait' && G.mode === 'pole'){ press(); mouse.down = false; }
     else if (G.state === 'result') hideCard();
@@ -1330,14 +1337,12 @@ joyEl.addEventListener('pointerdown', e => { e.preventDefault(); audioInit(); jo
   // fighting: the centre joystick also reels / lifts while it is held
   if (G.state === 'hooked' && !mouse.down){ mouse.down = true; mouse.downT = G.time; press(); } });
 joyEl.addEventListener('pointermove', e => { if (JOY.active && e.pointerId === JOY.id) joyMove(e); });
-// letting go during a fight keeps the pull where it was (the knob stays put too); otherwise it springs back
-const joyUp = e => { if (e.pointerId !== JOY.id) return; JOY.active = false; JOY.id = null;
-  if (G.state !== 'hooked'){ JOY.x = JOY.y = 0; knob.style.transform = ''; }
-  joyEl.classList.remove('on');
+// letting go springs the knob (and in a fight the pull point) back to the centre
+const joyUp = e => { if (e.pointerId !== JOY.id) return; JOY.active = false; JOY.id = null; JOY.x = JOY.y = 0; knob.style.transform = ''; joyEl.classList.remove('on');
+  if (G.state === 'hooked'){ const C = fightC(); mouse.x = C[0]; mouse.y = C[1]; }
   if (mouse.down && !act.classList.contains('down')){ mouse.down = false; release(); } };
 joyEl.addEventListener('pointerup', joyUp); joyEl.addEventListener('pointercancel', joyUp);
 function applyJoy(dt){
-  if (G.state !== 'hooked' && !JOY.active && (JOY.x || JOY.y)){ JOY.x = JOY.y = 0; knob.style.transform = ''; }   // the fight is over: recentre the held knob
   if (G.state === 'hooked'){
     if (JOY.active){ const R = ringRadius(), C = fightC(); mouse.x = C[0] + JOY.x*R; mouse.y = C[1] + JOY.y*R; }
     return;
@@ -1362,7 +1367,7 @@ act.addEventListener('pointermove', e => {
   joyMove(e);
 });
 const actUp = e => { act.classList.remove('down');
-  if (JOY.id === 'act'){ JOY.active = false; JOY.id = null; joyEl.classList.remove('on'); if (G.state !== 'hooked'){ JOY.x = JOY.y = 0; knob.style.transform = ''; } }
+  if (JOY.id === 'act'){ JOY.active = false; JOY.id = null; JOY.x = JOY.y = 0; knob.style.transform = ''; joyEl.classList.remove('on'); if (G.state === 'hooked'){ const C = fightC(); mouse.x = C[0]; mouse.y = C[1]; } }
   if (mouse.down){ mouse.down = false; release(); } };
 act.addEventListener('pointerup', actUp); act.addEventListener('pointercancel', actUp);
 act.addEventListener('contextmenu', e => e.preventDefault());
@@ -1896,7 +1901,8 @@ function drawFightRing(cx, cy){
   ctx.strokeStyle = `rgba(${col},.9)`; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + ox, cy + oy); ctx.stroke();
   ctx.fillStyle = `rgba(${col},1)`; ctx.beginPath(); ctx.arc(cx + ox, cy + oy, 9, 0, TAU); ctx.fill();
   // stamina
-  const w = TOUCH.on ? Math.min(260, innerWidth*0.4) : R*1.4, x = cx - w/2, y = TOUCH.on ? 40 : cy + R + 26;   // touch: at the top centre
+  const rows = TOUCH.on ? fightRows() : null;
+  const w = rows ? rows.w - rows.lw : R*1.4, x = rows ? rows.x + rows.lw : cx - w/2, y = rows ? rows.y1 - 3 : cy + R + 26;
   ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(x-2, y-2, w+4, 10);
   // action-game HP bar: the lost chunk shows yellow and drains after the red front
   ctx.fillStyle = '#ffd84a'; ctx.fillRect(x, y, w*(F.hpLag ?? f.stamina), 6);
@@ -1906,7 +1912,11 @@ function drawFightRing(cx, cy){
   ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(lx, y - 5); ctx.lineTo(lx, y + 11); ctx.stroke();
   // distance to the fish, in the middle of the ring
   label(`${dist2(f.pos, BOAT.pos).toFixed(1)}m`, cx, cy + R*0.12 + 18, '#fff', 15);
-  label(f.stamina < LAND_ST ? '물고기가 지쳤다! 끌어오세요' : '물고기 힘', cx, y + 24, f.stamina < LAND_ST ? '#8ff0a8' : '#fff', 13);
+  if (rows){   // name at the left of the bar; the tired call goes under the row
+    ctx.save(); ctx.font = '600 12px system-ui, sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.strokeText('물고기 힘', x - 8, y + 3); ctx.fillStyle = '#fff'; ctx.fillText('물고기 힘', x - 8, y + 3); ctx.restore();
+    if (f.stamina < LAND_ST) label('물고기가 지쳤다! 끌어오세요', cx, cy - R - 14, '#8ff0a8', 13);
+  } else label(f.stamina < LAND_ST ? '물고기가 지쳤다! 끌어오세요' : '물고기 힘', cx, y + 24, f.stamina < LAND_ST ? '#8ff0a8' : '#fff', 13);
 }
 let gaugeCache = '';
 function updateGauges(){
@@ -1921,6 +1931,9 @@ function updateGauges(){
   const lk = lineKg();
   // tension: only during the fight, or for a moment after setting the lure reel's drag with the wheel
   $('tcenter').hidden = !(G.state === 'hooked' || (G.mode === 'lure' && (G.dragShowT || 0) > G.time));
+  { const tc = $('tcenter'), rows = TOUCH.on && !tc.hidden ? fightRows() : null;
+    document.body.classList.toggle('trow', !!rows);
+    if (rows){ tc.style.top = (rows.y2 - 7) + 'px'; tc.style.width = rows.w + 'px'; } else { tc.style.top = ''; tc.style.width = ''; } }
   if (G.state === 'boat'){
     const hdg = ((BOAT.heading*180/Math.PI) % 360 + 360) % 360;
     lines.push(`<div><span>속도</span><b>${(Math.abs(G.boatV)*1.944).toFixed(1)}노트</b></div>`);
@@ -3188,7 +3201,7 @@ function pollPad(dt){
   if (btn(0) || btn(1) || lx || ly || rx || ry) audioInit();
   // left stick = the on-screen joystick (aim, fight direction, boat)
   if (lx || ly){ JOY.pad = true; JOY.active = true; JOY.x = lx; JOY.y = ly; }
-  else if (JOY.pad){ JOY.pad = false; JOY.active = false; if (G.state !== 'hooked') JOY.x = JOY.y = 0; }
+  else if (JOY.pad){ JOY.pad = false; JOY.active = false; JOY.x = JOY.y = 0; if (G.state === 'hooked'){ const C = fightC(); mouse.x = C[0]; mouse.y = C[1]; } }
   // right stick = look around
   if (!G.mapOpen && (rx || ry)){
     const lk = LOOK()*dt, iy = INV(), ix = INVX();
