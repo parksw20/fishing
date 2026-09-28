@@ -2750,9 +2750,20 @@ function openShop(){
 function closeShop(){ closeModal(); }
 const SHOP_TAB = { t: 'all' };
 for (const b of document.querySelectorAll('#shoptabs button')) b.addEventListener('click', e => { e.stopPropagation(); SHOP_TAB.t = b.dataset.t; renderShop(); $('shop').querySelector('.shopbox').scrollTop = 0; });
+// every level of a piece of gear, folded under the card: name, what it does, price; owned ones ticked, the current one marked
+const SHOP_OPEN = new Set();
+function tierList(s){
+  const cur = P.tier[s.id], rows = s.tiers.map((t, i) => {
+    if (s.id === 'aquarium' && i === 0) return '';
+    const own = i <= cur, now = i === cur;
+    return `<li class="${now ? 'now' : own ? 'own' : ''}"><b>${s.id === 'aquarium' ? 'Lv.' + i : 'Lv.' + (i + 1)} ${t.name}</b>${now ? ' ◀ 현재' : ''}<br><span>${t.desc}</span>` +
+      `<em>${own ? (t.cost ? '✔ 보유' : '기본') : t.cost.toLocaleString() + '🪙'}</em></li>`;
+  }).join('');
+  return `<details class="tl" data-tl="${s.id}"${SHOP_OPEN.has(s.id) ? ' open' : ''}><summary>단계별 내용 보기</summary><ol>${rows}</ol></details>`;
+}
 function renderShop(){
   $('coins2').textContent = P.coins.toLocaleString();
-  const up = SHOP.map(s => {
+  const card = s => {
     const cur = s.tiers[P.tier[s.id]], next = s.tiers[P.tier[s.id] + 1];
     if (s.id === 'aquarium'){   // bought once, then Lv.1 → Lv.10
       const lv = P.tier[s.id], last = s.tiers.length - 1;
@@ -2760,7 +2771,7 @@ function renderShop(){
         `<div class="cur">${lv ? `현재: <b>${cur.name}</b><br><span>${cur.desc} · ${P.aqua.length}마리 있음</span>` : `<span>${cur.desc}</span>`}</div>` +
         (next ? `${lv ? `<div class="nx">다음: <b>${next.name}</b><br><span>${next.desc}</span></div>` : `<div class="nx"><span>${next.desc}</span></div>`}` +
                 `<button data-up="${s.id}" ${P.coins < next.cost ? 'disabled' : ''}>${next.cost.toLocaleString()}🪙 ${lv ? '업그레이드' : '구매'}</button>`
-              : `<div class="nx max">최고 등급</div>`) + `</div>`;
+              : `<div class="nx max">최고 등급</div>`) + tierList(s) + `</div>`;
     }
     if (s.tiers.length === 2){   // one-off gear (goggles): buy once
       const have = P.tier[s.id] > 0, it = s.tiers[1];
@@ -2769,8 +2780,10 @@ function renderShop(){
     }
     return `<div class="card"><div class="ct">${s.icon} ${s.name} <span class="lv">Lv.${P.tier[s.id] + 1}/${s.tiers.length}</span></div><div class="cur">현재: <b>${cur.name}</b><br><span>${cur.desc}</span></div>` +
       (next ? `<div class="nx">다음: <b>${next.name}</b><br><span>${next.desc}</span></div><button data-up="${s.id}" ${P.coins < next.cost ? 'disabled' : ''}>${next.cost.toLocaleString()}🪙 업그레이드</button>`
-            : `<div class="nx max">최고 등급</div>`) + `</div>`;
-  }).join('') +
+            : `<div class="nx max">최고 등급</div>`) + tierList(s) + `</div>`;
+  };
+  const up = SHOP.filter(s => s.id !== 'aquarium').map(card).join('');
+  const aqua = SHOP.filter(s => s.id === 'aquarium').map(card).join('') +
     // aquarium food: a consumable, bought in packs
     `<div class="card"><div class="ct">🍤 물고기 밥 <span class="lv">보유 ${P.food || 0}개</span></div><div class="cur"><span>수족관 물고기에게 하루 한 번 — 3일 넘게 굶기면 죽을 수 있어요</span></div>` +
     `<button data-food="1" ${P.coins < FOOD_PACK.cost ? 'disabled' : ''}>${FOOD_PACK.n}개 ${FOOD_PACK.cost.toLocaleString()}🪙 구매</button></div>`;
@@ -2779,8 +2792,9 @@ function renderShop(){
     (P.owned[it.id] ? `<div class="nx max">보유 중</div>` : `<button data-buy="${it.id}" ${P.coins < it.cost ? 'disabled' : ''}>${it.cost.toLocaleString()}🪙 구매</button>`) + `</div>`).join('');
   // tabs: all / gear / bait / lures
   const T = SHOP_TAB.t, sec = (k, title, html) => (T === 'all' || T === k) ? `${T === 'all' ? `<h3>${title}</h3>` : ''}<div class="grid">${html}</div>` : '';
-  $('shopgrid').innerHTML = sec('gear', '장비 업그레이드', up) + sec('bait', '찌낚시 미끼', itemCards(BAITS)) + sec('lure', '루어', itemCards(LURES));
+  $('shopgrid').innerHTML = sec('gear', '장비 업그레이드', up) + sec('aqua', '수족관', aqua) + sec('bait', '찌낚시 미끼', itemCards(BAITS)) + sec('lure', '루어', itemCards(LURES));
   for (const b of document.querySelectorAll('#shoptabs button')) b.classList.toggle('on', b.dataset.t === T);
+  for (const d of document.querySelectorAll('#shopgrid details.tl')) d.addEventListener('toggle', () => { if (d.open) SHOP_OPEN.add(d.dataset.tl); else SHOP_OPEN.delete(d.dataset.tl); });
   for (const b of $('shopgrid').querySelectorAll('[data-up]')) b.onclick = () => {
     const s = shopItem(b.dataset.up), next = s.tiers[P.tier[s.id] + 1]; if (!next) return; if (P.coins < next.cost){ playS('deny'); return; }
     P.coins -= next.cost; P.tier[s.id]++; if (s.id === 'boat') applyBoatModel(); if (!playS('buy')) sfx.win();
@@ -2965,7 +2979,8 @@ function updateSonar(dt){
   SONAR.t = 0.12;
   const d = toReal(floorDepth(BOAT.pos[0], BOAT.pos[2]));   // the finder reads real depths
   const echoes = [];
-  for (const f of fishes) if (dist2(f.pos, BOAT.pos) < 6 + f.len*4) echoes.push([toReal(-f.pos[1]), f.len, f.sp.name]);
+  const beam = tierOf('sonar').range || 1;   // better finders see further around the boat
+  for (const f of fishes) if (dist2(f.pos, BOAT.pos) < (6 + f.len*4)*beam) echoes.push([toReal(-f.pos[1]), f.len, f.sp.name]);
   SONAR.cols.push({ d, echoes });
   if (SONAR.cols.length > SONAR.W) SONAR.cols.shift();
 }
@@ -3010,6 +3025,7 @@ function drawSonar(){
     const last = SONAR.cols[SONAR.cols.length - 1].echoes;
     if (last.length){ const big = last.reduce((a, b) => b[1] > a[1] ? b : a); ctx.textAlign = 'left'; ctx.font = '700 11px system-ui, sans-serif'; ctx.fillStyle = '#ffd84a';
       ctx.fillText(`${big[2]} ${Math.round(big[1]*100)}cm · ${big[0].toFixed(1)}m`, x0 + 2, top + H - 4); }
+    if (P.tier.sonar >= 8){ ctx.textAlign = 'right'; ctx.font = '700 11px system-ui, sans-serif'; ctx.fillStyle = '#8ff0a8'; ctx.fillText(`${last.length}마리`, x0 + W - 2, top + H - 4); }   // Lv.9+: fish count
   }
   ctx.restore();
 }

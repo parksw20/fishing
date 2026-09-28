@@ -315,14 +315,16 @@ window.GameData = (function(){
       (u, i) => { const hold = 1 - 0.75*u, window = 1 + 0.8*u; return { hold, window, desc: i ? `챔질 여유 +${pct(window - 1)}% · 바늘 빠짐 -${pct(1 - hold)}%` : '기본 걸림' }; }) },
     { id:'sonar', name:'어탐기', icon:'📡', tiers: tiers(
       ['기본 어탐기', '흑백 어탐기 II', '고감도 어탐기', '컬러 어탐기', '컬러 어탐기 HD', '듀얼 빔 어탐기', '스캔 어탐기', '사이드 스캔', '라이브 스캔', '3D 라이브 스캔'], 0.6,
-      (u, i) => ({ desc: i < 3 ? `수심과 어군 표시${i ? ` · 감도 +${i*10}%` : ''}` : i < 6 ? '물고기 크기별 색 구분' : '크기별 색 + 발밑 가장 큰 물고기의 어종 표시' })) },
+      // every level widens the beam 12%; Lv.4 colours echoes by size, Lv.7 names the biggest fish under the boat, Lv.9 counts the fish
+      (u, i) => ({ range: 1 + 0.12*i, desc: `탐지 범위 ${i ? '+' + i*12 + '%' : '기본'} · ` +
+        (i < 3 ? '수심과 어군 표시' : i < 6 ? '크기별 색 구분' : i < 8 ? '크기별 색 + 가장 큰 물고기 어종·크기' : '크기별 색 + 가장 큰 물고기 어종·크기 + 마릿수') })) },
     { id:'boat', name:'보트', icon:'🚤', tiers: tiers(
       ['소형 보트', '알루미늄 보트', '고무보트 RIB', '연안 보트', '연안 낚싯배', '센터콘솔 보트', '근해 낚싯배', '근해 크루저', '스포츠 피셔', '원양 어선'], 2,
       (u, i) => { const zone = i < 3 ? 0 : i < 6 ? 1 : i < 9 ? 2 : 3;
         return { zone, desc: ['내륙 호수·강만 갈 수 있음', '해안에서 20km 이내 연안 바다까지', '해안에서 100km 이내 근해까지', '먼바다 어디든 (제한 없음)'][zone] }; }) },
-    { id:'net', name:'살림망', icon:'🧺', tiers: tiers(
-      ['기본 살림망', '중형 살림망', '대형 살림망', '접이식 살림망', '고급 살림망', '소형 활어통', '중형 활어통', '대형 활어통', '산소 활어통', '대형 산소 활어통'], 0.5,
-      (u, i) => { const cap = Math.round(12 + 38*u); return { cap, desc: `물고기 ${cap}마리 보관` }; }) },
+    { id:'engine', name:'엔진', icon:'⚙️', tiers: tiers(
+      ['5마력 선외기', '8마력 선외기', '10마력 선외기', '15마력 선외기', '20마력 선외기', '30마력 선외기', '40마력 선외기', '60마력 선외기', '90마력 선외기', '150마력 선외기'], 0.9,
+      (u, i) => { const speed = 8 + 10*u; return { speed, desc: `최고 ${Math.round(speed*1.9)}노트` }; }) },
     // one-off gear: 2 "levels" (none / owned)
     { id:'goggles', name:'수경', icon:'🤿', tiers: [
       { name:'없음', cost:0, lv:1, desc:'물 위만 볼 수 있어요' },
@@ -334,9 +336,9 @@ window.GameData = (function(){
         const lv = i + 1, size = 3*lv, cap = 5 + 5*lv;
         return { name:`${size}×${size}×${size}m 수족관`, cost, lv, size, cap, desc:`${size}×${size}×${size}m · 최대 ${cap}마리 · 몸길이 ${(size/2).toFixed(1)}m 이하` };
       })) },
-    { id:'engine', name:'엔진', icon:'⚙️', tiers: tiers(
-      ['5마력 선외기', '8마력 선외기', '10마력 선외기', '15마력 선외기', '20마력 선외기', '30마력 선외기', '40마력 선외기', '60마력 선외기', '90마력 선외기', '150마력 선외기'], 0.9,
-      (u, i) => { const speed = 8 + 10*u; return { speed, desc: `최고 ${Math.round(speed*1.9)}노트` }; }) },
+    { id:'net', name:'살림망', icon:'🧺', tiers: tiers(
+      ['기본 살림망', '중형 살림망', '대형 살림망', '접이식 살림망', '고급 살림망', '소형 활어통', '중형 활어통', '대형 활어통', '산소 활어통', '대형 산소 활어통'], 0.5,
+      (u, i) => { const cap = Math.round(12 + 38*u); return { cap, desc: `물고기 ${cap}마리 보관` }; }) },
   ];
 
   return { SPECIES, BY_ID, BIOMES, WATERS, SPOTS, BAITS, LURES, SHOP };
