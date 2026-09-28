@@ -186,7 +186,13 @@
   body:not(.touch) #bottombar { transform:scale(1.5); transform-origin:50% 100%; margin-top:22px; }
   body:not(.touch) #menubtn { transform:scale(1.5); transform-origin:100% 100%; }
   body:not(.touch) #menu { bottom:calc(76px + env(safe-area-inset-bottom,0px)); transform:scale(1.5); transform-origin:100% 100%; }
-  body:not(.touch) #retrieve { bottom:calc(80px + env(safe-area-inset-bottom,0px)); transform:scale(1.25); transform-origin:100% 100%; }
+  body:not(.touch) #retrieve { bottom:calc(100px + env(safe-area-inset-bottom,0px)); transform:scale(1.25); transform-origin:100% 100%; }   /* clear of the menu button below it */
+  /* 🤿 물속 보기 / 물밖 보기: right above 회수 (goggles only) */
+  #uwview { position:fixed; right:14px; z-index:5; bottom:calc(112px + env(safe-area-inset-bottom,0px)); }
+  body:not(.touch) #uwview { bottom:calc(162px + env(safe-area-inset-bottom,0px)); transform:scale(1.25); transform-origin:100% 100%; }
+  body.touch #uwview { right:calc(14px + env(safe-area-inset-right,0px)); bottom:calc(140px + env(safe-area-inset-bottom,0px)); }
+  body.touch.lefty #uwview { right:auto; left:calc(14px + env(safe-area-inset-left,0px)); }
+  #uwview.under { background:rgba(40,120,170,.75); }
   /* quests 1.5x on desktop: tracker and quest window */
   body:not(.touch) #qtrack { font-size:18px; padding:12px 18px; max-width:min(460px, calc(100vw - 420px)); }
   body:not(.touch) #qtrack .qth { font-size:15px; }
@@ -528,6 +534,7 @@
   <button data-m="dbg">🛠 디버그</button>
 </div>
 <button id="retrieve" hidden>회수 (R)</button>
+<button id="uwview" hidden>🤿 물속 보기 (V)</button>
 
 <!-- touch controls: joystick (조그) + context action cluster -->
 <div id="joy"><div id="knob"></div></div>

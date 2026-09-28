@@ -1284,7 +1284,7 @@ hud.addEventListener('pointermove', e => {
     const lk = LOOK(), iy = INV(), ix = INVX();
     if (G.state === 'boat'){ G.orbit += dx*0.006*lk*ix; G.camPitch = clamp((G.camPitch ?? 0.32) + dy*0.004*lk*iy, -0.8, 1.2); }
     else if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw += dx*0.005*lk*ix; G.aimPitch = clamp(G.aimPitch - dy*0.004*lk*iy, -0.9, 1.1); }
-    else { G.orbit += dx*0.006*lk*ix; tiltView(dy*0.004*lk*iy); }
+    else turnView(dx*0.006*lk*ix, dy*0.004*lk*iy);
   }
   // while looking around with the right button in a fight, the aim (pull direction) stays where it was
   if ((e.pointerType !== 'touch' || G.state !== 'hooked') && !(mouse.rdown && G.state === 'hooked')) { mouse.x = e.clientX; mouse.y = e.clientY; if (e.pointerType === 'mouse') mouse.moved = true; }
@@ -1324,6 +1324,7 @@ window.addEventListener('keydown', e => {
     case 'KeyO': openSettings(); break;
     case 'KeyT': skipTime(); break;
     case 'KeyR': retrieve(); break;
+    case 'KeyV': toggleUnderView(); break;
     case 'KeyH': G.help = !G.help; say(G.help ? '입질 표시 켬' : '입질 표시 끔', 1.2); break;
     case 'Space': e.preventDefault(); if (G.state === 'hooked') qteTap(mouse.x, mouse.y); if (!mouse.down){ mouse.down = true; mouse.downT = G.time; press(); } break;
     case 'Enter': if (G.state === 'result') hideCard(); break;
@@ -1346,6 +1347,8 @@ window.addEventListener('keyup', e => {
 $('card').addEventListener('pointerdown', e => { e.stopPropagation(); hideCard(); });
 $('cardblock').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); hideCard(); });
 $('retrieve').addEventListener('click', e => { e.stopPropagation(); retrieve(); });
+$('uwview').addEventListener('click', e => { e.stopPropagation(); toggleUnderView(); });
+for (const ev of ['pointerdown', 'mousedown', 'touchstart']) $('uwview').addEventListener(ev, e => e.stopPropagation(), { passive: true });
 /* joystick (조그) */
 const JOY = { x: 0, y: 0, active: false, id: null, wasFight: false };
 const joyEl = $('joy'), knob = $('knob');
@@ -1375,7 +1378,7 @@ function applyJoy(dt){
   if (!JOY.active || G.state === 'boat') return;
   const lk = LOOK(), iy = INV(), ix = INVX();
   if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw += JOY.x*dt*1.3*lk*ix; G.aimPitch = clamp(G.aimPitch - JOY.y*dt*0.8*lk*iy, -0.9, 1.1); }
-  else { G.orbit += JOY.x*dt*1.4*lk*ix; tiltView(JOY.y*dt*0.9*lk*iy); }
+  else turnView(JOY.x*dt*1.4*lk*ix, JOY.y*dt*0.9*lk*iy);
 }
 /* action button: hold = cast charge / reel / lift, tap = hook set; the label follows the situation */
 const act = $('act');
@@ -1540,6 +1543,39 @@ function tiltView(d){
     G.gogglesHint = true; say('🤿 수경이 있으면 물속을 볼 수 있어요 (상점 3,000🪙)', 2.6);
   }
 }
+/* ---- free look after the cast (float/lure in the water, or fighting) ----
+   The view turns freely — any way round, up to the sky, down to the bottom — above the water and under it.
+   It is kept as an offset from the direction to the rig/fish, so the target stays in view as it moves
+   until the player turns away. Going under the water is a button (🤿 물속 보기, goggles), not a side effect
+   of tilting the view low. */
+function freeView(){ return G.state === 'wait' || G.state === 'hooked'; }
+/** turn the view: yaw right +, tilt down + (same sense as the orbit / tilt it replaces) */
+function turnView(yaw, tilt){
+  if (freeView()){ G.fYaw = (G.fYaw || 0) + yaw; G.fPitch = clamp((G.fPitch || 0) - tilt, -1.5, 1.5); }
+  else { G.orbit += yaw; tiltView(tilt); }
+}
+function toggleUnderView(){
+  if (!freeView()) return;
+  if (!P.tier.goggles){ say('🤿 수경이 있으면 물속을 볼 수 있어요 (상점 3,000🪙)', 2.6); return; }
+  G.uwView = !G.uwView; G.fYaw = G.fPitch = 0;   // face the rig again on the other side of the surface
+  say(G.uwView ? '🤿 물속 보기' : '🌤 물밖 보기', 1.2);
+}
+/** where the camera sits under the water: a couple of metres from the target, toward the boat, near its depth */
+function underAnchor(target){
+  const e = eyeWorld(); let dx = target[0] - e[0], dz = target[2] - e[2]; const dl = Math.hypot(dx, dz) || 1; dx /= dl; dz /= dl;
+  const px = target[0] - dx*2.6, pz = target[2] - dz*2.6;
+  const y = clamp(target[1] + 0.35, -(floorDepth(px, pz) - 0.35), -0.3);
+  return [px, y, pz];
+}
+/** camera from an anchor looking toward target, turned by the free-look offsets */
+function freeLook(pos, target){
+  let dx = target[0] - pos[0], dy = target[1] - pos[1], dz = target[2] - pos[2];
+  const dh = Math.hypot(dx, dz) || 1e-3;
+  const yaw = (G.fYaw || 0) + (G.lookX || 0), c = Math.cos(yaw), s = Math.sin(yaw);
+  const hx = (dx*c - dz*s)/dh, hz = (dx*s + dz*c)/dh;
+  const pitch = clamp(Math.atan2(dy, dh) + (G.fPitch || 0) + (G.lookY || 0), -1.52, 1.52), cp = Math.cos(pitch);
+  return { pos, look: [pos[0] + hx*cp*10, pos[1] + Math.sin(pitch)*10, pos[2] + hz*cp*10] };
+}
 function boatView(){
   const e = eyeWorld(), yw = viewYaw(), pt = viewPitch(), cp = Math.cos(pt);
   return { pos: e, look: add(e, [Math.sin(yw)*cp*10, Math.sin(pt)*10, -Math.cos(yw)*cp*10]) };
@@ -1556,16 +1592,27 @@ function updateCamera(dt){
     case 'fly': {
       const s = smooth(clamp((G.fly.t - 0.3)/Math.max(0.2, G.fly.T - 0.3), 0, 1)), a = boatView(), b = baitView(G.fly.to, 3.4, 2.3);
       T = { pos: vlerp(a.pos, b.pos, s), look: vlerp(a.look, b.look, s) }; k = 8; break; }
+    // after the cast: the camera sits by the rig (above the water, or under it with 🤿) and looks around freely
     case 'wait': {
-      if (G.rig){ T = baitView(G.rig.pos, 3.4, 2.3); k = 3.5; break; }
+      if (G.rig){
+        const tgt = G.uwView ? G.rig.bait : [G.rig.pos[0], G.rig.bobY, G.rig.pos[2]];
+        T = freeLook(G.uwView ? underAnchor(G.rig.bait) : baitView(G.rig.pos, 3.4, 2.3).pos, tgt); k = 3.5; break;
+      }
       const L = G.lure.pos, dp = Math.min(-L[1], 7);
-      T = baitView([L[0], 0, L[2]], 3.0 + dp*0.25, 2.2 + dp*0.25);
-      T.look = [L[0], -dp*0.9 - 0.2, L[2]]; k = 3.5; break; }
+      const above = baitView([L[0], 0, L[2]], 3.0 + dp*0.25, 2.2 + dp*0.25).pos;
+      T = freeLook(G.uwView ? underAnchor(L) : above, G.uwView ? L : [L[0], -dp*0.9 - 0.2, L[2]]); k = 3.5; break; }
     case 'hooked': {
       const f = G.hooked.pos;
       // hook set: the camera pulls in a little (quick at first, then settles)
       const L = G.hooked.len, ft = G.fight ? G.fight.t : 9;
-      T = baitView([f[0], 0, f[2]], (2.6 + L*4)*0.72, (1.8 + L*3)*0.8, G.fightSide); k = ft < 0.8 ? 6 : 3.6; break; }
+      const above = baitView([f[0], 0, f[2]], (2.6 + L*4)*0.72, (1.8 + L*3)*0.8, G.fightSide);
+      T = freeLook(G.uwView ? underAnchor(f) : above.pos, G.uwView ? f : above.look); k = ft < 0.8 ? 6 : 3.6; break; }
+  }
+  // entering the cast / the fight faces the rig or the fish again; leaving it comes back out of the water
+  if (G.state !== G.camState){
+    if (freeView() && G.state !== G.camState) { G.fYaw = G.fPitch = 0; G.orbit = 0; G.viewTilt = 0; }
+    if (!freeView()) G.uwView = false;
+    G.camState = G.state;
   }
   // after switching boat ↔ fishing the camera glides slowly from its current angle to the new one
   const tr = clamp((G.time - (G.navT ?? -9))/1.6, 0, 1);
@@ -1577,7 +1624,7 @@ function updateCamera(dt){
   if (G.state === 'wait' || G.state === 'hooked') cam.pos[1] = Math.max(cam.pos[1], -(floorDepth(cam.pos[0], cam.pos[2]) - 0.3));
   else cam.pos[1] = Math.max(cam.pos[1], Math.min(0.45, cam.pos[1] + dt*4));   // back above the water after retrieving
   const uw = cam.pos[1] < -0.03;
-  if (uw !== G.camUnder){ G.camUnder = uw; if (uw && !G.underTold){ G.underTold = true; say('🤿 물속 시점 — 위로 기울이면 물 밖으로', 2.2); } }
+  if (uw !== G.camUnder){ G.camUnder = uw; if (uw && !G.underTold){ G.underTold = true; say('🤿 물속 시점 — 🌤 물밖 보기(V)로 나올 수 있어요', 2.2); } }
 }
 
 /* ---------------- scene assembly ---------------- */
@@ -1846,12 +1893,12 @@ function drawHUD(){
       else if (s && f && f.state === 'nibble') label('입질…', s[0], s[1] - 10, '#bfe9ff', 15);
     }
     if (r.baitGone){ const s = tag(0.35, 0, -10); if (s) label('미끼 없음', s[0], s[1], '#ff9a8a', 14); }
-    { const s = tag(0.12, 0, 4); if (s) sideLabels(`수심 ${fmtD(r.baitDepth)}m${r.laid ? ' · 바닥' : ''}`, `거리 ${dist2(r.pos, BOAT.pos).toFixed(1)}m`, s[0], s[1], 28, 'rgba(255,255,255,.85)', 12); }
+    { const s = tag(0.12, 0, 4); if (s) sideLabels(`수심 ${fmtD(r.baitDepth)}m${r.laid ? ' · 바닥' : ''}`, `거리 ${dist2(r.pos, tipXZ()).toFixed(1)}m`, s[0], s[1], 28, 'rgba(255,255,255,.85)', 12); }
   }
   if (G.state === 'wait' && G.lure){
     const L = G.lure, s = projectSeen(L.pos);
     if (s){
-      sideLabels(`수심 ${fmtD(-L.pos[1])}m`, `거리 ${dist2(L.pos, BOAT.pos).toFixed(1)}m`, s[0], s[1] + 4, 34, 'rgba(255,255,255,.85)', 12); }
+      sideLabels(`수심 ${fmtD(-L.pos[1])}m`, `거리 ${dist2(L.pos, tipXZ()).toFixed(1)}m`, s[0], s[1] + 4, 34, 'rgba(255,255,255,.85)', 12); }
     if (G.strike){ const q = Rn.project([L.pos[0], 0.2, L.pos[2]]); if (q) label('바이트!', q[0], q[1] - 10, '#ffdf4a', 22); }
   }
   if (G.state === 'hooked'){ const C = fightC(); drawFightRing(C[0], C[1]); }
@@ -1968,17 +2015,23 @@ function updateGauges(){
     lines.push(`<div><span>수심</span><b>${fmtD(floorDepth(BOAT.pos[0], BOAT.pos[2]))}m</b></div>`);
     lines.push(`<div><span>기점 거리</span><b>${Math.round(Math.hypot(BOAT.pos[0], BOAT.pos[2]))}m</b></div>`);
   } else {
-  if (G.mode === 'lure') lines.push(`<div><span>드랙</span><b>${(G.drag*lk).toFixed(1)}kg${G.drag >= 1 ? ' 🔒' : ''}</b></div>`);
-  else lines.push(`<div><span>찌 수심</span><b>${fmtD(G.depthSet)}m</b></div>`);
+  // 원줄 first, then the lure's drag
   lines.push(`<div><span>원줄</span><b>${lk.toFixed(0)}kg</b></div>`);
+  if (G.mode === 'lure') lines.push(`<div><span>드랙</span><b>${(G.drag*lk).toFixed(1)}kg${G.drag >= 1 ? ' 🔒' : ''}</b></div>`);
+  // 찌 수심: only while setting it up — once the float is in the water it shows "수심 …m" next to itself
+  else if (!G.rig) lines.push(`<div><span>찌 수심</span><b>${fmtD(G.depthSet)}m</b></div>`);
   }
   if (F) lines.push(`<div><span>거리</span><b>${F.lineOut.toFixed(1)}m</b></div>`);
   else if (G.rig) lines.push(`<div><span>바닥</span><b>${fmtD(G.rig.floor)}m</b></div>`);
-  else if (G.lure) lines.push(`<div><span>거리</span><b>${dist2(G.lure.pos, tipXZ()).toFixed(1)}m</b></div>`);
   $('tval').textContent = (T*lk).toFixed(1) + 'kg';
   const h = lines.join('');
   if (h !== gaugeCache){ $('ginfo').innerHTML = h; gaugeCache = h; }
   $('retrieve').hidden = G.state !== 'wait';
+  { // 🤿 물속 보기 / 물밖 보기 — goggles only, while the rig is in the water
+    const b = $('uwview'), show = freeView() && P.tier.goggles > 0;
+    b.hidden = !show;
+    if (show){ const t = G.uwView ? '🌤 물밖 보기 (V)' : '🤿 물속 보기 (V)'; if (b.textContent !== t) b.textContent = t; b.classList.toggle('under', !!G.uwView); }
+  }
   $('bottombar').classList.toggle('locked', G.state !== 'idle' && G.state !== 'charge' && G.state !== 'boat');
   $('navfish').className = G.state === 'boat' ? '' : 'on'; $('navboat').className = G.state === 'boat' ? 'on' : '';
 }
@@ -3251,7 +3304,7 @@ function pollPad(dt){
     const lk = LOOK()*dt, iy = INV(), ix = INVX();
     if (G.state === 'boat'){ G.orbit += rx*2.2*lk*ix; G.camPitch = clamp((G.camPitch ?? 0.32) + ry*1.2*lk*iy, -0.8, 1.2); }
     else if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw += rx*1.6*lk*ix; G.aimPitch = clamp(G.aimPitch - ry*0.9*lk*iy, -0.9, 1.1); }
-    else { G.orbit += rx*1.6*lk*ix; tiltView(ry*1.0*lk*iy); }
+    else turnView(rx*1.6*lk*ix, ry*1.0*lk*iy);
   }
   if (G.mapOpen){
     if (down(1) || down(9)) closeModal();
@@ -3384,11 +3437,11 @@ function update(dt){
   else {
     G.boatV *= Math.exp(-dt*1.5); G.boatSteer = 0;
     if (Math.abs(G.boatV) > 0.02) moveBoat(dt);
-    if (keys.KeyA || keys.ArrowLeft) { if (G.state === 'idle' || G.state === 'charge') G.aimYaw -= dt*1.2; else G.orbit -= dt*1.2; }
-    if (keys.KeyD || keys.ArrowRight){ if (G.state === 'idle' || G.state === 'charge') G.aimYaw += dt*1.2; else G.orbit += dt*1.2; }
+    if (keys.KeyA || keys.ArrowLeft) { if (G.state === 'idle' || G.state === 'charge') G.aimYaw -= dt*1.2; else turnView(-dt*1.2, 0); }
+    if (keys.KeyD || keys.ArrowRight){ if (G.state === 'idle' || G.state === 'charge') G.aimYaw += dt*1.2; else turnView(dt*1.2, 0); }
     const aiming = G.state === 'idle' || G.state === 'charge';
-    if (keys.KeyW || keys.ArrowUp){ if (aiming) G.aimPitch = clamp(G.aimPitch + dt*0.8, -0.9, 1.1); else tiltView(-dt*0.9); }
-    if (keys.KeyS || keys.ArrowDown){ if (aiming) G.aimPitch = clamp(G.aimPitch - dt*0.8, -0.9, 1.1); else tiltView(dt*0.9); }
+    if (keys.KeyW || keys.ArrowUp){ if (aiming) G.aimPitch = clamp(G.aimPitch + dt*0.8, -0.9, 1.1); else turnView(0, -dt*0.9); }
+    if (keys.KeyS || keys.ArrowDown){ if (aiming) G.aimPitch = clamp(G.aimPitch - dt*0.8, -0.9, 1.1); else turnView(0, dt*0.9); }
   }
   pollPad(dt); fightHaptics(dt); updateMenuState(); mouseLook(dt); updateWeather(dt); updateClock(dt); updateRain(dt); updateVisitors(dt); checkSightings(dt); updateTarget(dt);
   updateWake(); updateParticles(dt); updateDecor();
