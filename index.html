@@ -59,7 +59,7 @@
   #msg.show { opacity:1; transform:translate(-50%, 0); }
   #msg.hot { color:#ffdf4a; font-size:34px; }
   #msg.bad { color:#ff9a8a; }
-  #card { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width:300px; padding:20px 22px; text-align:center; z-index:10; background:rgba(8,26,30,.78); box-shadow:0 20px 60px rgba(0,0,0,.4); cursor:pointer; }
+  #card { position:fixed; left:50%; top:50%; transform:translate(-50%,-50%); width:300px; padding:20px 22px; text-align:center; z-index:17; background:rgba(8,26,30,.78); box-shadow:0 20px 60px rgba(0,0,0,.4); cursor:pointer; }
   #card[hidden] { display:none; }
   #card .t { font-size:12px; letter-spacing:.2em; opacity:.6; }
   #card .sp { font-size:30px; font-weight:900; margin-top:4px; }
@@ -71,6 +71,9 @@
   #card .pts { color:#ffd84a; font-size:20px; font-weight:800; margin-top:8px; }
   #card .badge { color:#8ff0a8; font-weight:700; font-size:13px; min-height:18px; margin-top:4px; }
   #card .foot { font-size:11px; opacity:.55; margin-top:10px; }
+  /* while the catch is shown (card, and the moment before it) nothing else can be pressed: a tap anywhere is a tap on the card */
+  #cardblock { position:fixed; inset:0; z-index:16; background:transparent; }
+  #cardblock[hidden] { display:none; }
   #loading { position:fixed; inset:0; display:grid; place-items:center; background:radial-gradient(ellipse at 50% 40%, #134040, #0a2222 70%); z-index:20; transition:opacity .8s; }
   #loading .ldbox { width:min(420px, 80vw); text-align:center; }
   #loading .ldicon { font-size:38px; margin-bottom:14px; animation:ldbob 2.2s ease-in-out infinite; }
@@ -140,6 +143,19 @@
   #gauges { position:fixed; left:14px; bottom:calc(14px + env(safe-area-inset-bottom,0px)); width:164px; padding:10px 12px; display:flex; flex-direction:column; gap:8px; z-index:5; }
   #tcenter { position:fixed; left:50%; top:calc(50% + 20vmin + 78px); transform:translateX(-50%); width:min(380px, 62vw); z-index:5; pointer-events:none; display:flex; flex-direction:column; gap:5px; align-items:center; }
   #tcenter[hidden] { display:none; }
+  body.touch #tlabel b { font-size:13px; }
+  /* phones and tablets are played upright only: sideways, a cover asks to turn the device */
+  #rotate { display:none; }
+  @media (orientation: landscape) and (pointer: coarse) {
+    #rotate { display:flex; position:fixed; inset:0; z-index:100; flex-direction:column; align-items:center; justify-content:center; gap:14px;
+      background:#0d2a2a; color:#fff; font:700 17px var(--font); text-align:center; }
+    #rotate .ic { font-size:54px; animation:rot 1.6s ease-in-out infinite; }
+    @keyframes rot { 0%,30% { transform:rotate(-90deg); } 60%,100% { transform:rotate(0deg); } }
+  }
+  /* touch portrait: a row under the fish's strength bar — the name at the left, the bar at the right */
+  body.trow #tcenter { flex-direction:row; gap:8px; align-items:center; }
+  body.trow #tlabel { flex:none; width:76px; text-align:right; font-size:12px; font-weight:600; white-space:nowrap; }
+  body.trow #tbar { flex:1; height:8px; }
   #tlabel { font-size:14px; color:#fff; text-shadow:0 1px 3px rgba(0,0,0,.8); }
   #tlabel b { font-size:16px; }
   #tbar { position:relative; width:100%; height:12px; border-radius:6px; background:rgba(0,0,0,.45); box-shadow:0 0 0 1px rgba(255,255,255,.25); overflow:hidden; }
@@ -482,6 +498,8 @@
   <div id="ginfo"></div>
 </div>
 <!-- centre: line tension (big and in view while fishing) -->
+<div id="cardblock" hidden></div>
+<div id="rotate"><div class="ic">📱</div><div>세로 모드로 돌려주세요</div><div style="font-weight:400;font-size:13px;opacity:.7">이 게임은 세로 화면만 지원해요</div></div>
 <div id="tcenter" hidden><div id="tlabel">장력 <b id="tval">0.0kg</b></div><div id="tbar"><div id="tfill"></div><div id="dragmark"></div></div></div>
 
 <!-- bottom centre: fishing / boat toggle, tackle (2-level), and the hint line under them -->

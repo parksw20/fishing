@@ -153,7 +153,23 @@ function tone(freq, dur, gain, type){
   g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
   o.connect(g); g.connect(AU.sfx); o.start(t); o.stop(t+dur+0.02);
 }
+// a steady-pitched tone (no drop) with a quick attack: chimes for the timing judgements
+function bell(freq, dur, gain, type, delay){
+  if (!AU.ctx) return;
+  const c = AU.ctx, t = c.currentTime + (delay || 0), o = c.createOscillator(), g = c.createGain();
+  o.type = type || 'sine'; o.frequency.setValueAtTime(freq, t);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.008); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(AU.sfx); o.start(t); o.stop(t + dur + 0.02);
+}
 const sfx = {
+  // timing judgements: PERFECT a bright rising chime with sparkle, GREAT a two-note chime, GOOD a pluck, BAD / MISS a dull thud
+  judge: rank => {
+    if (rank === 0){ [1046, 1318, 1568, 2093].forEach((f, i) => { bell(f, 0.35, 0.09, 'sine', i*0.045); bell(f*2, 0.18, 0.025, 'triangle', i*0.045); });
+      noise(0.35, 'highpass', 6000, 0.7, 0.05, 0.01); tone(120, 0.18, 0.18, 'sine'); }
+    else if (rank === 1){ bell(880, 0.3, 0.09, 'sine'); bell(1318, 0.34, 0.08, 'sine', 0.06); tone(110, 0.14, 0.12, 'sine'); }
+    else if (rank === 2){ bell(660, 0.2, 0.08, 'triangle'); noise(0.04, 'bandpass', 3000, 2, 0.05); }
+    else { tone(170, 0.22, 0.12, 'sawtooth'); noise(0.12, 'lowpass', 500, 0.8, 0.1); }
+  },
   splash: s => { noise(0.25 + 0.5*s, 'lowpass', 700 + 900*s, 0.6, 0.25*s + 0.04, 0.01); noise(0.12, 'bandpass', 2500, 1.2, 0.05*s); },
   plop: () => { tone(420, 0.12, 0.08); noise(0.1, 'lowpass', 1200, 0.7, 0.05); },
   whoosh: p => noise(0.35, 'bandpass', 900 + 1500*p, 1.5, 0.08 + 0.1*p, 0.08),
@@ -696,6 +712,7 @@ function hookFish(f){
   const tip = tipXZ();
   G.strike = null; G.engaged = null;
   G.hooked = f; f.state = 'hooked'; G.state = 'hooked'; padRumble(0.9, 0.7, 260);
+  if (TOUCH.on){ const C = fightC(); mouse.x = C[0]; mouse.y = C[1]; }
   fightFish(f, tip);
   const d = dist2(f.pos, tip);
   G.fight = { tension: 0.3, lineOut: d + 0.2, maxReach: G.mode === 'pole' ? Math.max(d + 3.0, 8) : 150, breakT: 0, slackT: 0, cq: 0, payout: 0, t: 0,
@@ -751,8 +768,9 @@ function predatorStrike(pred, prey){
 }
 function rodPressure(){
   const B = Rn.basis(); if (!B) return { w: [0, 0], m: 0 };
-  if (!isFinite(mouse.x) || !isFinite(mouse.y)){ mouse.x = innerWidth/2; mouse.y = innerHeight/2; }
-  const ox = mouse.x - innerWidth/2, oy = mouse.y - innerHeight/2;
+  const C = fightC();
+  if (!isFinite(mouse.x) || !isFinite(mouse.y)){ mouse.x = C[0]; mouse.y = C[1]; }
+  const ox = mouse.x - C[0], oy = mouse.y - C[1];
   const rad = ringRadius();
   let m = clamp(Math.hypot(ox, oy)/rad, 0, 1); if (m < 0.12) m = 0;
   const rh = Math.hypot(B.r[0], B.r[2]) || 1, fh = Math.hypot(B.f[0], B.f[2]) || 1;
@@ -761,7 +779,14 @@ function rodPressure(){
   return { w: [wx/wl, wz/wl], m };
 }
 const LAND_ST = 0.4;   // fish strength below which it can be landed (marked on the gauge)
-function ringRadius(){ return 0.2*Math.min(innerWidth, innerHeight); }
+// the fight ring's centre (touch screens: the gauges go to the top centre, so nothing sits over the joystick below)
+function fightC(){ return [innerWidth/2, innerHeight*(TOUCH.on ? 0.4 : 0.5)]; }
+// touch (portrait only): the gauges sit in rows right under the ring, the name at the left of each bar (the top stays clear)
+function fightRows(){
+  const C = fightC(), R = ringRadius(), w = Math.min(innerWidth - 32, 330), lw = 84;
+  return { x: C[0] - w/2, w, lw, y1: C[1] + R + 26, y2: C[1] + R + 50 };
+}
+function ringRadius(){ return (TOUCH.on ? 0.19 : 0.2)*Math.min(innerWidth, innerHeight); }
 /* timing taps during the fight: a white ring closes in on the dashed "pull here" circle; tap (click, Space, touch)
    the moment it touches it. The closer the timing, the more of the fish's strength it takes and the harder the
    camera shakes. PERFECT / GREAT / GOOD hurt the fish, BAD (or no tap) lets it recover a little. */
@@ -781,7 +806,7 @@ function updateQTE(dt){
   const Q = F.qte;
   if (!Q){
     // shrink time 1.4 s (weak fish) … 0.7 s (strongest pull), a little random
-    if (f.stamina > 0.12 && (F.qteT -= dt) <= 0) F.qte = { t: 0, T: lerp(1.4, 0.7, clamp((f.pull - 0.15)/1.0, 0, 1))*rand(0.92, 1.08), r0: 130 + 40*Math.random() };
+    if (f.stamina > 0.12 && (F.qteT -= dt) <= 0) F.qte = { t: 0, T: lerp(1.4, 0.7, clamp((f.pull - 0.15)/1.0, 0, 1))*rand(0.92, 1.08), r0: rand(1.75, 1.95) };   // r0: × the big ring
     return;
   }
   Q.t += dt;
@@ -792,22 +817,20 @@ function judgeQTE(J, missed){
   F.qte = null; F.qteT = rand(2.5, 5);
   f.stamina = clamp(f.stamina - J.dmg/Math.sqrt(f.endur), 0, 1);
   if (J.dmg > 0) F.hpHold = 0;
-  F.pop = { text: missed ? 'MISS' : J.name, col: J.col, size: J.size, t: 0 };
+  F.pop = { text: missed ? 'MISS' : J.name, col: J.col, size: J.size, t: 0, rank: missed ? 4 : JUDGE.indexOf(J), seed: Math.random()*TAU };
   SHAKE.kick = Math.max(SHAKE.kick || 0, J.shake);
   padRumble(J.shake*0.5, J.shake*0.4, 120 + J.shake*120, 30 + J.shake*50);
-  if (J === JUDGE[0]){ sfx.hit(); setTimeout(() => sfx.hit(), 90); }
-  else if (J === JUDGE[1]) sfx.hit();
-  else if (J === JUDGE[2]) sfx.click(0.08);
-  else sfx.drag();
+  sfx.judge(missed ? 4 : JUDGE.indexOf(J));
   if (J.dmg > 0.05){ Rn.splash(f.pos[0], f.pos[2], 0.12 + 0.1*f.len, 0.03 + 0.04*J.shake); sprayBurst(f.pos, f.len, 0.5 + 0.5*J.shake); }
 }
-function qteTap(x, y){
-  const Q = G.fight && G.fight.qte; if (G.state !== 'hooked' || !Q) return;
-  const P = G.fight.qtePos; if (!P || Math.hypot(x - P[0], y - P[1]) > qteTgtR()*1.8 + 14) return;   // only a tap on / near the target
-  if (Q.t < Q.T*0.45) return;                       // far too early: that press is just reeling
-  const off = Math.abs(Q.t - Q.T);
-  judgeQTE(JUDGE.find(J => off <= J.win));
+// on a touch screen the joystick (or the action button) answers the closing ring: its timing counts, not where it is
+function qteTapAny(){
+  const Q = G.fight && G.fight.qte; if (G.state !== 'hooked' || !Q || Q.t < Q.T*0.45) return false;
+  judgeQTE(JOY_JUDGE(Math.abs(Q.t - Q.T))); return true;
 }
+function JOY_JUDGE(off){ return JUDGE.find(J => off <= J.win) || JUDGE[JUDGE.length - 1]; }
+// the closing ring is answered by a click / tap anywhere (not on a button): only the timing counts
+function qteTap(x, y){ qteTapAny(); }
 window.addEventListener('pointerdown', e => { if (G.state === 'hooked' && !(e.target.closest && e.target.closest('button, .modal, #menu, #itempop'))) qteTap(e.clientX, e.clientY); }, true);
 function updateFight(dt){
   const f = G.hooked, F = G.fight, sp = f.sp, tip = tipXZ();
@@ -912,10 +935,15 @@ function landFish(){
   else netMsg = '살림망이 가득 차 방생했어요 — 판매하세요';
   fishes.splice(fishes.indexOf(f), 1);
   G.hooked = null; G.fight = null; G.state = 'result';
+  $('cardblock').hidden = false;   // nothing else can be pressed until the card is closed
+  { const d = norm(sub(cam.look, cam.pos)); G.aimYaw = Math.atan2(d[0], -d[2]); G.aimPitch = -0.12; G.lookX = G.lookY = 0;   // the view settles on the catch and stays put
+    const v = boatView(); cam.pos = v.pos.slice(); cam.look = v.look.slice(); }
   G.landed = { id: sp.id, len: f.len, weight: f.weight, t: 0, ph: 0, amp: 0.5, bend: 0, burst: 1, sw: 0, swV: 0, tw: rand(0, TAU) };   // hangs off the rod, flapping, while the card shows
   Rn.splash(f.pos[0], f.pos[2], 0.2, 0.05); sprayBurst(f.pos, f.len, 1.3); sfx.splash(0.6); if (!playS('catch')) sfx.win();
-  showCard(rec, isBest && !!prev, !prev);
-  if (netMsg) setTimeout(() => say(netMsg, 3, 'bad'), 400);
+  // the catch is held up first; the card follows 1.5 s later (taps in between don't skip it)
+  G.cardPending = true;
+  setTimeout(() => { G.cardPending = false; if (G.state === 'result') showCard(rec, isBest && !!prev, !prev); }, 1500);
+  if (netMsg) setTimeout(() => say(netMsg, 3, 'bad'), 1900);
   questEvent({ type: 'catch', rec });
   updateLog(); save(); pushRankSoon();
 }
@@ -940,7 +968,7 @@ function showCard(r, record, first){
   const pic = ph ? img : cv;
   const parts = [pic, cred, q('.sp'), q('.latin'), q('.stats'), q('.pts'), q('.badge'), q('.tipc'), q('.foot')];
   for (const el of parts) el.style.opacity = 0;
-  c.hidden = false; CARD.running = true;
+  c.hidden = false; CARD.running = true; $('cardblock').hidden = false;
   const K = CARD.slow;
   const show = (el, kf, dur) => { el.style.opacity = ''; el.animate(kf || [{ opacity: 0, transform: 'translateY(8px)' }, { opacity: 1, transform: 'none' }], { duration: (dur || 320)*K, easing: 'cubic-bezier(.2,.8,.3,1)' }); };
   const at = (ms, fn) => CARD.timers.push(setTimeout(() => { if (CARD.seq === seq) fn(); }, ms*K));
@@ -1003,9 +1031,11 @@ function mosaicReveal(img, seq, dur){
   if (img.complete && img.naturalWidth) go(); else img.onload = () => { img.onload = null; if (CARD.seq === seq) go(); };
 }
 function hideCard(){
+  if (G.cardPending) return;
   if (CARD.running && CARD.finish){ CARD.finish(); return; }
   CARD.timers.forEach(clearTimeout); CARD.timers = []; CARD.seq++;
   $('card').hidden = true; if (G.state === 'result') G.state = 'idle';
+  $('cardblock').hidden = true;
   G.landed = null;
   if (G.toNet){ G.toNet = false; playS('net', { gain: 0.8 }); }   // the catch goes into the keep net
 }
@@ -1178,8 +1208,8 @@ const HELP = {
     ? '찌를 지켜보세요 · 찌가 <b>쑥 잠기거나 올라오면 클릭</b>(챔질) · <b>휠</b> 수심 · <b>우클릭 드래그</b> 시점 · <b>R</b> 회수'
     : '<b>누르고 있으면 릴 감기</b> · 감다 멈추기로 액션을 주세요 · <b>휠</b> 드랙 · <b>우클릭 드래그</b> 시점 · <b>R</b> 회수',
   hooked: () => G.mode === 'pole'
-    ? '마우스를 <b>물고기 진행 방향의 반대쪽</b>으로! · <b>누르면 들어올리기</b> (장력 주의)'
-    : '마우스를 <b>물고기 진행 방향의 반대쪽</b>으로! · <b>누르면 릴 감기</b> · <b>휠</b> 드랙',
+    ? '마우스를 <b>물고기 진행 방향의 반대쪽</b>으로! · <b>누르면 들어올리기</b> · 원이 겹칠 때 <b>클릭</b>'
+    : '마우스를 <b>물고기 진행 방향의 반대쪽</b>으로! · <b>누르면 릴 감기</b> · 원이 겹칠 때 <b>클릭</b> · <b>휠</b> 드랙',
   result: () => '<b>클릭</b>하여 계속',
 };
 let lastHelp = '';
@@ -1188,18 +1218,19 @@ const HELP_TOUCH = {
   charge: () => '손을 떼면 던집니다',
   fly: () => '',
   wait: () => G.mode === 'pole' ? '찌가 <b>쑥 잠기거나 올라오면 챔질</b> (화면 탭도 가능) · +/− 수심' : '<b>감기</b>를 누르고 있기 · 감다 멈추기로 액션 · +/− 드랙',
-  hooked: () => `가운데 조그를 <b>누른 채</b> ${G.mode === 'pole' ? '들기' : '감기'} · <b>물고기 반대쪽</b>으로 밀기`,
+  hooked: () => G.fight && G.fight.t > 3 ? '' : `조그를 <b>누른 채</b> ${G.mode === 'pole' ? '들기' : '감기'} · <b>물고기 반대쪽</b>으로 밀기 · 원이 겹칠 때 <b>터치</b>`,   // shown for the first seconds only
   result: () => '탭하여 계속',
   boat: () => '<b>조그</b> 위: 전진 · 아래: 후진 · 좌우: 조향 · 드래그 시점 · 오른쪽 아래 🎣 낚시',
 };
-function updateHelp(){ const h = (TOUCH.on ? HELP_TOUCH : HELP)[G.state](); if (h !== lastHelp){ $('help').innerHTML = h; lastHelp = h; } }
+function updateHelp(){ if ($('cardblock').hidden === (G.state === 'result')) $('cardblock').hidden = G.state !== 'result'; const h = (TOUCH.on ? HELP_TOUCH : HELP)[G.state](); if (h !== lastHelp){ $('help').innerHTML = h; lastHelp = h; } }
 
 /* ---------------- input ---------------- */
 const hud = $('hud'), ctx = hud.getContext('2d');
 hud.addEventListener('contextmenu', e => e.preventDefault());
 /* touch: one finger on the scene looks around (or leans on the rod while fighting); tap = hook set / continue */
 const TOUCH = { on: false, id: null, x0: 0, y0: 0, t0: 0, moved: false };
-function enableTouch(){ if (TOUCH.on) return; TOUCH.on = true; document.body.classList.add('touch'); lastHelp = ''; }
+function enableTouch(){ if (TOUCH.on) return; TOUCH.on = true; document.body.classList.add('touch'); lastHelp = '';
+  try { screen.orientation && screen.orientation.lock && screen.orientation.lock('portrait').catch(() => {}); } catch(e){} }
 if (matchMedia('(pointer: coarse)').matches) enableTouch();
 function touchDown(e){
   hud.setPointerCapture(e.pointerId);
@@ -1210,7 +1241,7 @@ function touchDown(e){
 function touchUp(e){
   if (e.pointerId !== TOUCH.id) return;
   TOUCH.id = null; mouse.rdown = false;
-  if (G.state === 'hooked' && !JOY.active){ mouse.x = innerWidth/2; mouse.y = innerHeight/2; }
+  if (G.state === 'hooked' && !JOY.active){ const C = fightC(); mouse.x = C[0]; mouse.y = C[1]; }
   if (!TOUCH.moved && performance.now() - TOUCH.t0 < 350){
     if (G.state === 'wait' && G.mode === 'pole'){ press(); mouse.down = false; }
     else if (G.state === 'result') hideCard();
@@ -1308,6 +1339,7 @@ window.addEventListener('keyup', e => {
   if (isEsc(e)){ if (!escSeen) onEsc(); escSeen = false; }
   keys[e.code] = false; if (e.code === 'Space' && mouse.down){ mouse.down = false; release(); } });
 $('card').addEventListener('pointerdown', e => { e.stopPropagation(); hideCard(); });
+$('cardblock').addEventListener('pointerdown', e => { e.preventDefault(); e.stopPropagation(); hideCard(); });
 $('retrieve').addEventListener('click', e => { e.stopPropagation(); retrieve(); });
 /* joystick (조그) */
 const JOY = { x: 0, y: 0, active: false, id: null, wasFight: false };
@@ -1321,16 +1353,18 @@ function joyMove(e){
   JOY.x = x; JOY.y = y; knob.style.transform = `translate(${x*R*0.8}px, ${y*R*0.8}px)`;
 }
 joyEl.addEventListener('pointerdown', e => { e.preventDefault(); audioInit(); joyEl.setPointerCapture(e.pointerId); JOY.pad = false; JOY.active = true; JOY.id = e.pointerId; joyEl.classList.add('on'); joyMove(e);
+  qteTapAny();
   // fighting: the centre joystick also reels / lifts while it is held
   if (G.state === 'hooked' && !mouse.down){ mouse.down = true; mouse.downT = G.time; press(); } });
 joyEl.addEventListener('pointermove', e => { if (JOY.active && e.pointerId === JOY.id) joyMove(e); });
+// letting go springs the knob (and in a fight the pull point) back to the centre
 const joyUp = e => { if (e.pointerId !== JOY.id) return; JOY.active = false; JOY.id = null; JOY.x = JOY.y = 0; knob.style.transform = ''; joyEl.classList.remove('on');
-  if (G.state === 'hooked'){ mouse.x = innerWidth/2; mouse.y = innerHeight/2; }
+  if (G.state === 'hooked'){ const C = fightC(); mouse.x = C[0]; mouse.y = C[1]; }
   if (mouse.down && !act.classList.contains('down')){ mouse.down = false; release(); } };
 joyEl.addEventListener('pointerup', joyUp); joyEl.addEventListener('pointercancel', joyUp);
 function applyJoy(dt){
   if (G.state === 'hooked'){
-    if (JOY.active){ const R = ringRadius(); mouse.x = innerWidth/2 + JOY.x*R; mouse.y = innerHeight/2 + JOY.y*R; }
+    if (JOY.active){ const R = ringRadius(), C = fightC(); mouse.x = C[0] + JOY.x*R; mouse.y = C[1] + JOY.y*R; }
     return;
   }
   if (!JOY.active || G.state === 'boat') return;
@@ -1343,6 +1377,7 @@ const act = $('act');
 act.addEventListener('pointerdown', e => {
   e.preventDefault(); e.stopPropagation(); audioInit(); act.setPointerCapture(e.pointerId); act.classList.add('down');
   if (G.state === 'boat'){ setNav(false); return; }
+  if (G.state === 'hooked') qteTapAny();
   if (!mouse.down){ mouse.down = true; mouse.downT = G.time; press(); }
 });
 // hook set → fight without lifting the finger: while fighting, the held cast button steers like the joystick
@@ -1352,7 +1387,7 @@ act.addEventListener('pointermove', e => {
   joyMove(e);
 });
 const actUp = e => { act.classList.remove('down');
-  if (JOY.id === 'act'){ JOY.active = false; JOY.id = null; JOY.x = JOY.y = 0; knob.style.transform = ''; joyEl.classList.remove('on'); if (G.state === 'hooked'){ mouse.x = innerWidth/2; mouse.y = innerHeight/2; } }
+  if (JOY.id === 'act'){ JOY.active = false; JOY.id = null; JOY.x = JOY.y = 0; knob.style.transform = ''; joyEl.classList.remove('on'); if (G.state === 'hooked'){ const C = fightC(); mouse.x = C[0]; mouse.y = C[1]; } }
   if (mouse.down){ mouse.down = false; release(); } };
 act.addEventListener('pointerup', actUp); act.addEventListener('pointercancel', actUp);
 act.addEventListener('contextmenu', e => e.preventDefault());
@@ -1593,11 +1628,14 @@ function landedPose(){
   const tf = Math.tan(Math.PI/6), asp = innerWidth/innerHeight;
   const hand = add(add(add(e, mul(rgt, pole ? 0.26 : 0.2)), [0, pole ? -0.42 : -0.24, 0]), mul(norm([f[0], 0, f[2]]), pole ? 0.32 : 0.48));
   const elDes = pole ? 1.13 : 0.96;
-  const dh = Math.min(R*0.92, Math.max(R*Math.cos(elDes), L.len*1.7));   // horizontal reach of the tip from the hand
+  const hf = pole ? 0.32 : 0.48;   // the hand is this far ahead of the eye
+  // horizontal reach of the tip from the hand; held 1.5x closer to the eye than a relaxed reach so the fish looks big
+  const dh = Math.max(0.3, Math.min(R*0.92, (Math.max(R*Math.cos(elDes), L.len*1.7) + hf)/1.5 - hf));
   const el = Math.acos(dh/R);
   // azimuth: the tip (and the fish) at the screen spot left of the card, at the tip's distance
-  const px = 160 + clamp(0.18*innerWidth, 140, 340), nx = -Math.min(0.8, px/(innerWidth/2));
-  const fh = norm([f[0], 0, f[2]]), Dc = dh + (pole ? 0.32 : 0.48);
+  // PC: just left of the card; touch screens: the middle of the view
+  const px = 160 + clamp(0.18*innerWidth, 140, 340), nx = TOUCH.on ? 0 : -Math.min(0.8, px/(innerWidth/2));
+  const fh = norm([f[0], 0, f[2]]), Dc = dh + hf;
   const C = add(add(e, mul(fh, Dc)), mul(rgt, nx*asp*tf*Dc));
   const yaw = Math.atan2(C[0] - hand[0], -(C[2] - hand[2]));
   const pitch = Math.asin(clamp(f[1], -0.9, 0.9));
@@ -1809,7 +1847,7 @@ function drawHUD(){
       sideLabels(`수심 ${fmtD(-L.pos[1])}m`, `거리 ${dist2(L.pos, BOAT.pos).toFixed(1)}m`, s[0], s[1] + 4, 34, 'rgba(255,255,255,.85)', 12); }
     if (G.strike){ const q = Rn.project([L.pos[0], 0.2, L.pos[2]]); if (q) label('바이트!', q[0], q[1] - 10, '#ffdf4a', 22); }
   }
-  if (G.state === 'hooked') drawFightRing(cx, cy);
+  if (G.state === 'hooked'){ const C = fightC(); drawFightRing(C[0], C[1]); }
   updateGauges();
 }
 function drawFightRing(cx, cy){
@@ -1827,44 +1865,64 @@ function drawFightRing(cx, cy){
     ctx.strokeStyle = 'rgba(255,90,70,.95)'; ctx.fillStyle = 'rgba(255,90,70,.95)'; ctx.lineWidth = 5;
     ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(x1 + dx*14, y1 + dy*14); ctx.lineTo(x1 - dy*10, y1 + dx*10); ctx.lineTo(x1 + dy*10, y1 - dx*10); ctx.fill();
-    label('물고기', x1 + dx*34, y1 + dy*34 + 5, '#ff8a70', 13);
-    // ideal counter direction hint
+    const lo = TOUCH.on ? 20 : 34; label('물고기', x1 + dx*lo, y1 + dy*lo + 5, '#ff8a70', 13);
+    // ideal counter direction: where to pull (dashed)
     const tx = cx - dx*R, ty = cy - dy*R;
-    ctx.setLineDash([4, 6]); ctx.strokeStyle = F.qte ? 'rgba(255,255,255,.95)' : 'rgba(110,230,140,.6)'; ctx.lineWidth = 2;
-    const tr = qteTgtR();
-    ctx.beginPath(); ctx.arc(tx, ty, tr, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
-    // timing ring closing in on the target
-    const Q = F.qte;
-    if (Q){
-      const k = clamp(Q.t/Q.T, 0, 1.3), r = Math.max(2, tr + (Q.r0 - tr)*(1 - k));
-      const near = Math.abs(Q.t - Q.T) < JUDGE[1].win;
-      ctx.lineWidth = near ? 5 : 3.5; ctx.strokeStyle = `rgba(255,255,255,${(0.35 + 0.6*Math.min(1, k)).toFixed(2)})`;
-      ctx.beginPath(); ctx.arc(tx, ty, r, 0, TAU); ctx.stroke();
-      ctx.fillStyle = `rgba(255,255,255,${(0.06 + 0.12*Math.min(1, k)).toFixed(2)})`; ctx.beginPath(); ctx.arc(tx, ty, r, 0, TAU); ctx.fill();
-      F.qtePos = [tx, ty];
-      // a finger in the target: tap here
-      // big, shadowed, tapping up and down with its fingertip on the centre of the target
-      const fs = Math.max(34, tr*2.4), bob = Math.abs(Math.sin(G.time*7))*fs*0.18;
-      ctx.save(); ctx.font = `${Math.round(fs)}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      ctx.fillStyle = '#fff'; ctx.globalAlpha = 0.8;   // the ring's faint fill colour was being applied to the emoji: 80% opaque now
-      ctx.shadowColor = 'rgba(0,0,0,.75)'; ctx.shadowBlur = 10; ctx.shadowOffsetY = 2;
-      ctx.fillText('👆', tx + fs*0.12, ty - fs*0.05 + bob); ctx.restore();
-    } else F.qtePos = [tx, ty];
-    if (F.pop && F.qtePos){
-      const P = F.pop, sc = P.t < 0.12 ? 0.6 + 0.6*P.t/0.12 : 1.2 - 0.2*Math.min(1, (P.t - 0.12)/0.2);
-      ctx.save(); ctx.globalAlpha = P.t < 0.6 ? 1 : 1 - (P.t - 0.6)/0.3;
-      ctx.font = `900 ${Math.round(P.size*sc)}px system-ui, sans-serif`; ctx.textAlign = 'center';
-      ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.strokeText(P.text, F.qtePos[0], F.qtePos[1] - 30 - P.t*30);
-      ctx.fillStyle = P.col; ctx.fillText(P.text, F.qtePos[0], F.qtePos[1] - 30 - P.t*30); ctx.restore();
+    ctx.setLineDash([4, 6]); ctx.strokeStyle = 'rgba(110,230,140,.6)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(tx, ty, qteTgtR(), 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+  }
+  // timing: a ring closes in on the big ring from outside; click / tap anywhere as it meets it
+  const Q = F.qte;
+  if (Q){
+    const k = clamp(Q.t/Q.T, 0, 1.3), r = R*(1 + (Q.r0 - 1)*(1 - k));
+    const near = Math.abs(Q.t - Q.T) < JUDGE[1].win;
+    ctx.setLineDash([6, 6]); ctx.lineWidth = near ? 4 : 2.5; ctx.strokeStyle = near ? 'rgba(255,240,150,.95)' : 'rgba(255,255,255,.8)';
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+    ctx.lineWidth = near ? 6 : 4; ctx.strokeStyle = `rgba(255,255,255,${(0.35 + 0.6*Math.min(1, k)).toFixed(2)})`;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.stroke();
+    ctx.fillStyle = `rgba(255,255,255,${(0.04 + 0.08*Math.min(1, k)).toFixed(2)})`; ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.arc(cx, cy, R, 0, TAU, true); ctx.fill();
+    F.qtePos = [cx, cy];
+    // a finger in the middle: tap anywhere
+    const fs = Math.max(30, R*0.28), bob = Math.abs(Math.sin(G.time*7))*fs*0.18;
+    ctx.save(); ctx.font = `${Math.round(fs)}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff'; ctx.globalAlpha = 0.7;
+    ctx.shadowColor = 'rgba(0,0,0,.75)'; ctx.shadowBlur = 10; ctx.shadowOffsetY = 2;
+    ctx.fillText('👆', cx, cy + bob); ctx.restore();   // in the middle of the ring
+  }
+  // judgement feedback in the middle: the word, a shockwave in its colour, sparks for the best hits
+  if (F.pop){
+    const P = F.pop, t = P.t, fade = t < 0.5 ? 1 : Math.max(0, 1 - (t - 0.5)/0.4);
+    const sc = t < 0.1 ? 0.5 + 0.9*t/0.1 : 1.4 - 0.3*Math.min(1, (t - 0.1)/0.2);
+    ctx.save();
+    const rank = P.rank ?? 3, waves = rank === 0 ? 3 : rank === 1 ? 2 : 1;
+    for (let i = 0; i < waves; i++){
+      const tt = t - i*0.08; if (tt <= 0) continue;
+      const rr = R*(0.3 + tt*(rank <= 1 ? 2.2 : 1.4)), al = Math.max(0, 0.9 - tt*1.4);
+      ctx.globalAlpha = al; ctx.strokeStyle = P.col; ctx.lineWidth = (rank === 0 ? 8 : 5)*(1 - Math.min(1, tt));
+      ctx.beginPath(); ctx.arc(cx, cy, rr, 0, TAU); ctx.stroke();
     }
+    if (rank <= 1){   // sparks
+      const n = rank === 0 ? 16 : 10;
+      for (let i = 0; i < n; i++){
+        const an = i/n*TAU + (P.seed || 0), d0 = R*(0.25 + t*1.6), d1 = d0 + R*0.18*(1 - Math.min(1, t*1.5));
+        ctx.globalAlpha = Math.max(0, 1 - t*1.8); ctx.strokeStyle = i % 2 ? '#fff' : P.col; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(cx + Math.cos(an)*d0, cy + Math.sin(an)*d0); ctx.lineTo(cx + Math.cos(an)*d1, cy + Math.sin(an)*d1); ctx.stroke();
+      }
+    }
+    if (t < 0.15 && rank <= 1){ ctx.globalAlpha = (1 - t/0.15)*0.35; ctx.fillStyle = P.col; ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill(); }   // flash
+    ctx.globalAlpha = fade;
+    ctx.font = `900 ${Math.round(P.size*1.3*sc)}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.strokeText(P.text, cx, cy - R*0.05 - t*16);
+    ctx.fillStyle = P.col; ctx.fillText(P.text, cx, cy - R*0.05 - t*16);
+    ctx.restore();
   }
   // angler's rod pressure
   let ox = mouse.x - cx, oy = mouse.y - cy; const ol = Math.hypot(ox, oy); if (ol > R){ ox *= R/ol; oy *= R/ol; }
   ctx.strokeStyle = `rgba(${col},.9)`; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(cx, cy); ctx.lineTo(cx + ox, cy + oy); ctx.stroke();
   ctx.fillStyle = `rgba(${col},1)`; ctx.beginPath(); ctx.arc(cx + ox, cy + oy, 9, 0, TAU); ctx.fill();
   // stamina
-  const w = R*1.4, x = cx - w/2, y = cy + R + 26;
+  const rows = TOUCH.on ? fightRows() : null;
+  const w = rows ? rows.w - rows.lw : R*1.4, x = rows ? rows.x + rows.lw : cx - w/2, y = rows ? rows.y1 - 3 : cy + R + 26;
   ctx.fillStyle = 'rgba(0,0,0,.35)'; ctx.fillRect(x-2, y-2, w+4, 10);
   // action-game HP bar: the lost chunk shows yellow and drains after the red front
   ctx.fillStyle = '#ffd84a'; ctx.fillRect(x, y, w*(F.hpLag ?? f.stamina), 6);
@@ -1874,7 +1932,11 @@ function drawFightRing(cx, cy){
   ctx.strokeStyle = 'rgba(255,255,255,.9)'; ctx.lineWidth = 2; ctx.beginPath(); ctx.moveTo(lx, y - 5); ctx.lineTo(lx, y + 11); ctx.stroke();
   // distance to the fish, in the middle of the ring
   label(`${dist2(f.pos, BOAT.pos).toFixed(1)}m`, cx, cy + R*0.12 + 18, '#fff', 15);
-  label(f.stamina < LAND_ST ? '물고기가 지쳤다! 끌어오세요' : '물고기 힘', cx, y + 24, f.stamina < LAND_ST ? '#8ff0a8' : '#fff', 13);
+  if (rows){   // name at the left of the bar; the tired call goes under the row
+    ctx.save(); ctx.font = '600 12px system-ui, sans-serif'; ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.strokeText('물고기 힘', x - 8, y + 3); ctx.fillStyle = '#fff'; ctx.fillText('물고기 힘', x - 8, y + 3); ctx.restore();
+    if (f.stamina < LAND_ST) label('물고기가 지쳤다! 끌어오세요', cx, cy - R - 14, '#8ff0a8', 13);
+  } else label(f.stamina < LAND_ST ? '물고기가 지쳤다! 끌어오세요' : '물고기 힘', cx, y + 24, f.stamina < LAND_ST ? '#8ff0a8' : '#fff', 13);
 }
 let gaugeCache = '';
 function updateGauges(){
@@ -1889,6 +1951,9 @@ function updateGauges(){
   const lk = lineKg();
   // tension: only during the fight, or for a moment after setting the lure reel's drag with the wheel
   $('tcenter').hidden = !(G.state === 'hooked' || (G.mode === 'lure' && (G.dragShowT || 0) > G.time));
+  { const tc = $('tcenter'), rows = TOUCH.on && !tc.hidden ? fightRows() : null;
+    document.body.classList.toggle('trow', !!rows);
+    if (rows){ tc.style.top = (rows.y2 - 7) + 'px'; tc.style.width = rows.w + 'px'; } else { tc.style.top = ''; tc.style.width = ''; } }
   if (G.state === 'boat'){
     const hdg = ((BOAT.heading*180/Math.PI) % 360 + 360) % 360;
     lines.push(`<div><span>속도</span><b>${(Math.abs(G.boatV)*1.944).toFixed(1)}노트</b></div>`);
@@ -3156,7 +3221,7 @@ function pollPad(dt){
   if (btn(0) || btn(1) || lx || ly || rx || ry) audioInit();
   // left stick = the on-screen joystick (aim, fight direction, boat)
   if (lx || ly){ JOY.pad = true; JOY.active = true; JOY.x = lx; JOY.y = ly; }
-  else if (JOY.pad){ JOY.pad = false; JOY.active = false; JOY.x = JOY.y = 0; if (G.state === 'hooked'){ mouse.x = innerWidth/2; mouse.y = innerHeight/2; } }
+  else if (JOY.pad){ JOY.pad = false; JOY.active = false; JOY.x = JOY.y = 0; if (G.state === 'hooked'){ const C = fightC(); mouse.x = C[0]; mouse.y = C[1]; } }
   // right stick = look around
   if (!G.mapOpen && (rx || ry)){
     const lk = LOOK()*dt, iy = INV(), ix = INVX();
