@@ -1477,6 +1477,7 @@ function touchUp(e){
 }
 hud.addEventListener('pointerdown', e => {
   audioInit();
+  if (inSonar(e.clientX, e.clientY) && (e.pointerType === 'touch' || e.button === 0)){ e.preventDefault(); sonarHelp(); return; }
   if (e.pointerType === 'touch'){ enableTouch(); touchDown(e); return; }
   mouse.x = e.clientX; mouse.y = e.clientY;
   if (e.button === 2 || e.button === 1 || e.pointerType === 'touch' && e.isPrimary === false){ mouse.rdown = true; mouse.lx = e.clientX; mouse.ly = e.clientY; return; }
@@ -2669,8 +2670,8 @@ function idleOnly(what){ if (G.state === 'aquarium') return true; if (G.state ==
 for (const b of document.querySelectorAll('.mclose')) b.addEventListener('click', e => { e.stopPropagation(); closeModal(); });
 for (const id of ['questm', 'rankm', 'dexm', 'setm', 'netm', 'dbgm']) $(id).addEventListener('pointerdown', e => { if (e.target === $(id)) closeModal(); });
 $('confirm').addEventListener('pointerdown', e => { if (e.target === $('confirm')) $('cno').click(); });
-function confirmBox(html, yes, onYes, onNo){
-  openModal('confirm'); $('ctext').innerHTML = html; $('cyes').textContent = yes;
+function confirmBox(html, yes, onYes, onNo, single){
+  openModal('confirm'); $('cno').hidden = !!single; $('ctext').innerHTML = html; $('cyes').textContent = yes;
   $('cyes').onclick = e => { e.stopPropagation(); onYes(); };
   $('cno').onclick = e => { e?.stopPropagation?.(); if (onNo) onNo(); else closeModal(); };
 }
@@ -2972,6 +2973,24 @@ function updateEngine(){
 }
 
 /* ---------------- sonar (fish finder) ---------------- */
+// tap / click the fish finder: what each part of it means (and what this level shows)
+function inSonar(x, y){ const r = SONAR.rect; return !!r && (G.state === 'boat' || G.state === 'idle') && x >= r[0] && x <= r[0] + r[2] && y >= r[1] && y <= r[1] + r[3]; }
+function sonarHelp(){
+  const lv = P.tier.sonar, dot = c => `<i style="display:inline-block;width:10px;height:10px;border-radius:2px;background:${c};margin-right:4px;vertical-align:-1px"></i>`;
+  const row = (on, t) => `<li style="margin:4px 0;${on ? '' : 'opacity:.45'}">${t}${on ? '' : ' <span style="font-size:11px">(업그레이드 필요)</span>'}</li>`;
+  confirmBox(`<b>📡 어탐기 보는 법</b> <span style="opacity:.7;font-size:12px">Lv.${lv + 1} ${tierOf('sonar').name}</span>
+    <ul style="text-align:left;font-size:13px;line-height:1.45;padding-left:18px;margin:10px 0 0">
+      ${row(true, '<b>오른쪽 위 숫자</b> — 지금 배 밑의 수심')}
+      ${row(true, '<b>가로</b> — 시간: 오른쪽 끝이 지금, 왼쪽으로 갈수록 지나온 자리')}
+      ${row(true, '<b>세로 눈금</b> — 수심(m). 아래로 갈수록 깊어요')}
+      ${row(true, `${dot('#ff5a2a')}<b>주황·갈색 띠</b> — 바닥. 띠가 오르내리면 바닥이 얕아지거나 깊어지는 것`)}
+      ${row(true, `${dot('#ffd84a')}<b>점</b> — 물고기. 점이 있는 높이가 물고기가 있는 수심`)}
+      ${row(lv >= 3, `<b>점 색 = 크기</b>: ${dot('#8ff0a8')}25cm 미만 ${dot('#ffd84a')}25–50cm ${dot('#ff3b3b')}50cm–1.2m ${dot('#ff3bd4')}1.2m 이상 <span style="opacity:.7">(Lv.4~)</span>`)}
+      ${row(lv >= 6, '<b>아래 노란 글씨</b> — 배 밑 가장 큰 물고기의 어종 · 크기 · 수심 <span style="opacity:.7">(Lv.7~)</span>')}
+      ${row(lv >= 8, '<b>아래 초록 글씨</b> — 배 밑에서 잡히는 물고기 마릿수 <span style="opacity:.7">(Lv.9~)</span>')}
+      ${row(true, `<b>탐지 범위</b> — 배 주변 ${lv ? '+' + lv*12 + '%' : '기본'} (레벨마다 12%씩 넓어져요)`)}
+    </ul>`, '확인', () => closeModal(), null, true);
+}
 const SONAR = { cols: [], t: 0, W: 176 };
 function updateSonar(dt){
   SONAR.t -= dt*(0.4 + Math.abs(G.boatV)*0.6);
@@ -2985,12 +3004,14 @@ function updateSonar(dt){
   if (SONAR.cols.length > SONAR.W) SONAR.cols.shift();
 }
 function drawSonar(){
+  SONAR.rect = null;   // only a finder drawn this frame takes taps
   const W = TOUCH.on ? 132 : SONAR.W, H = TOUCH.on ? (hudH < 500 ? 56 : 70) : 96, x0 = TOUCH.on ? hudW - W - 16 : 16;
   // desktop: sits right above the gauge panel (bottom-left); touch: under the quest tracker
   if (TOUCH.on && G.state !== 'boat') return;   // on phones the fish finder only shows while driving the boat
   // phones: top-right under the top line, the boat readout goes under it
-  const y0 = TOUCH.on ? $('topline').getBoundingClientRect().bottom + 30 : $('gauges').getBoundingClientRect().top - H - 18;
-  SONAR.bottom = y0 + H + 8;
+  const info = P.tier.sonar >= 6 ? 18 : 0;   // Lv.7+: a strip under the chart for the biggest fish / count (never over the echoes)
+  const y0 = TOUCH.on ? $('topline').getBoundingClientRect().bottom + 30 : $('gauges').getBoundingClientRect().top - H - 18 - info;
+  SONAR.bottom = y0 + H + 8 + info;
   if (hudW < 520 && !TOUCH.on) return;
   let maxD = 5; for (const c of SONAR.cols) maxD = Math.max(maxD, c.d);
   // the range eases toward the next step instead of snapping (5 → 10 → 20 …)
@@ -2999,9 +3020,10 @@ function drawSonar(){
   SONAR.range = SONAR.range ? SONAR.range + (want - SONAR.range)*Math.min(1, (SONAR.dt || 0.016)*3) : want;
   const range = SONAR.range;
   ctx.save();
-  ctx.fillStyle = 'rgba(4,14,22,.82)'; ctx.fillRect(x0 - 6, y0 - 22, W + 12, H + 30);
+  ctx.fillStyle = 'rgba(4,14,22,.82)'; ctx.fillRect(x0 - 6, y0 - 22, W + 12, H + 30 + info);
+  SONAR.rect = [x0 - 6, y0 - 22, W + 12, H + 30 + info];   // tap / click it for the legend
   const top = y0, sy = H/range;
-  ctx.beginPath(); ctx.rect(x0 - 6, y0 - 22, W + 12, H + 30); ctx.clip();
+  ctx.beginPath(); ctx.rect(x0 - 6, y0 - 22, W + 12, H + 30 + info); ctx.clip();
   const g = ctx.createLinearGradient(0, top, 0, top + H); g.addColorStop(0, '#0b3c6e'); g.addColorStop(1, '#041a33');
   ctx.fillStyle = g; ctx.fillRect(x0, top, W, H);
   const n = Math.min(SONAR.cols.length, W), off = SONAR.cols.length - n;
@@ -3024,8 +3046,8 @@ function drawSonar(){
   if (P.tier.sonar >= 6 && n){
     const last = SONAR.cols[SONAR.cols.length - 1].echoes;
     if (last.length){ const big = last.reduce((a, b) => b[1] > a[1] ? b : a); ctx.textAlign = 'left'; ctx.font = '700 11px system-ui, sans-serif'; ctx.fillStyle = '#ffd84a';
-      ctx.fillText(`${big[2]} ${Math.round(big[1]*100)}cm · ${big[0].toFixed(1)}m`, x0 + 2, top + H - 4); }
-    if (P.tier.sonar >= 8){ ctx.textAlign = 'right'; ctx.font = '700 11px system-ui, sans-serif'; ctx.fillStyle = '#8ff0a8'; ctx.fillText(`${last.length}마리`, x0 + W - 2, top + H - 4); }   // Lv.9+: fish count
+      ctx.fillText(`${big[2]} ${Math.round(big[1]*100)}cm · ${big[0].toFixed(1)}m`, x0, top + H + 14); }
+    if (P.tier.sonar >= 8){ ctx.textAlign = 'right'; ctx.font = '700 11px system-ui, sans-serif'; ctx.fillStyle = '#8ff0a8'; ctx.fillText(`${last.length}마리`, x0 + W, top + H + 14); }   // Lv.9+: fish count
   }
   ctx.restore();
 }
