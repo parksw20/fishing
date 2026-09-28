@@ -391,6 +391,7 @@ uniform vec4 uLureC;      // lure colour, metallic
 uniform vec4 uBob;        // float body centre xyz; w = 1 + tilt when shown (0 = hidden)
 uniform vec4 uLnA, uLnB;  // underwater line segment (w of A = visible)
 uniform vec4 uBoat;       // hull centre xyz, heading
+uniform vec4 uBoats[3]; uniform int uBoatN;   // online: the other players' hulls (centre xyz, heading)
 
 const float IOR = 1.3335;
 uniform vec3 uSigA, uSigS;   // per-region water: absorption / scattering (1/m)
@@ -669,7 +670,8 @@ float oEll(vec3 ro, vec3 rd, vec3 c, mat3 B, vec3 rad, float soft){
   return smoothstep(1.0-soft, 1.0+soft, length(o + d*t));
 }
 mat3 fishFrame(vec3 f){ vec3 up = normalize(vec3(0,1,0) - f*f.y); return mat3(f, up, cross(f, up)); }
-mat3 hullFrame(){ float h = uBoat.w; vec3 f = vec3(sin(h), 0.0, -cos(h)); return mat3(f, vec3(0,1,0), vec3(cos(h), 0.0, sin(h))); }
+mat3 hullFrameH(float h){ vec3 f = vec3(sin(h), 0.0, -cos(h)); return mat3(f, vec3(0,1,0), vec3(cos(h), 0.0, sin(h))); }
+mat3 hullFrame(){ return hullFrameH(uBoat.w); }
 
 vec3 fishAlb(vec3 lp, vec4 A, vec4 Bc){
   vec3 back = A.rgb, belly = Bc.rgb; float pat = A.w;
@@ -844,6 +846,12 @@ float traceObjects(vec3 ro, vec3 rd, float tMax, out vec3 N, out vec3 alb, out f
       alb = mix(vec3(0.05,0.10,0.14), vec3(0.08,0.10,0.05), smoothstep(-0.2, -0.9, lp.y)*0.7) * (0.8 + 0.4*vnoise(lp.xz*vec2(40.0,8.0)));
       spec = 0.2; }
   }
+  for (int i=0;i<3;i++){   // the other players' hulls, seen through the water
+    if (i >= uBoatN) break;
+    mat3 Bo = hullFrameH(uBoats[i].w);
+    t = iEll(ro, rd, uBoats[i].xyz, Bo, HULL, lp);
+    if (t > 0.0 && t < bt){ bt = t; N = normalize(Bo*(lp/HULL)); alb = vec3(0.06,0.10,0.12)*(0.8 + 0.4*vnoise(lp.xz*vec2(40.0,8.0))); spec = 0.2; }
+  }
   lureHit = uLure.w > 0.5 && bt == lureT && bt < tMax && length(ro + rd*bt - uLure.xyz) < max(uLureS.x, 0.05)*1.2;
   return bt < tMax ? bt : -1.0;
 }
@@ -856,6 +864,7 @@ float shadowAt(vec3 X, vec3 ld){
     sh *= mix(0.45, 1.0, oEll(X, ld, P4.xyz, fishFrame(uFD[i].xyz), Lf*vec3(0.5, 0.5*hr, 0.5*max(uFC[i].x, hr*0.5)), soft));
   }
   sh *= mix(0.3, 1.0, oEll(X, ld, uBoat.xyz, hullFrame(), HULL, 0.12));
+  for (int i=0;i<3;i++){ if (i >= uBoatN) break; sh *= mix(0.3, 1.0, oEll(X, ld, uBoats[i].xyz, hullFrameH(uBoats[i].w), HULL, 0.12)); }
   return sh;
 }
 
@@ -1213,7 +1222,14 @@ void main(){
   vec2 hl = vec2(dot(bl, Bh[0].xz)/HULL.x, dot(bl, Bh[2].xz)/HULL.z);
   float dz = max(dot(P - uCam, uF), ${ZNEAR});
   float zn = ${ZA.toFixed(8)} + (${ZB.toFixed(8)})/dz;
-  gl_FragDepth = (hz > 0.5 || dot(hl,hl) < 1.0) ? 1.0 : clamp(zn*0.5+0.5, 0.0, 0.999999);
+  bool inHull = dot(hl,hl) < 1.0;
+  for (int i=0;i<3;i++){   // no water inside the other players' hulls either
+    if (i >= uBoatN) break;
+    vec2 bo = P.xz - uBoats[i].xz; mat3 Bo = hullFrameH(uBoats[i].w);
+    vec2 ho = vec2(dot(bo, Bo[0].xz)/HULL.x, dot(bo, Bo[2].xz)/HULL.z);
+    inHull = inHull || dot(ho,ho) < 1.0;
+  }
+  gl_FragDepth = (hz > 0.5 || inHull) ? 1.0 : clamp(zn*0.5+0.5, 0.0, 0.999999);
 }`, 'water');
 
 
@@ -2181,6 +2197,7 @@ gl.enableVertexAttribArray(1); gl.vertexAttribPointer(1,4,gl.FLOAT,false,36,16);
 gl.enableVertexAttribArray(2); gl.vertexAttribPointer(2,1,gl.FLOAT,false,36,32);
 gl.bindVertexArray(null);
 const wakeBuf = new Float32Array(20*4);
+const othersBuf = new Float32Array(3*4);   // online: other players' hulls for the water shader
 const lineVAO = gl.createVertexArray(), lineVB = gl.createBuffer();
 gl.bindVertexArray(lineVAO); gl.bindBuffer(gl.ARRAY_BUFFER, lineVB); gl.enableVertexAttribArray(0); gl.vertexAttribPointer(0,3,gl.FLOAT,false,12,0); gl.bindVertexArray(null);
 
@@ -2459,6 +2476,10 @@ function render(S){
   const bt = S.boat, boatM = mat4TRS(bt.pos, bt.heading, bt.pitch, bt.roll);
   updateLamps(boatM); setLamps(pMain);
   gl.uniform4f(u.uBoat, bt.pos[0], 0.02 + bt.pos[1], bt.pos[2], bt.heading); gl.uniform3fv(u.uHullR, ENV.hull);
+  // online: up to three other boats traced too (no water inside their hulls, their shadow and underwater hull)
+  const others = (S.others || []).slice(0, 3);
+  othersBuf.fill(0); others.forEach((o, i) => othersBuf.set([o.pos[0], 0.02 + o.pos[1], o.pos[2], o.heading], i*4));
+  gl.uniform4fv(u.uBoats, othersBuf); gl.uniform1i(u.uBoatN, others.length);
   fullscreen();
 
   // ---- boat, rod, float, line ----
@@ -2476,6 +2497,20 @@ function render(S){
       const c = [h.hook[0] - (h.f[0]*mo[0] + up[0]*mo[1])*L, h.hook[1] - (h.f[1]*mo[0] + up[1]*mo[1])*L, h.hook[2] - (h.f[2]*mo[0] + up[2]*mo[1])*L];
       drawFishModel(m, B, c, h.f, h.side, L, h.ph, h.amp, h.bend, 1); } }
   drawBoat(boatM);
+  for (const o of others){   // online: the other players — boat, float and a line from where their rod would be
+    drawBoat(mat4TRS(o.pos, o.heading, o.pitch || 0, o.roll || 0));
+    if (o.bob){
+      drawMesh(bobMesh, mat4TRS(o.bob, 0, o.tilt || 0, 0), { emis: 0.55*(1 - 0.9*ENV.night), glow: [0.07*ENV.night, 0.40*ENV.night, 0.012*ENV.night] });
+      if (!UW.on && o.tip){
+        const a = o.tip, e = [o.bob[0], o.bob[1] + 0.2, o.bob[2]], pts = [];
+        for (let i=0;i<=12;i++){ const k=i/12; pts.push(a[0]+(e[0]-a[0])*k, a[1]+(e[1]-a[1])*k - 0.15*4*k*(1-k), a[2]+(e[2]-a[2])*k); }
+        gl.useProgram(pLine.p); setCamUniforms(pLine, B); gl.uniform3f(pLine.u.uCol, 1.3,1.3,1.25);
+        gl.bindVertexArray(lineVAO); gl.bindBuffer(gl.ARRAY_BUFFER, lineVB); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pts), gl.DYNAMIC_DRAW);
+        gl.drawArrays(gl.LINE_STRIP, 0, 13);
+        gl.useProgram(pMesh.p);
+      }
+    }
+  }
   drawLampGlows(B);
   let tip = null;
   // from under the water the rod and the line above the surface are not drawn: without refraction they pointed off

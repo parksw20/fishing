@@ -945,6 +945,7 @@ function landFish(){
   setTimeout(() => { G.cardPending = false; if (G.state === 'result') showCard(rec, isBest && !!prev, !prev); }, 1500);
   if (netMsg) setTimeout(() => say(netMsg, 3, 'bad'), 1900);
   questEvent({ type: 'catch', rec });
+  if (window.DopaMulti) DopaMulti.onCatch(rec);   // online: tell the others (and count it in a tournament)
   updateLog(); save(); pushRankSoon();
 }
 
@@ -1433,7 +1434,8 @@ function updateMenuState(){
 for (const b of document.querySelectorAll('#menu button')) b.addEventListener('click', e => {
   if (b.classList.contains('dis')){ e.stopPropagation(); say('채비를 회수한 뒤 이용할 수 있어요 (R)', 1.8); return; }
   e.stopPropagation(); $('menu').hidden = true;
-  ({ shop: openShop, quest: openQuests, map: openMap, rank: openRank, dex: openDex, time: skipTime, set: openSettings, dbg: () => openModal('dbgm') })[b.dataset.m]();
+  ({ shop: openShop, quest: openQuests, map: openMap, rank: openRank, dex: openDex, time: skipTime, set: openSettings, dbg: () => openModal('dbgm'),
+     online: () => window.DopaMulti && DopaMulti.openLobby() })[b.dataset.m]();
 });
 $('qtrack').addEventListener('click', e => { e.stopPropagation(); openQuests(); });
 document.addEventListener('pointerdown', e => {
@@ -1719,6 +1721,7 @@ function scene(dt){
   ROD.lastDt = Math.min(0.05, Math.max(0.001, dt || 0.016));
   const sh = camShake(dt);
   const S = { t: G.time, dt, cam: { pos: add(cam.pos, sh.pos), look: add(cam.look, sh.look) }, boat: BOAT, fish: [], lure: null, bobber: null, lineUnder: null, lineTo: null, lineSag: 0, flyObj: null };
+  S.others = window.DopaMulti ? DopaMulti.others() : null;   // online: the other players' boats and floats
   const byDist = fishes.slice().sort((a, b) => dist3(a.pos, cam.pos) - (a.visitor ? 25 : 0) - dist3(b.pos, cam.pos) + (b.visitor ? 25 : 0));
   S.fish = byDist.slice(0, 12).map(f => ({ id: f.sp.id, pos: f.pos, len: f.len, dir: fishDir(f), tail: f.tail, tailPh: f.tailPh, tailAmp: f.tailAmp, bend: f.bend, back: f.sp.back, belly: f.sp.belly, pattern: f.sp.pattern, hr: f.sp.hr, shape: f.sp.shape }));
   const rod = rodSpec(); S.rod = G.state === 'boat' ? null : rod;
@@ -2001,6 +2004,7 @@ function updateClock(dt){
 function skipTime(){
   if (G.state === 'result') hideCard();
   if (G.state !== 'idle' && G.state !== 'boat'){ say('채비를 회수한 뒤 이용할 수 있어요 (R)', 1.8); return; }
+  if (window.DopaMulti && !DopaMulti.canSkipTime()) return;   // online: the host keeps everyone's clock
   const order = [['dawn', 5], ['day', 10], ['dusk', 17.5], ['night', 21]];
   const i = order.findIndex(o => o[0] === period());
   const [p, h] = order[(i + 1) % order.length];
@@ -2034,6 +2038,8 @@ function setWeather(k, instant){
 function updateWeather(dt){
   if (!G.weather) setWeather(new URLSearchParams(location.search).get('weather') || 'clear', true);
   G.weatherT -= dt/GAME_HOUR;
+  // online guests don't roll their own weather: the host's arrives with its sync (DopaMulti)
+  if (G.weatherT <= 0 && window.DopaMulti && DopaMulti.isGuest()) G.weatherT = 1;
   if (G.weatherT <= 0){ const prev = G.weather; setWeather(pickWeather()); if (G.weather !== prev) say(`${WEATHERS[G.weather].icon} 날씨가 바뀌었어요: ${WEATHERS[G.weather].name}`, 2.5); }
   // weather drifts over ~20-40 s; a change asked for by hand blends in over ~8 s
   G.wFastT = Math.max(0, (G.wFastT || 0) - dt);
@@ -2736,6 +2742,7 @@ function applyRegion(spot, first){
   $('place').textContent = spot.name;
   buildToolbar(); updateLog();
   if (!first){ say(`📍 ${spot.name} · ${WEATHERS[G.weather].icon} ${WEATHERS[G.weather].name}`, 3); fillQuests(); }
+  if (window.DopaMulti) DopaMulti.onRegion(spot);   // online: spread the boats out, and the host tells the others where it went
 }
 // land rings unwrapped across the 180° meridian; rings that circle a pole are closed through it
 const LAND = (window.WORLD_LAND || []).map(r => {
@@ -2912,6 +2919,7 @@ function showSel(sp){
   $('go').onclick = e => { e.stopPropagation(); if (locked) return; if (!here) voyage(sp); else closeMap(); };
 }
 function travel(sp){
+  if (window.DopaMulti && !DopaMulti.canTravel()){ MAP.anim = null; closeModal(); return; }
   if (spotZone(sp) > boatZone()){ say(`🔒 ${zoneBoat(spotZone(sp)).name}가 필요해요`, 2); return; }
   MAP.anim = null; closeModal();
   const f = $('fade'); f.classList.add('on');
@@ -2920,6 +2928,8 @@ function travel(sp){
 // quest travel: show the route on the map, sail it, then arrive
 function voyageE(){ const A = MAP.anim, k = clamp((performance.now() - A.t0)/A.T, 0, 1); return k < 0.5 ? 2*k*k : 1 - (-2*k + 2)**2/2; }
 function voyage(sp){
+  // online: only the host moves the group (the others follow it); canTravel() tells the player why not
+  if (window.DopaMulti && !DopaMulti.canTravel()){ closeModal(); return; }
   openModal('map'); sizeMap();
   const from = REGION.spot, dl = wrapLon(sp.lon - from.lon);
   MAP.cx = from.lon; MAP.cy = from.lat;
@@ -3379,6 +3389,7 @@ function update(dt){
   manageFish(dt);
   updateCamera(dt);
   updateHelp();
+  if (window.DopaMulti) DopaMulti.tick(dt);
 }
 let last = performance.now(), started = false;
 const SUBSTEPS = Math.max(1, +(new URLSearchParams(location.search).get('sim')) || 1);   // test aid: extra simulation steps per frame
@@ -3396,6 +3407,7 @@ function frame(now){
     const res = Rn.render(scene(dt));
     if (res && res.tip){ G.tip = res.tip; G.tipS = vlerp(G.tipS, res.tip, Math.min(1, dt*(G.state === 'hooked' ? 2.5 : 20))); }
     drawHUD();
+    if (window.DopaMulti) DopaMulti.hud(ctx, p => Rn.project(p), label);   // name tags over the other boats
   }
   requestAnimationFrame(frame);
 }
@@ -3403,5 +3415,7 @@ buildToolbar(); updateLog();
 requestAnimationFrame(frame);
 window.__decorSolids = () => DECOR.solids || [];
 window.__mapS = (lon, lat) => m2s(nearLon(lon), lat); window.__mapZ = () => MAP.z;
-window.__game = { tryPredator, SND, playS, qteTap, sprayBurst, toReal, toVis, showCard, questEvent, updateLog, G, fishes, cam, mouse, hookFish, hookSet, jerkLift, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID };
+window.__game = { tryPredator, SND, playS, qteTap, sprayBurst, toReal, toVis, showCard, questEvent, updateLog, G, fishes, cam, mouse, hookFish, hookSet, jerkLift, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID,
+  // used by js/multi.js (online play)
+  say, setWeather, WEATHERS, setClockTo, region: () => REGION, idleOnly };
 })();
