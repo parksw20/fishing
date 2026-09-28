@@ -918,8 +918,10 @@ function landFish(){
   G.hooked = null; G.fight = null; G.state = 'result';
   G.landed = { id: sp.id, len: f.len, weight: f.weight, t: 0, ph: 0, amp: 0.5, bend: 0, burst: 1, sw: 0, swV: 0, tw: rand(0, TAU) };   // hangs off the rod, flapping, while the card shows
   Rn.splash(f.pos[0], f.pos[2], 0.2, 0.05); sprayBurst(f.pos, f.len, 1.3); sfx.splash(0.6); if (!playS('catch')) sfx.win();
-  showCard(rec, isBest && !!prev, !prev);
-  if (netMsg) setTimeout(() => say(netMsg, 3, 'bad'), 400);
+  // the catch is held up first; the card follows 1.5 s later (taps in between don't skip it)
+  G.cardPending = true;
+  setTimeout(() => { G.cardPending = false; if (G.state === 'result') showCard(rec, isBest && !!prev, !prev); }, 1500);
+  if (netMsg) setTimeout(() => say(netMsg, 3, 'bad'), 1900);
   questEvent({ type: 'catch', rec });
   updateLog(); save(); pushRankSoon();
 }
@@ -1007,6 +1009,7 @@ function mosaicReveal(img, seq, dur){
   if (img.complete && img.naturalWidth) go(); else img.onload = () => { img.onload = null; if (CARD.seq === seq) go(); };
 }
 function hideCard(){
+  if (G.cardPending) return;
   if (CARD.running && CARD.finish){ CARD.finish(); return; }
   CARD.timers.forEach(clearTimeout); CARD.timers = []; CARD.seq++;
   $('card').hidden = true; if (G.state === 'result') G.state = 'idle';
@@ -1604,7 +1607,8 @@ function landedPose(){
   const dh = Math.min(R*0.92, Math.max(R*Math.cos(elDes), L.len*1.7));   // horizontal reach of the tip from the hand
   const el = Math.acos(dh/R);
   // azimuth: the tip (and the fish) at the screen spot left of the card, at the tip's distance
-  const px = 160 + clamp(0.18*innerWidth, 140, 340), nx = -Math.min(0.8, px/(innerWidth/2));
+  // PC: just left of the card; touch screens: the middle of the view
+  const px = 160 + clamp(0.18*innerWidth, 140, 340), nx = TOUCH.on ? 0 : -Math.min(0.8, px/(innerWidth/2));
   const fh = norm([f[0], 0, f[2]]), Dc = dh + (pole ? 0.32 : 0.48);
   const C = add(add(e, mul(fh, Dc)), mul(rgt, nx*asp*tf*Dc));
   const yaw = Math.atan2(C[0] - hand[0], -(C[2] - hand[2]));
