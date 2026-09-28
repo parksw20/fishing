@@ -630,7 +630,7 @@
 <script>
 // loading bar: steps are reported as the scripts arrive (setLoad), the bar eases toward them and the text follows it
 (function(){
-  let want = 3, shown = 0, last = performance.now(), done = false;
+  let want = 3, shown = 0, last = performance.now(), done = false, portalPct = -10;
   const txt = p => p < 50 ? '배를 타러 선착장에 나가는 중…' : p < 80 ? '낚시 포인트로 이동 중…' : '낚시 채비 준비 중…';
   window.setLoad = p => { want = Math.max(want, p); };
   function tick(now){
@@ -641,7 +641,10 @@
     document.getElementById('ldfill').style.width = shown.toFixed(1) + '%';
     document.getElementById('ldpct').textContent = Math.floor(shown) + '%';
     const t = txt(shown), tx = document.getElementById('ldtxt'); if (tx.textContent !== t) tx.textContent = t;
-    if (shown >= 99.9 && !done){ done = true; setTimeout(() => el.classList.add('off'), 250); return; }
+    // DopaMax: the portal shows its start screen only once the game has really loaded (logo video → loading → start)
+    const gp = window.GamePortal;
+    if (gp && gp.loading && Math.floor(shown/5) !== Math.floor(portalPct/5)){ portalPct = shown; gp.loading(shown/100); }
+    if (shown >= 99.9 && !done){ done = true; setTimeout(() => { el.classList.add('off'); if (gp && gp.loaded) gp.loaded(); }, 250); return; }
     requestAnimationFrame(tick);
   }
   requestAnimationFrame(tick);

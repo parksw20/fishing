@@ -546,6 +546,8 @@ function manageFish(dt){
 /* ---------------- casting ---------------- */
 function startCharge(){
   if (G.state !== 'idle') return;
+  // online: no casting toward another player's boat
+  if (window.DopaMulti && DopaMulti.castBlocked(eyeWorld(), yawDir(viewYaw()))) return;
   G.state = 'charge'; G.chargeT = 0; G.power = 0;
 }
 function landingPoint(power){
@@ -557,6 +559,8 @@ function landingPoint(power){
 }
 function cast(){
   const m = modeCfg();
+  // the aim can swing onto a boat while the cast is charging: check again on release
+  if (window.DopaMulti && DopaMulti.castBlocked(eyeWorld(), yawDir(viewYaw()))){ G.state = 'idle'; $('power').hidden = true; return; }
   const to = landingPoint(G.power);
   const d = dist2(to, eyeWorld());
   const scatter = d*0.035*(1 + 2*G.wv[3]);   // wind spoils the cast
@@ -2484,6 +2488,16 @@ function moveBoat(dt){
     G.boatV = -G.boatV*0.25; sfx.splash(0.2);
     if (G.time - (G.groundT||-9) > 2){ say('여울이에요! 수심이 너무 얕아요', 1.6, 'bad'); G.groundT = G.time; }
     return;
+  }
+  // online: other boats — slow down on the way in, bounce off on contact
+  if (window.DopaMulti){
+    const hit = DopaMulti.boatContact(BOAT.pos, [nx, nz], [f[0]*dir, f[2]*dir], Math.abs(G.boatV));
+    if (hit.cap < Math.abs(G.boatV)) G.boatV = Math.sign(G.boatV)*hit.cap;
+    if (hit.bump){
+      G.boatV = -G.boatV*0.3; sfx.splash(0.25);
+      if (G.time - (G.bumpT||-9) > 2){ say('쿵! 다른 보트와 부딪혔어요', 1.4, 'bad'); G.bumpT = G.time; }
+      return;
+    }
   }
   if (Math.hypot(nx, nz) > 1500){
     G.boatV *= 0.5;

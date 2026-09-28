@@ -360,11 +360,74 @@
   function now() { return performance.now(); }
   function clone(o) { return JSON.parse(JSON.stringify(o)); }
 
+  /* ---------------- 다른 보트와의 거리: 캐스팅 금지 방향 · 충돌 ---------------- */
+
+  var BOAT_R = 2.3;          // 보트를 원으로 본 반지름 (선체 반길이 2.05 + 여유)
+  var SLOW_FROM = 14;        // 이 거리 안에서 다가가면 속도를 줄입니다
+  var CAST_CLEAR = 5;        // 던지는 방향에서 보트까지 옆으로 이만큼은 떨어져야 합니다
+  var CAST_RANGE = 70;       // 이보다 먼 보트는 신경 쓰지 않습니다 (최대 캐스팅 거리보다 넉넉히)
+
+  /** 같은 낚시터에 있는 다른 보트의 중심 [x, z] 와 이름 */
+  function boats() {
+    if (!M.active) return [];
+    var here = g().region() && g().region().spot.id, out = [];
+    Object.keys(M.peers).forEach(function (id) {
+      var c = M.peers[id].cur;
+      if (c.spot && here && c.spot !== here) return;
+      out.push({ x: c.pos[0], z: c.pos[2], id: id });
+    });
+    return out;
+  }
+
+  var blockSaidAt = 0;
+  /** 이 방향으로 던지면 다른 보트 쪽인가 — 맞으면 알려 주고 true */
+  function castBlocked(eye, dir) {
+    var list = boats();
+    for (var i = 0; i < list.length; i++) {
+      var b = list[i], vx = b.x - eye[0], vz = b.z - eye[2];
+      var d = Math.hypot(vx, vz);
+      if (d > CAST_RANGE) continue;
+      var along = vx * dir[0] + vz * dir[2];
+      if (along <= 0) continue;                                // 등 뒤
+      var side = Math.abs(vx * dir[2] - vz * dir[0]);          // 던지는 선에서 옆으로 떨어진 거리
+      if (side < CAST_CLEAR + BOAT_R * 0.5) {
+        if (now() - blockSaidAt > 1200) { blockSaidAt = now(); say('🚫 ' + nameOf(b.id) + ' 님 보트 쪽으로는 던질 수 없어요', 1.6, 'bad'); }
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * 보트 이동 검사. pos: 지금 위치, next: 이번 프레임에 갈 위치 [x, z], dir: 움직이는 방향, speed: 속력.
+   * cap — 다가가는 중이면 거리에 따라 줄인 최고 속력 / bump — 이번 걸음에 부딪힘
+   * 부딪힌 채 **멀어지는** 쪽으로는 막지 않습니다 — 안 그러면 붙은 보트끼리 빠져나오지 못합니다.
+   */
+  function boatContact(pos, next, dir, speed) {
+    var cap = Infinity, bump = false, D = BOAT_R * 2;
+    boats().forEach(function (b) {
+      var vx = b.x - pos[0], vz = b.z - pos[2], dNow = Math.hypot(vx, vz);
+      var dNext = Math.hypot(b.x - next[0], b.z - next[1]);
+      if (dNext < D && dNext < dNow) bump = true;
+      if (dNow < SLOW_FROM && dNow > 0.01) {
+        var approach = (vx * dir[0] + vz * dir[2]) / dNow;     // 1 = 정면으로 다가감
+        var side = Math.abs(vx * dir[2] - vz * dir[0]);        // 이대로 가면 옆으로 얼마나 비껴가나
+        if (approach > 0.3 && side < D + 2) {                  // 스쳐 지나가는 보트 때문에 느려지지는 않게
+          var room = Math.max(0, (dNow - D) / (SLOW_FROM - D));
+          cap = Math.min(cap, 0.5 + room * 6);
+        }
+      }
+    });
+    return { cap: cap, bump: bump };
+  }
+
   /* ---------------- game.js 가 부르는 곳 ---------------- */
 
   root.DopaMulti = {
     tick: tick,
     others: others,
+    castBlocked: castBlocked,
+    boatContact: boatContact,
     hud: hud,
     isGuest: function () { return M.active && !M.host; },
     canTravel: function () {
