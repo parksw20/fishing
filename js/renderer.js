@@ -2407,7 +2407,7 @@ function updateUW(B){
   const ls = [SUNV[0]*n, Math.sqrt(Math.max(k, 0)), SUNV[2]*n];   // -refract(-sun, up, 1/1.333)
   const l = Math.hypot(ls[0], ls[1], ls[2]) || 1; UW.ls = ls.map(v => v/l);
   const r0 = ((1.333 - 1)/(1.333 + 1))**2, Ts = 1 - (r0 + (1 - r0)*Math.pow(1 - ci, 5));
-  UW.sA = ENV.sigA; UW.sS = ENV.sigS.map((v, i) => v + [0.030, 0.026, 0.022][i]);
+  UW.sA = ENV.sigA; UW.sS = ENV.sigS.map((v, i) => v + [0.030, 0.026, 0.022][i]*(ENV.clear ? 0.08 : 1));   // (the aquarium's filtered water has hardly any murk)
   UW.sun = ENV.sunC.map(v => v*Ts); UW.sky = [0.62, 0.70, 0.78].map((v, i) => v*Math.PI*0.22*ENV.skyK[i]);
 }
 function setUW(P){ const u = P.u; gl.uniform4f(u.uUW, 0, 0, 0, UW.on);
@@ -2533,19 +2533,6 @@ function render(S){
       const c = [h.hook[0] - (h.f[0]*mo[0] + up[0]*mo[1])*L, h.hook[1] - (h.f[1]*mo[0] + up[1]*mo[1])*L, h.hook[2] - (h.f[2]*mo[0] + up[2]*mo[1])*L];
       drawFishModel(m, B, c, h.f, h.side, L, h.ph, h.amp, h.bend, 1); } }
   if (!S.noBoat) drawBoat(boatM);
-  if (S.tank){   // aquarium glass: the tank's twelve edges plus a rim at the waterline, drawn as bright lines
-    const h = S.tank.h, d = -S.tank.d, top = 0.12, pts = [];
-    const C = [[-h,-h],[h,-h],[h,h],[-h,h]];
-    for (let i = 0; i < 4; i++){ const a = C[i], b = C[(i+1)%4];
-      pts.push(a[0],top,a[1], b[0],top,b[1]);   // top frame
-      pts.push(a[0],d,a[1], b[0],d,b[1]);       // bottom frame
-      pts.push(a[0],top,a[1], a[0],d,a[1]);     // corner post
-      pts.push(a[0],-0.02,a[1], b[0],-0.02,b[1]); }   // waterline
-    gl.useProgram(pLine.p); setCamUniforms(pLine, B); gl.uniform3f(pLine.u.uCol, 1.1, 1.5, 1.6);
-    gl.bindVertexArray(lineVAO); gl.bindBuffer(gl.ARRAY_BUFFER, lineVB); gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(pts), gl.DYNAMIC_DRAW);
-    gl.drawArrays(gl.LINES, 0, pts.length/3);
-    gl.useProgram(pMesh.p);
-  }
   for (const o of others){   // online: the other players — boat, float and a line from where their rod would be
     drawBoat(mat4TRS(o.pos, o.heading, o.pitch || 0, o.roll || 0));
     if (o.bob){

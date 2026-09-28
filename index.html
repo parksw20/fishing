@@ -188,6 +188,15 @@
   #aquahud { position:fixed; left:14px; top:calc(60px + env(safe-area-inset-top,0px)); z-index:6; padding:10px 12px; font-size:13px; width:min(300px, calc(100vw - 28px)); box-sizing:border-box; }
   body.touch #aquahud { left:10px; top:calc(50px + env(safe-area-inset-top,0px)); width:min(260px, calc(100vw - 20px)); font-size:12px; }
   body:not(.touch) #aquahud { zoom:1.25; }
+  body.touch.aqua #joy { display:block !important; left:50% !important; right:auto !important; transform:translateX(-50%); bottom:calc(22px + env(safe-area-inset-bottom,0px)); }
+  #aquainfo { position:fixed; right:14px; top:calc(60px + env(safe-area-inset-top,0px)); z-index:6; padding:10px 12px; width:min(240px, calc(100vw - 28px)); box-sizing:border-box; font-size:13px; }
+  body:not(.touch) #aquainfo { zoom:1.25; }
+  body.touch #aquainfo { right:auto; left:50%; transform:translateX(-50%); top:auto; bottom:calc(140px + env(safe-area-inset-bottom,0px)); width:min(300px, calc(100vw - 20px)); }
+  #aquainfo .ai-h { display:flex; justify-content:space-between; align-items:center; gap:8px; } #aquainfo .ai-h b { font-size:15px; }
+  #aquainfo .ai-h .xbtn { width:26px; height:26px; font-size:13px; } #aquainfo .ai-l { display:block; opacity:.6; font-size:11px; margin-top:1px; }
+  #aquainfo .ai-g { display:grid; grid-template-columns:auto 1fr; gap:3px 12px; margin-top:8px; } #aquainfo .ai-g span { opacity:.7; } #aquainfo .ai-g b { text-align:right; font-variant-numeric:tabular-nums; }
+  #aquainfo .ai-b { display:flex; gap:6px; margin-top:8px; } #aquainfo .ai-b button { flex:1; font-size:12px; padding:5px 9px; }
+  #aquainfo .ai-tip { margin-top:6px; font-size:11px; opacity:.55; }
   #aquahud .ah-top { display:flex; justify-content:space-between; align-items:baseline; gap:8px; }
   #aquahud .ah-top span { opacity:.75; font-variant-numeric:tabular-nums; }
   #aquahud .ah-btns { display:flex; gap:6px; margin-top:8px; }
@@ -205,7 +214,7 @@
   #aquafish li.empty { opacity:.65; display:block; }
   #aquafish .sell1 { font-size:11px; padding:2px 8px; border-radius:7px; flex:none; }
   body.aqua #qtrack, body.aqua #status, body.aqua #bottombar, body.aqua #gauges, body.aqua #retrieve, body.aqua #uwview,
-  body.aqua #tctl, body.aqua #joy, body.aqua #tnet, body.aqua #power, body.aqua #target, body.aqua #mp { display:none !important; }
+  body.aqua #tctl, body.aqua:not(.touch) #joy, body.aqua #tnet, body.aqua #power, body.aqua #target, body.aqua #mp { display:none !important; }
   #bottombar.locked #modes, #bottombar.locked #navtoggle { opacity:.5; }
   #itempop { position:absolute; bottom:calc(100% + 6px); left:0; width:max-content; max-width:min(340px, calc(100vw - 24px)); padding:5px; display:flex; flex-direction:column; background:rgba(8,26,30,.9); border-radius:12px; }
   #items { display:flex; flex-direction:column; align-items:stretch; gap:2px; }
@@ -526,6 +535,7 @@
 <div id="topline"><div class="tl-l"><span id="place"></span><span id="clock">06:00 새벽</span><span id="wicon">☀️ 맑음</span><span id="luck" hidden></span></div><b id="coins">🪙 0</b><b id="score" hidden>0</b></div>
 
 <!-- aquarium: title, size/count, back to the fishing spot, fish list, zoom -->
+<div id="aquainfo" class="glass" hidden></div>
 <div id="aquahud" class="glass" hidden>
   <div class="ah-top"><b>🐠 내 수족관</b><span id="aquasub"></span></div>
   <div id="aquastat" hidden></div>

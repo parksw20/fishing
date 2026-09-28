@@ -1325,8 +1325,55 @@ function openAquarium(){
   if (window.DopaMulti && DopaMulti.active && DopaMulti.active()){ say('🌐 온라인 중에는 수족관에 갈 수 없어요', 2.4); return; }
   if (!idleOnly('수족관에 갈 수 있어요')) return;
   G.aquaFrom = REGION.spot; G.boatV = 0;
-  G.aquaView = { yaw: 0.55, pitch: -0.12, dist: null };
+  G.aquaView = { pos: null, yaw: 0, pitch: -0.12, focus: null, oYaw: 0, oPitch: 0.2, oDist: 1 };
   fade(() => applyRegion(aquaSpot()));
+}
+/* aquarium camera: a free first-person view swimming inside the tank (drag / arrows look, W·S·A·D / wheel / joystick
+   move); tapping a fish swaps to circling it with a card about it until ✕, Esc, a tap on open water or moving off */
+function aquaBounds(){ const S = aquaTier().size, D = toVis(S), h = S/2 - 0.15; return { S, D, h }; }
+function aquaClampPos(p){ const { D, h } = aquaBounds(); p[0] = clamp(p[0], -h, h); p[2] = clamp(p[2], -h, h); p[1] = clamp(p[1], -D + 0.15, -0.15); return p; }
+function aquaMove(fwd, side, rise, dt){
+  const V = G.aquaView; if (!V) return;
+  if (V.focus){ if (Math.abs(fwd) + Math.abs(side) + Math.abs(rise) < 0.05) return; aquaUnfocus(); }
+  if (!V.pos) return;
+  const sp = Math.max(1.2, aquaBounds().S*0.22)*dt, cp = Math.cos(V.pitch);
+  const f = [Math.sin(V.yaw)*cp, Math.sin(V.pitch), -Math.cos(V.yaw)*cp], r = [Math.cos(V.yaw), 0, Math.sin(V.yaw)];
+  for (let i = 0; i < 3; i++) V.pos[i] += (f[i]*fwd + r[i]*side)*sp + (i === 1 ? rise*sp : 0);
+  aquaClampPos(V.pos);
+}
+function aquaFocus(f){
+  const V = G.aquaView, d = sub(cam.pos, f.pos), l = Math.hypot(d[0], d[1], d[2]) || 1;
+  V.focus = f; V.oYaw = Math.atan2(d[0], -d[2]); V.oPitch = clamp(Math.asin(d[1]/l), -1.2, 1.2); V.oDist = clamp(Math.max(0.45, f.len*2.2), 0.3, aquaBounds().S*0.6);
+  renderAquaInfo(); playS('uiMenu', { gain: UI_GAIN });
+}
+function aquaUnfocus(){
+  const V = G.aquaView; if (!V || !V.focus) return;
+  V.focus = null; V.pos = aquaClampPos(cam.pos.slice());
+  const d = sub(cam.look, cam.pos), l = Math.hypot(d[0], d[1], d[2]) || 1;
+  V.yaw = Math.atan2(d[0], -d[2]); V.pitch = clamp(Math.asin(d[1]/l), -1.45, 1.45);
+  $('aquainfo').hidden = true;
+}
+// which fish is under the screen point (living ones; the nearest to the point, measured against how big it looks)
+function aquaPick(x, y){
+  let best = null, bs = 1e9;
+  for (const f of fishes){
+    if (f.state === 'dead') continue;
+    const a = projectSeen(f.pos); if (!a) continue;
+    const b = projectSeen(add(f.pos, [0, f.len*0.5, 0])), r = Math.max(30, b ? Math.hypot(b[0] - a[0], b[1] - a[1])*1.4 : 30);
+    const d = Math.hypot(a[0] - x, a[1] - y)/r; if (d < 1 && d < bs){ bs = d; best = f; }
+  }
+  if (best) aquaFocus(best); else aquaUnfocus();
+}
+function renderAquaInfo(){
+  const f = G.aquaView && G.aquaView.focus, el = $('aquainfo'); if (!f){ el.hidden = true; return; }
+  const sp = f.sp, c = f.aqua || {};
+  el.innerHTML = `<div class="ai-h"><b></b><button class="xbtn" id="aiclose" aria-label="닫기">✕</button></div><i class="ai-l"></i>
+    <div class="ai-g"><span>몸길이</span><b>${(f.len*100).toFixed(1)}cm</b><span>무게</span><b>${kg(f.weight)}</b><span>가치</span><b style="color:#ffd84a">${(c.price || 0).toLocaleString()}🪙</b></div>
+    <div class="ai-b"><button id="aidex">📖 도감</button></div><div class="ai-tip">드래그로 돌려보기 · 휠/＋－ 가까이·멀리</div>`;
+  el.querySelector('b').textContent = `${sp.icon || '🐟'} ${sp.name}`; el.querySelector('.ai-l').textContent = sp.latin || '';
+  $('aiclose').onclick = e => { e.stopPropagation(); aquaUnfocus(); };
+  $('aidex').onclick = e => { e.stopPropagation(); openDex(); showDexEntry(sp.id); };
+  el.hidden = false;
 }
 function exitAquarium(){
   const back = G.aquaFrom || SPOTS[0];
@@ -1458,7 +1505,7 @@ const HELP = {
     ? '<b>좌클릭 길게</b> 캐스팅 · <b>우클릭 드래그 / A·D</b> 방향 · <b>휠</b> 찌 수심 · <b>1/2</b> 채비 · <b>B</b> 미끼'
     : '<b>좌클릭 길게</b> 캐스팅 · <b>우클릭 드래그 / A·D</b> 방향 · <b>휠</b> 드랙 · <b>1/2</b> 채비 · <b>B</b> 루어') + ' · <b>Tab</b> 보트 · <b>M</b> 지도 · <b>Q</b> 퀘스트 · <b>P</b> 상점 · <b>T</b> 시간',
   boat: () => '<b>W/S</b> 전진·후진 · <b>A/D</b> 방향 · <b>드래그</b> 시점 · <b>휠</b> 줌 · 어탐기로 수심·어군 확인 · <b>Tab</b> 낚시 · <b>M</b> 지도',
-  aquarium: () => '<b>드래그 / A·D·W·S</b> 수조 둘러보기 · <b>휠</b> 가까이·멀리 · 위로 올리면 물 위에서 내려다봐요',
+  aquarium: () => '<b>드래그 / 화살표</b> 둘러보기 · <b>W·S·A·D / 휠</b> 이동 · <b>E·C</b> 위·아래 · <b>물고기 클릭</b> 자세히 보기',
   charge: () => '버튼을 놓으면 던집니다',
   fly: () => '',
   wait: () => G.mode === 'pole'
@@ -1478,7 +1525,7 @@ const HELP_TOUCH = {
   hooked: () => G.fight && G.fight.t > 3 ? '' : `조그를 <b>누른 채</b> ${G.mode === 'pole' ? '들기' : '감기'} · <b>물고기 반대쪽</b>으로 밀기 · 원이 겹칠 때 <b>터치</b>`,   // shown for the first seconds only
   result: () => '탭하여 계속',
   boat: () => '<b>조그</b> 위: 전진 · 아래: 후진 · 좌우: 조향 · 드래그 시점 · 오른쪽 아래 🎣 낚시',
-  aquarium: () => '화면 드래그로 수조 둘러보기 · 두 손가락으로 가까이·멀리',
+  aquarium: () => '드래그로 둘러보기 · 아래 조그로 이동 · 물고기를 터치하면 자세히 봐요',
 };
 function updateHelp(){ if ($('cardblock').hidden === (G.state === 'result')) $('cardblock').hidden = G.state !== 'result'; const h = (TOUCH.on ? HELP_TOUCH : HELP)[G.state](); if (h !== lastHelp){ $('help').innerHTML = h; lastHelp = h; } }
 
@@ -1503,6 +1550,7 @@ function touchUp(e){
   if (!TOUCH.moved && performance.now() - TOUCH.t0 < 350){
     if (G.state === 'wait' && G.mode === 'pole'){ press(); mouse.down = false; }
     else if (G.state === 'result') hideCard();
+    else if (G.state === 'aquarium') aquaPick(TOUCH.x0, TOUCH.y0);
   }
 }
 hud.addEventListener('pointerdown', e => {
@@ -1513,7 +1561,7 @@ hud.addEventListener('pointerdown', e => {
   if (e.button === 2 || e.button === 1 || e.pointerType === 'touch' && e.isPrimary === false){ mouse.rdown = true; mouse.lx = e.clientX; mouse.ly = e.clientY; return; }
   if (e.button !== 0) return;
   hud.setPointerCapture(e.pointerId);
-  mouse.down = true; mouse.downT = G.time; mouse.lx = e.clientX; mouse.ly = e.clientY;
+  mouse.down = true; mouse.downT = G.time; mouse.lx = e.clientX; mouse.ly = e.clientY; mouse.tap = [e.clientX, e.clientY, performance.now()];
   press();
 });
 hud.addEventListener('pointermove', e => {
@@ -1547,7 +1595,8 @@ const up = e => {
   if (e.pointerType === 'touch'){ touchUp(e); return; }
   if (e.button === 2 || e.button === 1){ mouse.rdown = false; if (!(e.buttons & 1) && mouse.down){ mouse.down = false; release(); } return; }
   if (e.button !== 0 && e.type !== 'pointercancel') return;
-  if (mouse.down){ mouse.down = false; release(); }
+  if (mouse.down){ mouse.down = false; release();
+    const t = mouse.tap; if (G.state === 'aquarium' && e.type === 'pointerup' && t && Math.hypot(e.clientX - t[0], e.clientY - t[1]) < 6 && performance.now() - t[2] < 400) aquaPick(e.clientX, e.clientY); }
 };
 hud.addEventListener('pointerup', up); hud.addEventListener('pointercancel', up);
 window.addEventListener('blur', () => { mouse.down = false; mouse.rdown = false; for (const k in keys) keys[k] = false; });
@@ -1589,6 +1638,7 @@ window.addEventListener('keydown', e => {
 });
 // Esc: close whatever is up (a window, catch card, menu, tackle popup), otherwise open the menu
 function escMenu(){
+  if (G.state === 'aquarium' && G.aquaView && G.aquaView.focus && $('menu').hidden){ aquaUnfocus(); return; }
   if (G.state === 'result') hideCard();
   else if (!$('menu').hidden) $('menu').hidden = true;
   else if (!$('itempop').hidden) $('itempop').hidden = true;
@@ -1629,6 +1679,7 @@ function applyJoy(dt){
     if (JOY.active){ const R = ringRadius(), C = fightC(); mouse.x = C[0] + JOY.x*R; mouse.y = C[1] + JOY.y*R; }
     return;
   }
+  if (G.state === 'aquarium'){ if (JOY.active) aquaMove(-JOY.y, JOY.x, 0, dt); return; }   // the joystick swims
   if (!JOY.active || G.state === 'boat') return;
   const lk = LOOK(), iy = INV(), ix = INVX();
   if (G.state === 'idle' || G.state === 'charge'){ G.aimYaw += JOY.x*dt*1.3*lk*ix; G.aimPitch = clamp(G.aimPitch - JOY.y*dt*0.8*lk*iy, -0.9, 1.1); }
@@ -1741,7 +1792,10 @@ function release(){
 }
 function wheel(s){
   if (G.state === 'boat'){ G.camDist = clamp(G.camDist*(s > 0 ? 0.88 : 1.14), 4.5, 30); return; }
-  if (G.state === 'aquarium'){ const S = aquaTier().size, V = G.aquaView; V.dist = clamp((V.dist ?? aquaDefaultDist())*(s > 0 ? 0.88 : 1.14), 0.25, S*0.75); return; }
+  if (G.state === 'aquarium'){ const V = G.aquaView;
+    if (V.focus) V.oDist = clamp(V.oDist*(s > 0 ? 0.85 : 1.18), Math.max(0.2, V.focus.len*0.7), aquaBounds().S*0.6);
+    else aquaMove(s > 0 ? 1 : -1, 0, 0, 0.35);   // a notch swims a little forward / back
+    return; }
   if (G.mode === 'lure'){ G.dragShowT = G.time + 1.8; G.drag = clamp(Math.round((G.drag + s*0.05)*100)/100, 0.05, 1.2); say(`드랙 ${s > 0 ? '조임' : '풀기'} · ${(G.drag*lineKg()).toFixed(1)}kg${G.drag >= 1 ? ' (잠김!)' : ''}`, 1); sfx.click(0.05); }
   else {
     // step in real metres: 0.1 m near the surface, coarser when fishing deep
@@ -1806,7 +1860,10 @@ function tiltView(d){
 function freeView(){ return G.state === 'wait' || G.state === 'hooked'; }
 /** turn the view: yaw right +, tilt down + (same sense as the orbit / tilt it replaces) */
 function turnView(yaw, tilt){
-  if (G.state === 'aquarium'){ const V = G.aquaView; V.yaw += yaw; V.pitch = clamp(V.pitch + tilt, -1.25, 1.35); return; }   // orbit the tank
+  if (G.state === 'aquarium'){ const V = G.aquaView;
+    if (V.focus){ V.oYaw += yaw; V.oPitch = clamp(V.oPitch + tilt, -1.3, 1.3); }   // circle the fish
+    else { V.yaw += yaw; V.pitch = clamp(V.pitch - tilt, -1.45, 1.45); }           // look around
+    return; }
   if (freeView()){ G.fYaw = (G.fYaw || 0) + yaw; G.fPitch = clamp((G.fPitch || 0) - tilt, -1.5, 1.5); }
   else { G.orbit += yaw; tiltView(tilt); }
 }
@@ -1847,11 +1904,17 @@ function updateCamera(dt){
   let T, k;
   switch (G.state){
     case 'idle': case 'charge': case 'result': T = boatView(); k = G.state === 'result' ? 3 : 10; break;
-    case 'aquarium': {   // inside the tank: circle its middle, but never through the glass or out of the water
-      const S = aquaTier().size, D = toVis(S), V = G.aquaView, R = V.dist ?? aquaDefaultDist(), h = S/2 - 0.12;
-      const c = [0, -D*0.5, 0], cp = Math.cos(V.pitch);
-      const pos = [clamp(Math.sin(V.yaw)*cp*R, -h, h), clamp(c[1] + Math.sin(V.pitch)*R, -D + 0.12, -0.15), clamp(-Math.cos(V.yaw)*cp*R, -h, h)];
-      T = { pos, look: c }; k = 4; break; }
+    case 'aquarium': {   // free view inside the tank, or circling a picked fish; never through the glass or out of the water
+      const { D, h } = aquaBounds(), V = G.aquaView;
+      if (!V.pos) V.pos = [0, -D*0.45, h*0.85];
+      if (V.focus && (!fishes.includes(V.focus) || V.focus.state === 'dead')) aquaUnfocus();
+      if (V.focus){
+        const f = V.focus, cp = Math.cos(V.oPitch);
+        const pos = aquaClampPos([f.pos[0] + Math.sin(V.oYaw)*cp*V.oDist, f.pos[1] + Math.sin(V.oPitch)*V.oDist, f.pos[2] - Math.cos(V.oYaw)*cp*V.oDist]);
+        T = { pos, look: f.pos.slice() }; k = 5; break;
+      }
+      const cp = Math.cos(V.pitch), d = [Math.sin(V.yaw)*cp, Math.sin(V.pitch), -Math.cos(V.yaw)*cp];
+      T = { pos: V.pos.slice(), look: add(V.pos, mul(d, 5)) }; k = 14; break; }
     case 'boat': {
       // below the lowest camera angle the view turns up to the sky instead
       const a = BOAT.heading + G.orbit + (G.lookX || 0), cp0 = G.camPitch ?? 0.32, cp = Math.max(cp0, 0.08), sky = Math.max(0, 0.08 - cp0), D = G.camDist;
@@ -3148,7 +3211,7 @@ function applyRegion(spot, first){
   REGION = { spot, biome: spot.biome, water: spot.water, depthP: dp, depthS, depthQ: [W.scale, seedA, seedB, start] };
   const sunEl = clamp(72 - Math.abs(spot.lat)*0.72, 18, 68), sunAz = (hashf(spot.lon) - 0.5)*40;
   Rn.setEnv(computeHorizon(spot));
-  Rn.setEnv({ sea: spot.water.startsWith('sea'), sigA: W.sigA, sigS: W.sigS, depthP: REGION.depthP, depthQ: REGION.depthQ, depthS: REGION.depthS, bed: W.bed, land: W.land, sunEl, sunAz });
+  Rn.setEnv({ clear: 0, sea: spot.water.startsWith('sea'), sigA: W.sigA, sigS: W.sigS, depthP: REGION.depthP, depthQ: REGION.depthQ, depthS: REGION.depthS, bed: W.bed, land: W.land, sunEl, sunAz });
   BOAT.pos = [0, 0, 0]; BOAT.heading = 0; G.boatV = 0; G.aimYaw = Math.PI/2; G.orbit = 0;   // start looking out over the side
   G.rig = null; G.lure = null; G.hooked = null; G.fight = null; G.engaged = null; G.strike = null;
   if (G.state !== 'boat') G.state = 'idle';
@@ -3157,6 +3220,7 @@ function applyRegion(spot, first){
   fishes.length = 0;
   if (spot.aquarium){
     // the aquarium: calm clear water, your own fish only, no boat; the camera circles the tank
+    Rn.setEnv({ sigA: [0.10, 0.018, 0.012], sigS: [0.002, 0.003, 0.005], clear: 1 });   // filtered tank water: far clearer than any sea
     G.state = 'aquarium'; setWeather('clear', true); Rn.setWaves(0.3); AQ.food.length = 0; checkAquaHealth(); spawnAqua();
     const e = eyeWorld(); cam.pos = e.slice(); cam.look = add(e, [0, -2, -10]);
     $('place').textContent = spot.name; buildToolbar(); updateLog(); renderAquaHud(true);
@@ -3820,11 +3884,17 @@ function update(dt){
   else {
     G.boatV *= Math.exp(-dt*1.5); G.boatSteer = 0;
     if (Math.abs(G.boatV) > 0.02) moveBoat(dt);
+    if (G.state === 'aquarium'){
+      const k1 = c => keys[c] ? 1 : 0;
+      aquaMove(k1('KeyW') - k1('KeyS'), k1('KeyD') - k1('KeyA'), Math.min(1, k1('KeyE') + k1('Space')) - Math.min(1, k1('KeyC') + k1('ShiftLeft')), dt);
+      turnView(((keys.ArrowRight ? 1 : 0) - (keys.ArrowLeft ? 1 : 0))*dt*1.2, ((keys.ArrowDown ? 1 : 0) - (keys.ArrowUp ? 1 : 0))*dt*0.9);
+    } else {
     if (keys.KeyA || keys.ArrowLeft) { if (G.state === 'idle' || G.state === 'charge') G.aimYaw -= dt*1.2; else turnView(-dt*1.2, 0); }
     if (keys.KeyD || keys.ArrowRight){ if (G.state === 'idle' || G.state === 'charge') G.aimYaw += dt*1.2; else turnView(dt*1.2, 0); }
     const aiming = G.state === 'idle' || G.state === 'charge';
     if (keys.KeyW || keys.ArrowUp){ if (aiming) G.aimPitch = clamp(G.aimPitch + dt*0.8, -0.9, 1.1); else turnView(0, -dt*0.9); }
     if (keys.KeyS || keys.ArrowDown){ if (aiming) G.aimPitch = clamp(G.aimPitch - dt*0.8, -0.9, 1.1); else turnView(0, dt*0.9); }
+    }
   }
   pollPad(dt); fightHaptics(dt); updateMenuState(); mouseLook(dt); updateWeather(dt); updateClock(dt); updateRain(dt); updateVisitors(dt); checkSightings(dt); updateTarget(dt);
   updateWake(); updateParticles(dt); updateDecor();
@@ -3834,7 +3904,7 @@ function update(dt){
   { const b = G.state === 'boat'; if (b !== G.boatUI){ G.boatUI = b; document.body.classList.toggle('boating', b); if (b) $('itempop').hidden = true; } }
   // aquarium: its own HUD; the fishing controls, keep net and quest list step aside
   { const a = G.state === 'aquarium';
-    if (a !== G.aquaUI){ G.aquaUI = a; document.body.classList.toggle('aqua', a); $('itempop').hidden = true;
+    if (a !== G.aquaUI){ G.aquaUI = a; document.body.classList.toggle('aqua', a); $('itempop').hidden = true; $('aquainfo').hidden = true;
       const mb = document.querySelector('#menu [data-m="aqua"]'); if (mb) mb.textContent = a ? '⛵ 낚시터로 돌아가기' : '🐠 수족관'; }
     renderAquaHud(); }
   // casting power gauge sits where the tackle buttons were
@@ -3878,5 +3948,5 @@ window.__mapS = (lon, lat) => m2s(nearLon(lon), lat); window.__mapZ = () => MAP.
 window.__game = { tryPredator, SND, playS, qteTap, sprayBurst, toReal, toVis, showCard, questEvent, updateLog, G, fishes, cam, mouse, hookFish, hookSet, jerkLift, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID,
   // used by js/multi.js (online play)
   say, setWeather, WEATHERS, setClockTo, region: () => REGION, idleOnly, HULL,
-  checkAquaHealth, feedFish, AQ, aquaSat, hungerText, SONAR, useBait, loseLure, setItem, curItem, SHOP_TAB, renderShop };
+  checkAquaHealth, feedFish, AQ, aquaSat, hungerText, SONAR, projectSeen, useBait, loseLure, setItem, curItem, SHOP_TAB, renderShop };
 })();
