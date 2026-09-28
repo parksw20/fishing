@@ -267,6 +267,7 @@ function pushOutOfHull(p, m){
 }
 function isSalt(){ return BIOMES[REGION.biome].water === 'salt'; }
 function itemName(it){ return isSalt() && it.nameSea ? it.nameSea : it.name; }
+function cntTag(it){ const n = +P.owned[it.id] || 0; return `<em class="cnt${n <= 3 ? ' low' : ''}">×${n}</em>`; }
 // bought baits come in packs and are used up: one per hook set, one when a fish strips the hook (P.owned holds the count)
 function useBait(){
   const it = curItem(); if (G.mode !== 'pole' || !it.pack) return;
@@ -520,7 +521,8 @@ function animFish(f, dt, effort, fmul){
   const drive = clamp(effort + 0.8*Math.max(0, acc)/(f.sp.speed + 0.2) + 0.9*f.turnK, 0, 1.4);
   const ampT = 0.05 + 0.45*drive;
   f.tailAmp = lerp(f.tailAmp || 0, ampT, Math.min(1, dt*(ampT > (f.tailAmp || 0) ? 9 : 4)));   // strokes start fast, fade slowly
-  const beat = Math.min(9, 0.5 + f.speed/(0.7*L)*fmul + 1.5*Math.max(0, acc)/(f.sp.speed + 0.2) + 3.0*f.turnK);
+  let beat = Math.min(9, 0.5 + f.speed/(0.7*L)*fmul + 1.5*Math.max(0, acc)/(f.sp.speed + 0.2) + 3.0*f.turnK);
+  if (f.sp.id === 'manta') beat = Math.min(0.9, 0.25 + 0.25*f.speed/L + 0.3*f.turnK);   // a manta flaps its wings slowly: about one stroke every 2 s
   f.tailPh += dt*TAU*beat;
   f.tail = Math.sin(f.tailPh)*f.tailAmp;
   f.bend = lerp(f.bend || 0, clamp(-dh*0.32, -0.65, 0.65), Math.min(1, dt*8));
@@ -1414,11 +1416,12 @@ $('releaseall').addEventListener('click', e => { e.stopPropagation(); askNet('re
 $('toaqua').addEventListener('click', e => { e.stopPropagation(); askAqua(); });
 $('naqua').addEventListener('click', e => { e.stopPropagation(); askAqua(); });
 function buildToolbar(){
+  for (const k of ['pole', 'lure']) if (!P.owned[MODES[k].items[G.item[k]].id]) G.item[k] = 0;   // used up or lost: back to the free one
   const modes = $('modes'); modes.innerHTML = '';
   for (const k of ['pole', 'lure']){
     const b = document.createElement('button'); b.className = G.mode === k ? 'on' : '';
     const it = MODES[k].items[G.item[k]];
-    b.innerHTML = `${MODES[k].name}<small></small> ▴`; b.querySelector('small').textContent = itemName(it) + (it.pack ? ` ×${P.owned[it.id]}` : '');
+    b.innerHTML = `${MODES[k].name}<small></small> ▴`; b.querySelector('small').textContent = itemName(it); if (it.pack) b.querySelector('small').insertAdjacentHTML('beforeend', cntTag(it));
     b.onclick = e => { e.stopPropagation(); if (G.mode !== k) setMode(k); const pop = $('itempop'); pop.hidden = !(pop.hidden || G.mode !== pop.dataset.mode); pop.dataset.mode = k; buildItems(); requestAnimationFrame(placeItems); };
     modes.appendChild(b);
   }
@@ -1430,7 +1433,7 @@ function buildItems(){
   modeCfg().items.forEach((it, i) => {
     if (!P.owned[it.id]) return;
     const b = document.createElement('button'); b.className = G.item[G.mode] === i ? 'on' : '';
-    b.innerHTML = '<b></b><small></small>'; b.firstChild.textContent = (G.item[G.mode] === i ? '✓ ' : '') + itemName(it) + (it.pack ? ` ×${P.owned[it.id]}` : ''); b.lastChild.textContent = it.desc;
+    b.innerHTML = '<b></b><small></small>'; b.firstChild.textContent = (G.item[G.mode] === i ? '✓ ' : '') + itemName(it); if (it.pack) b.firstChild.insertAdjacentHTML('beforeend', cntTag(it)); b.lastChild.textContent = it.desc;
     b.onclick = e => { e.stopPropagation(); setItem(i); $('itempop').hidden = true; }; items.appendChild(b);
   });
   placeItems();
@@ -1683,7 +1686,7 @@ function toggleQuests(){ if (!$('questm').hidden) closeModal(); else openQuests(
 // buttons never keep keyboard focus: otherwise Space (cast) or Enter would click the last button again (e.g. reopen the menu)
 document.addEventListener('click', e => { const b = e.target.closest && e.target.closest('button'); if (b) b.blur(); }, true);
 $('menubtn').addEventListener('click', e => { e.stopPropagation(); $('menu').hidden = !$('menu').hidden; });
-const MENU_IDLE_ONLY = ['shop', 'map', 'time'];
+const MENU_IDLE_ONLY = ['shop', 'map', 'time', 'aqua'];
 function menuBusy(){ return ['charge', 'fly', 'wait', 'hooked'].includes(G.state); }
 function updateMenuState(){
   const busy = menuBusy(); if (busy === G.menuBusy) return; G.menuBusy = busy;
@@ -2188,7 +2191,7 @@ function drawFightRing(cx, cy){
   const cq = F.cq;
   const col = cq > 0.45 ? '110,230,140' : cq > 0.05 ? '255,220,90' : '255,110,90';
   ctx.lineWidth = 3; ctx.strokeStyle = `rgba(${col},.55)`; ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.stroke();
-  ctx.lineWidth = 1; ctx.strokeStyle = 'rgba(255,255,255,.25)'; ctx.beginPath(); ctx.arc(cx, cy, R*0.12, 0, TAU); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,255,255,.85)'; ctx.beginPath(); ctx.arc(cx, cy, 3, 0, TAU); ctx.fill();   // centre: a small white dot
   // fish swimming direction on screen
   const a = projectSeen(f.pos), b = projectSeen(add(f.pos, [Math.cos(f.heading), 0, Math.sin(f.heading)]));
   if (a && b){ const ex = b[0]-a[0], ey = b[1]-a[1], l = Math.hypot(ex, ey) || 1; F.dir = [ex/l, ey/l]; }   // fish off screen: keep the last direction
@@ -2463,7 +2466,9 @@ function load(){
   try {
     const d = JSON.parse(localStorage.getItem(SAVE_KEY) || 'null'); if (!d) return null;
     Object.assign(P.tier, d.P.tier || {}); Object.assign(P.owned, d.P.owned || {});
-    for (const it of BAITS) if (it.pack && P.owned[it.id] === true) P.owned[it.id] = it.pack;   // bought for good before baits were used up: one pack P.coins = d.P.coins ?? P.coins;
+    P.coins = d.P.coins ?? P.coins;
+    // baits bought for good before they were used up (or free until they got a price): one pack each
+    for (const it of BAITS) if (it.pack && P.owned[it.id] === true) P.owned[it.id] = it.pack;
     // saves from before the 10-level upgrades: map the old level to the new one with the same meaning
     if (!d.P.tierV){
       const OLD = { rod: [0, 4, 9], reel: [0, 4, 9], line: [0, 3, 6, 9], hook: [0, 4, 9], sonar: [0, 3, 6], boat: [0, 3, 6, 9], net: [0, 4, 9], engine: [0, 4, 9] };
@@ -3783,6 +3788,16 @@ const DEBUG_ACT = {
     say(`🎣 ${f.sp.name} 입질!`, 1.5, 'hot');
   },
   questReset(){ P.quests = []; fillQuests(); renderQuests(); say('📜 퀘스트 초기화', 1.8); },
+  // 10 fish straight into the keep net: small (< 40 cm), medium (40 cm – 1 m) or large (1 m +); the net's size limit is ignored
+  net(k){
+    const [lo, hi, label] = { s: [0.12, 0.4, '소형'], m: [0.4, 1.0, '중형'], l: [1.0, 3.3, '대형'] }[k];
+    const pool = SPECIES.filter(sp => !sp.sight && sp.maxLen > lo && sp.minLen < hi);
+    for (let i = 0; i < 10; i++){
+      const sp = pool[Math.floor(Math.random()*pool.length)], len = rand(Math.max(lo, sp.minLen), Math.min(hi, sp.maxLen)), weight = sp.wk*Math.pow(len*100, 3);
+      P.net.unshift({ id: sp.id, len, weight, price: Math.round(20 + Math.sqrt(weight)*60*sp.rare + len*40) });
+    }
+    say(`🧺 살림망에 ${label} 물고기 10마리 추가 (${P.net.length}마리)`, 1.8, 'hot');
+  },
   // time:<hour> and w:<weather> chips
   time(h){ setClockTo(+h); say(`⏩ ${fmtHour(+h)}로 이동 중`, 1.6); },
   wave(k){ G.waveK = +k; Rn.setWaves(+k); say(`🌊 파도: ${{ '0.45': '잔잔', '1': '중간', '1.8': '강하게', '2.8': '매우 강하게', '4': '폭풍' }[k]}`, 1.6); },

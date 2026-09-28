@@ -273,8 +273,8 @@ window.GameData = (function(){
   // 찌낚시 (float fishing with a long pole, no reel); sea names in nameSea
   const BAITS = [
     { id:'paste',  name:'떡밥',   nameSea:'크릴',      desc:'붕어·잉어·감성돔이 좋아하는 밑밥 미끼', color:[0.55,0.45,0.25], size:[0.012,0.012,0.012], kind:0, metal:0.0 },
-    { id:'worm',   name:'지렁이', nameSea:'청갯지렁이', desc:'거의 모든 어종이 반응',               color:[0.45,0.10,0.10], size:[0.022,0.007,0.007], kind:0, metal:0.1 },
-    { id:'shrimp', name:'새우',   nameSea:'오징어살',  desc:'육식성 어종이 좋아함',                color:[0.55,0.48,0.40], size:[0.018,0.008,0.008], kind:0, metal:0.2 },
+    { id:'worm',   name:'지렁이', nameSea:'청갯지렁이', desc:'거의 모든 어종이 반응',               color:[0.45,0.10,0.10], size:[0.022,0.007,0.007], kind:0, metal:0.1, cost:20, pack:10 },
+    { id:'shrimp', name:'새우',   nameSea:'오징어살',  desc:'육식성 어종이 좋아함',                color:[0.55,0.48,0.40], size:[0.018,0.008,0.008], kind:0, metal:0.2, cost:30, pack:10 },
     { id:'cutbait', name:'생선 토막', desc:'메기·상어·대구·핼리벗 — 냄새로 큰 고기를 부름', color:[0.62,0.38,0.34], size:[0.03,0.012,0.02], kind:0, metal:0.3, cost:50, pack:10 },
     { id:'livebait', name:'살아있는 미끼', desc:'미꾸라지·전갱이 — 대형 육식어의 1순위', color:[0.35,0.40,0.42], size:[0.045,0.01,0.008], kind:1, metal:0.7, cost:90, pack:10 },
   ];
@@ -283,9 +283,9 @@ window.GameData = (function(){
     { id:'minnow',   name:'미노우',   desc:'감으면 1m까지 잠수, 멈추면 떠오름', color:[0.10,0.35,0.15], size:[0.045,0.012,0.009], kind:1, metal:0.6,
       reel:1.05, diveDepth:1.1, idle:'float' },
     { id:'spoon',    name:'스푼',     desc:'번쩍이며 빠르게 가라앉음',         color:[0.85,0.65,0.20], size:[0.030,0.004,0.014], kind:2, metal:1.2,
-      reel:1.15, diveDepth:0.6, idle:'sink' },
+      reel:1.15, diveDepth:0.6, idle:'sink', cost:200 },
     { id:'softworm', name:'소프트웜', desc:'바닥을 천천히 끄는 채비',           color:[0.20,0.12,0.25], size:[0.050,0.008,0.008], kind:3, metal:0.15,
-      reel:0.6, diveDepth:-1, idle:'slowsink' },
+      reel:0.6, diveDepth:-1, idle:'slowsink', cost:250 },
     { id:'topwater', name:'포퍼', desc:'수면에서 물보라를 일으킴 — 가물치·GT·배스(새벽)', color:[0.90,0.85,0.20], size:[0.04,0.015,0.012], kind:1, metal:0.4,
       reel:0.9, diveDepth:0, idle:'surface', cost:350 },
     { id:'jig', name:'메탈지그', desc:'빠르게 바닥까지 — 감으면 솟구침 (참돔·방어·대구)', color:[0.55,0.62,0.80], size:[0.04,0.006,0.012], kind:2, metal:1.4,

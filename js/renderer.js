@@ -2032,6 +2032,8 @@ function loadGLB(key, b64, fit){
 const FISHM = {};
 const FJX = [0.42, 0.252, 0.084, -0.084, -0.252, -0.42];
 const FLATFISH = new Set(['gwangeo', 'halibut']);
+// rays fly with their wings: no side-to-side body wave, the wing tips rise and fall in a wave running nose to tail
+const FLAPPERS = new Set(['manta']);
 function fishModel(id){
   if (!id) return null;
   let m = FISHM[id];
@@ -2077,11 +2079,18 @@ function fishModel(id){
 }
 const pFishM = prog(`#version 300 es
 layout(location=0) in vec3 aP; layout(location=1) in vec3 aN; layout(location=2) in vec2 aT; layout(location=3) in vec4 aJW;
-uniform mat4 uM, uJ[6]; uniform vec3 uCam, uR, uU, uF; uniform float uTanF, uAspect;
+uniform mat4 uM, uJ[6]; uniform vec3 uCam, uR, uU, uF; uniform float uTanF, uAspect; uniform vec2 uFlap;
 out vec3 vN, vW; out vec2 vT;
 void main(){
   mat4 S = uJ[int(aJW.x)]*aJW.z + uJ[int(aJW.y)]*aJW.w;
-  vec4 w = uM*(S*vec4(aP, 1.0)); vW = w.xyz; vN = mat3(uM)*(mat3(S)*aN); vT = aT;
+  vec3 p = aP, nm = aN;
+  if (uFlap.y > 0.0){   // wing flap (x: phase, y: tip lift in body lengths); the lift grows toward the tips (z) and lags toward the tail
+    float span = 0.77, r = min(abs(p.z)/span, 1.0), s = 0.5 - p.x, w = sin(uFlap.x - 2.0*s - 0.9*r);
+    p.y += uFlap.y*w*pow(r, 1.6);
+    float dz = uFlap.y*w*1.6*pow(max(r, 1e-3), 0.6)/span*sign(p.z);   // slope of the wing across the span
+    nm = normalize(nm + vec3(0.0, 0.0, -dz)*nm.y);
+  }
+  vec4 w = uM*(S*vec4(p, 1.0)); vW = w.xyz; vN = mat3(uM)*(mat3(S)*nm); vT = aT;
   vec3 v = w.xyz - uCam; float dz = dot(v, uF);
   gl_Position = vec4(dot(v,uR)/(uAspect*uTanF), dot(v,uU)/uTanF, ${ZA.toFixed(8)}*dz + (${ZB.toFixed(8)}), dz);
 }`, `#version 300 es
@@ -2127,7 +2136,7 @@ function fishJoints(ph, amp, bend){
   return fishJ;
 }
 // draw one fish model: centre, forward (head), side (body's +z), length; pose; wet = sheen out of the water
-function drawFishModel(m, B, c, f, sd, L, ph, amp, bend, wet){
+function drawFishModel(m, B, c, f, sd, L, ph, amp, bend, wet, flap){
   const up = cross3(sd, f);   // z × x = y
   const M = new Float32Array([f[0]*L, f[1]*L, f[2]*L, 0, up[0]*L, up[1]*L, up[2]*L, 0, sd[0]*L, sd[1]*L, sd[2]*L, 0, c[0], c[1], c[2], 1]);
   const u = pFishM.u;
@@ -2135,7 +2144,8 @@ function drawFishModel(m, B, c, f, sd, L, ph, amp, bend, wet){
   gl.uniform3fv(u.uSun, SUNV); gl.uniform3fv(u.uSunC, ENV.sunC); gl.uniform3fv(u.uSkyK, ENV.skyK);
   gl.uniform3fv(u.uSigT, ENV.sigA.map((a, i) => a + ENV.sigS[i])); gl.uniform1f(u.uL, L_PATCH); gl.uniform1f(u.uDepth, DEPTH); gl.uniform2fv(u.uCausShift, causShift);
   gl.uniform1f(u.uWet, wet || 0);
-  gl.uniformMatrix4fv(u.uM, false, M); gl.uniformMatrix4fv(u.uJ, false, fishJoints(ph, amp, bend));
+  gl.uniformMatrix4fv(u.uM, false, M); gl.uniformMatrix4fv(u.uJ, false, flap ? fishJoints(0, 0, bend*0.3) : fishJoints(ph, amp, bend));
+  gl.uniform2f(u.uFlap, ph, flap || 0);
   gl.activeTexture(gl.TEXTURE14); gl.bindTexture(gl.TEXTURE_2D, causRT.t); gl.uniform1i(u.uCaus, 14);
   gl.activeTexture(gl.TEXTURE15); gl.bindTexture(gl.TEXTURE_2D, m.tex); gl.uniform1i(u.uTex, 15); gl.activeTexture(gl.TEXTURE0);
   gl.bindVertexArray(m.vao); gl.drawElements(gl.TRIANGLES, m.n, m.type, 0);
@@ -2515,7 +2525,8 @@ function render(S){
     // flatfish (flounder, halibut) swim lying on one side: the model rolls 90° so its eyed side faces up and the body wave runs up and down
     // a dead fish (aquarium) floats on its side: roll it like a flatfish (and a flatfish the other way)
     const sd = FLATFISH.has(f.id) !== !!f.dead ? up0 : cross3(d, up0);
-    drawFishModel(m, B, f.pos, d, sd, f.len, f.tailPh || 0, f.tailAmp || 0, f.bend || 0, 0);
+    const flap = FLAPPERS.has(f.id) && !f.dead ? 0.12 + 0.2*Math.min(1, f.tailAmp || 0) : 0;   // stronger strokes when it speeds up or turns
+    drawFishModel(m, B, f.pos, d, sd, f.len, f.tailPh || 0, f.tailAmp || 0, f.bend || 0, 0, flap);
   }
   if (S.hang){ const h = S.hang, m = fishModel(h.id);
     if (m){ const up = cross3(h.side, h.f), mo = m.mouth || [0.5, 0], L = h.len;   // hung by the mouth: the hook point is the snout
