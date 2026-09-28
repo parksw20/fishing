@@ -119,10 +119,6 @@ window.GameData = (function(){
       back:[0.05,0.28,0.18], belly:[0.62,0.58,0.12], pattern:8, hr:0.30,
       pref:{ paste:0.0, worm:0.1, shrimp:0.4, minnow:1.0, spoon:0.9, softworm:0.2 },
       depth:0.12, speed:1.1, power:1.2, endurance:1.3, aggr:0.95, wary:0.3, rare:2.1 }),
-    S({ id:'parrot', name:'비늘돔', latin:'Scarus ghobban', minLen:0.25, maxLen:0.70, wk:1.8e-5,
-      back:[0.04,0.32,0.28], belly:[0.20,0.55,0.50], pattern:11, hr:0.36,
-      pref:{ paste:0.8, worm:0.4, shrimp:0.6, minnow:0.1, spoon:0.1, softworm:0.2 },
-      depth:0.85, speed:0.4, power:0.9, endurance:1.0, aggr:0.3, wary:0.6, rare:1.4 }),
     S({ id:'snapper', name:'붉은퉁돔', latin:'Lutjanus bohar', minLen:0.30, maxLen:0.85, wk:1.7e-5,
       back:[0.45,0.12,0.10], belly:[0.65,0.40,0.36], pattern:10, hr:0.34,
       pref:{ paste:0.3, worm:0.6, shrimp:1.0, minnow:0.8, spoon:0.6, softworm:0.8 },
@@ -197,7 +193,7 @@ window.GameData = (function(){
     cold_fresh: { name:'한대 민물', water:'fresh', fish:[['songeo',26],['char',16],['pike',18],['salmon',10],['walleye',12],['sturgeon',2]], visitors:[['sturgeon',0.06]] },
     trop_fresh: { name:'열대 민물', water:'fresh', fish:[['peacock',18],['piranha',26],['arowana',8],['tilapia',26],['nileperch',6],['chcat',6],['arapaima',2]], visitors:[['arapaima',0.08]] },
     temp_sea:   { name:'온대 바다', water:'salt',  fish:[['gwangeo',12],['chamdom',8],['nongeo',12],['gamseong',12],['godeungeo',30],['bangeo',7],['tuna',1],['mako',0.6],['mola',0.4]], visitors:[['dolphin',0.04],['mola',0.035],['mako',0.02],['humpback',0.012]] },
-    trop_sea:   { name:'열대 바다', water:'salt',  fish:[['gt',8],['barracuda',14],['grouper',14],['mahi',10],['parrot',24],['snapper',20],['blacktip',5],['tuna',2],['sailfish',1.5],['hammerhead',0.6]], visitors:[['turtle',0.05],['manta',0.035],['dolphin',0.03],['hammerhead',0.025],['sailfish',0.02]] },
+    trop_sea:   { name:'열대 바다', water:'salt',  fish:[['gt',8],['barracuda',14],['grouper',14],['mahi',10],['snapper',20],['blacktip',5],['tuna',2],['sailfish',1.5],['hammerhead',0.6]], visitors:[['turtle',0.05],['manta',0.035],['dolphin',0.03],['hammerhead',0.025],['sailfish',0.02]] },
     cold_sea:   { name:'한대 바다', water:'salt',  fish:[['cod',28],['halibut',8],['pollock',30],['godeungeo',16],['salmon',8]], visitors:[['humpback',0.05],['orca',0.035],['dolphin',0.02]] },
   };
 

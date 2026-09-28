@@ -31,7 +31,6 @@ window.FISH_PHOTOS = {
   barracuda: { file: 'img/fish/barracuda.jpg' },
   grouper: { file: 'img/fish/grouper.jpg' },
   mahi: { file: 'img/fish/mahi.jpg' },
-  parrot: { file: 'img/fish/parrot.jpg' },
   snapper: { file: 'img/fish/snapper.jpg' },
   cod: { file: 'img/fish/cod.jpg' },
   halibut: { file: 'img/fish/halibut.jpg' },

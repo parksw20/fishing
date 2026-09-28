@@ -1512,52 +1512,6 @@ window.ECOLOGY = {
 ],
 "verified": true
 },
-"parrot": {
-"dmin": 2,
-"dmax": 30,
-"zone": "bottom",
-"act": {
-"dawn": 0.5,
-"day": 1.0,
-"dusk": 0.5,
-"night": 0.0
-},
-"pref": {
-"paste": 0.75,
-"worm": 0.55,
-"shrimp": 1.0,
-"cutbait": 0.03,
-"livebait": 0.03,
-"minnow": 0.02,
-"spoon": 0.02,
-"softworm": 0.02,
-"topwater": 0.02,
-"jig": 0.02,
-"trolling": 0.02
-},
-"retrieve": "slow",
-"retrieveNote": "rarely takes lures; small bait near reef by day",
-"feeding": "grazing: scrapes algae from coral/rock; sleeps in mucus cocoon at night",
-"structure": [
-"reef",
-"coral",
-"lagoon"
-],
-"lenCm": [
-30,
-60
-],
-"kg": [
-0.5,
-3
-],
-"tip": "한낮 산호초 위에 작은 새우 미끼를 조용히 흘리기",
-"sources": [
-"https://fishbase.se/summary/5548",
-"https://australian.museum/learn/animals/fishes/bluebarred-parrotfish-scarus-ghobban-forsskl-1775/"
-],
-"verified": true
-},
 "snapper": {
 "dmin": 10,
 "dmax": 70,
