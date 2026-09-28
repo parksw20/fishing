@@ -271,7 +271,9 @@
   var css = document.createElement('style');
   css.textContent = [
     '#mp{position:fixed;left:50%;transform:translateX(-50%);top:calc(52px + env(safe-area-inset-top,0px));z-index:6;padding:6px 12px;font-size:13px;max-width:min(46vw,360px);text-align:center;color:#fff}',
-    'body.touch #mp{top:calc(44px + env(safe-area-inset-top,0px));font-size:12px;max-width:44vw;padding:5px 9px}',
+    // 모바일: 퀘스트 목록 바로 아래, 왼쪽 정렬 (top 은 퀘스트 높이를 따라 placePanel 이 정합니다)
+    'body.touch #mp{left:10px;transform:none;font-size:12px;max-width:calc(100vw - 200px);box-sizing:border-box;padding:6px 10px;text-align:left}',
+    'body.touch #mp .row{justify-content:flex-start}',
     '#mp .row{display:flex;flex-wrap:wrap;align-items:center;justify-content:center;gap:4px 8px;white-space:nowrap}',
     '#mp b.t{color:#ffd84a;font-variant-numeric:tabular-nums}',
     '#mp button{font:700 12px var(--font,system-ui);padding:4px 9px;border-radius:8px;border:0;background:rgba(255,216,74,.9);color:#1b1b12;cursor:pointer}',
@@ -309,10 +311,21 @@
     renderPanel();
   });
 
+  /** 모바일에서는 퀘스트 목록 밑에 붙입니다 — 퀘스트 수에 따라 높이가 바뀌므로 그때그때 잽니다 */
+  function placePanel() {
+    if (!document.body.classList.contains('touch')) { panel.style.top = ''; panel.style.left = ''; return; }
+    // (fixed 요소는 offsetParent 가 늘 null 이라 보이는지는 계산된 display 로 봅니다)
+    var q = $('qtrack'), r = q && !q.hidden && getComputedStyle(q).display !== 'none' ? q.getBoundingClientRect() : null;
+    panel.style.top = (r && r.height ? r.bottom + 6 : 50) + 'px';
+    panel.style.left = (r && r.height ? r.left : 10) + 'px';
+  }
+  addEventListener('resize', placePanel);
+
   var lastHtml = '';
   function renderPanel() {
     if (!M.active) { panel.hidden = true; lastHtml = ''; return; }
     panel.hidden = false;
+    placePanel();
     var T = M.tour, n = 1 + Object.keys(M.peers).length, html;
     if (T && !T.done) {
       var left = Math.max(0, Math.ceil((T.endsAt - now()) / 1000));
