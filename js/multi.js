@@ -362,21 +362,48 @@
 
   /* ---------------- 다른 보트와의 거리: 캐스팅 금지 방향 · 충돌 ---------------- */
 
-  var BOAT_R = 2.3;          // 보트를 원으로 본 반지름 (선체 반길이 2.05 + 여유)
-  var SLOW_FROM = 14;        // 이 거리 안에서 다가가면 속도를 줄입니다
+  // 충돌은 **선체 모양 그대로** — 보트마다 뱃머리 방향으로 누운 타원(반길이 HULL.l, 반폭 HULL.w).
+  // 원으로 보면 옆으로 나란히 댈 때도 보트 길이만큼 떨어져서 부딪힌 것처럼 튕겼습니다.
+  var SLOW_GAP = 8;          // 선체 사이 틈이 이보다 좁아지며 다가가면 속도를 줄입니다 (m)
+  var CONTACT = 0.1;         // 선체끼리 이만큼 가까워지면 닿은 것으로 봅니다 (m)
   var CAST_CLEAR = 5;        // 던지는 방향에서 보트까지 옆으로 이만큼은 떨어져야 합니다
   var CAST_RANGE = 70;       // 이보다 먼 보트는 신경 쓰지 않습니다 (최대 캐스팅 거리보다 넉넉히)
 
-  /** 같은 낚시터에 있는 다른 보트의 중심 [x, z] 와 이름 */
+  function hull() { var H = g().HULL; return { l: H.l, w: H.w }; }
+
+  /** 같은 낚시터에 있는 다른 보트의 중심 [x, z] · 뱃머리 방향 · 이름 */
   function boats() {
     if (!M.active) return [];
     var here = g().region() && g().region().spot.id, out = [];
     Object.keys(M.peers).forEach(function (id) {
       var c = M.peers[id].cur;
       if (c.spot && here && c.spot !== here) return;
-      out.push({ x: c.pos[0], z: c.pos[2], id: id });
+      out.push({ x: c.pos[0], z: c.pos[2], h: c.heading || 0, id: id });
     });
     return out;
+  }
+
+  /** 뱃머리 방향 h 인 선체 타원의, 세계 방향 (ux, uz) 쪽 중심→가장자리 거리 */
+  function hullRadius(h, ux, uz, H) {
+    var fx = Math.sin(h), fz = -Math.cos(h), rx = Math.cos(h), rz = Math.sin(h);
+    var a = (ux * rx + uz * rz) / H.w, b = (ux * fx + uz * fz) / H.l;
+    return 1 / Math.sqrt(a * a + b * b);
+  }
+  /** 점 (px, pz) 가 (cx, cz, h) 선체 안인가 (m 만큼 부풀려서) */
+  function insideHullAt(px, pz, cx, cz, h, H, m) {
+    var dx = px - cx, dz = pz - cz;
+    var a = (dx * Math.cos(h) + dz * Math.sin(h)) / (H.w + m);
+    var b = (dx * Math.sin(h) - dz * Math.cos(h)) / (H.l + m);
+    return a * a + b * b < 1;
+  }
+  /** 두 선체가 겹치나 — 한쪽 윤곽의 점 16개가 다른 쪽 안에 들어가는지 양쪽으로 봅니다 */
+  function hullsOverlap(ax, az, ah, bx, bz, bh, H) {
+    for (var k = 0; k < 16; k++) {
+      var t = k * Math.PI / 8, lat = H.w * Math.cos(t), lon = H.l * Math.sin(t);
+      if (insideHullAt(ax + Math.cos(ah) * lat + Math.sin(ah) * lon, az + Math.sin(ah) * lat - Math.cos(ah) * lon, bx, bz, bh, H, CONTACT)) return true;
+      if (insideHullAt(bx + Math.cos(bh) * lat + Math.sin(bh) * lon, bz + Math.sin(bh) * lat - Math.cos(bh) * lon, ax, az, ah, H, CONTACT)) return true;
+    }
+    return false;
   }
 
   var blockSaidAt = 0;
@@ -390,7 +417,7 @@
       var along = vx * dir[0] + vz * dir[2];
       if (along <= 0) continue;                                // 등 뒤
       var side = Math.abs(vx * dir[2] - vz * dir[0]);          // 던지는 선에서 옆으로 떨어진 거리
-      if (side < CAST_CLEAR + BOAT_R * 0.5) {
+      if (side < CAST_CLEAR + hull().l * 0.5) {
         if (now() - blockSaidAt > 1200) { blockSaidAt = now(); say('🚫 ' + nameOf(b.id) + ' 님 보트 쪽으로는 던질 수 없어요', 1.6, 'bad'); }
         return true;
       }
@@ -399,22 +426,25 @@
   }
 
   /**
-   * 보트 이동 검사. pos: 지금 위치, next: 이번 프레임에 갈 위치 [x, z], dir: 움직이는 방향, speed: 속력.
-   * cap — 다가가는 중이면 거리에 따라 줄인 최고 속력 / bump — 이번 걸음에 부딪힘
-   * 부딪힌 채 **멀어지는** 쪽으로는 막지 않습니다 — 안 그러면 붙은 보트끼리 빠져나오지 못합니다.
+   * 보트 이동 검사. pos: 지금 위치, next: 이번 프레임에 갈 위치 [x, z], dir: 움직이는 방향, h: 내 뱃머리 방향.
+   * cap — 다가가는 중이면 선체 사이 틈에 따라 줄인 최고 속력 / bump — 이번 걸음에 선체가 닿음
+   * 닿은 채 **멀어지는** 쪽으로는 막지 않습니다 — 안 그러면 붙은 보트끼리 빠져나오지 못합니다.
    */
-  function boatContact(pos, next, dir, speed) {
-    var cap = Infinity, bump = false, D = BOAT_R * 2;
+  function boatContact(pos, next, dir, h) {
+    var cap = Infinity, bump = false, H = hull();
     boats().forEach(function (b) {
       var vx = b.x - pos[0], vz = b.z - pos[2], dNow = Math.hypot(vx, vz);
+      if (dNow < 0.01 || dNow > SLOW_GAP + 2 * (H.l + H.w)) return;
+      var ux = vx / dNow, uz = vz / dNow;
+      // 선체 가장자리 사이의 틈 — 서로를 향한 쪽의 반지름을 뺍니다 (뱃머리끼리면 길고, 옆구리끼리면 짧습니다)
+      var gap = dNow - hullRadius(h, ux, uz, H) - hullRadius(b.h, -ux, -uz, H);
       var dNext = Math.hypot(b.x - next[0], b.z - next[1]);
-      if (dNext < D && dNext < dNow) bump = true;
-      if (dNow < SLOW_FROM && dNow > 0.01) {
-        var approach = (vx * dir[0] + vz * dir[2]) / dNow;     // 1 = 정면으로 다가감
+      if (dNext < dNow && hullsOverlap(next[0], next[1], h, b.x, b.z, b.h, H)) bump = true;
+      if (gap < SLOW_GAP) {
+        var approach = ux * dir[0] + uz * dir[2];              // 1 = 정면으로 다가감
         var side = Math.abs(vx * dir[2] - vz * dir[0]);        // 이대로 가면 옆으로 얼마나 비껴가나
-        if (approach > 0.3 && side < D + 2) {                  // 스쳐 지나가는 보트 때문에 느려지지는 않게
-          var room = Math.max(0, (dNow - D) / (SLOW_FROM - D));
-          cap = Math.min(cap, 0.5 + room * 6);
+        if (approach > 0.3 && side < H.l + H.w + 1) {          // 스쳐 지나가는 보트 때문에 느려지지는 않게
+          cap = Math.min(cap, 0.5 + Math.max(0, gap) / SLOW_GAP * 6);
         }
       }
     });

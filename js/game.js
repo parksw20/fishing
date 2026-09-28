@@ -2491,7 +2491,7 @@ function moveBoat(dt){
   }
   // online: other boats — slow down on the way in, bounce off on contact
   if (window.DopaMulti){
-    const hit = DopaMulti.boatContact(BOAT.pos, [nx, nz], [f[0]*dir, f[2]*dir], Math.abs(G.boatV));
+    const hit = DopaMulti.boatContact(BOAT.pos, [nx, nz], [f[0]*dir, f[2]*dir], BOAT.heading);
     if (hit.cap < Math.abs(G.boatV)) G.boatV = Math.sign(G.boatV)*hit.cap;
     if (hit.bump){
       G.boatV = -G.boatV*0.3; sfx.splash(0.25);
@@ -3431,5 +3431,5 @@ window.__decorSolids = () => DECOR.solids || [];
 window.__mapS = (lon, lat) => m2s(nearLon(lon), lat); window.__mapZ = () => MAP.z;
 window.__game = { tryPredator, SND, playS, qteTap, sprayBurst, toReal, toVis, showCard, questEvent, updateLog, G, fishes, cam, mouse, hookFish, hookSet, jerkLift, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID,
   // used by js/multi.js (online play)
-  say, setWeather, WEATHERS, setClockTo, region: () => REGION, idleOnly };
+  say, setWeather, WEATHERS, setClockTo, region: () => REGION, idleOnly, HULL };
 })();
