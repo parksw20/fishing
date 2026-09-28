@@ -785,7 +785,7 @@ function updateQTE(dt){
   const Q = F.qte;
   if (!Q){
     // shrink time 1.4 s (weak fish) … 0.7 s (strongest pull), a little random
-    if (f.stamina > 0.12 && (F.qteT -= dt) <= 0) F.qte = { t: 0, T: lerp(1.4, 0.7, clamp((f.pull - 0.15)/1.0, 0, 1))*rand(0.92, 1.08), r0: 130 + 40*Math.random() };
+    if (f.stamina > 0.12 && (F.qteT -= dt) <= 0) F.qte = { t: 0, T: lerp(1.4, 0.7, clamp((f.pull - 0.15)/1.0, 0, 1))*rand(0.92, 1.08), r0: rand(1.75, 1.95) };   // r0: × the big ring
     return;
   }
   Q.t += dt;
@@ -796,7 +796,7 @@ function judgeQTE(J, missed){
   F.qte = null; F.qteT = rand(2.5, 5);
   f.stamina = clamp(f.stamina - J.dmg/Math.sqrt(f.endur), 0, 1);
   if (J.dmg > 0) F.hpHold = 0;
-  F.pop = { text: missed ? 'MISS' : J.name, col: J.col, size: J.size, t: 0 };
+  F.pop = { text: missed ? 'MISS' : J.name, col: J.col, size: J.size, t: 0, rank: missed ? 4 : JUDGE.indexOf(J), seed: Math.random()*TAU };
   SHAKE.kick = Math.max(SHAKE.kick || 0, J.shake);
   padRumble(J.shake*0.5, J.shake*0.4, 120 + J.shake*120, 30 + J.shake*50);
   if (J === JUDGE[0]){ sfx.hit(); setTimeout(() => sfx.hit(), 90); }
@@ -811,13 +811,8 @@ function qteTapAny(){
   judgeQTE(JOY_JUDGE(Math.abs(Q.t - Q.T))); return true;
 }
 function JOY_JUDGE(off){ return JUDGE.find(J => off <= J.win) || JUDGE[JUDGE.length - 1]; }
-function qteTap(x, y){
-  const Q = G.fight && G.fight.qte; if (G.state !== 'hooked' || !Q) return;
-  const P = G.fight.qtePos; if (!P || Math.hypot(x - P[0], y - P[1]) > qteTgtR()*1.8 + 14) return;   // only a tap on / near the target
-  if (Q.t < Q.T*0.45) return;                       // far too early: that press is just reeling
-  const off = Math.abs(Q.t - Q.T);
-  judgeQTE(JUDGE.find(J => off <= J.win));
-}
+// the closing ring is answered by a click / tap anywhere (not on a button): only the timing counts
+function qteTap(x, y){ qteTapAny(); }
 window.addEventListener('pointerdown', e => { if (G.state === 'hooked' && !(e.target.closest && e.target.closest('button, .modal, #menu, #itempop'))) qteTap(e.clientX, e.clientY); }, true);
 function updateFight(dt){
   const f = G.hooked, F = G.fight, sp = f.sp, tip = tipXZ();
@@ -1189,8 +1184,8 @@ const HELP = {
     ? '찌를 지켜보세요 · 찌가 <b>쑥 잠기거나 올라오면 클릭</b>(챔질) · <b>휠</b> 수심 · <b>우클릭 드래그</b> 시점 · <b>R</b> 회수'
     : '<b>누르고 있으면 릴 감기</b> · 감다 멈추기로 액션을 주세요 · <b>휠</b> 드랙 · <b>우클릭 드래그</b> 시점 · <b>R</b> 회수',
   hooked: () => G.mode === 'pole'
-    ? '마우스를 <b>물고기 진행 방향의 반대쪽</b>으로! · <b>누르면 들어올리기</b> (장력 주의)'
-    : '마우스를 <b>물고기 진행 방향의 반대쪽</b>으로! · <b>누르면 릴 감기</b> · <b>휠</b> 드랙',
+    ? '마우스를 <b>물고기 진행 방향의 반대쪽</b>으로! · <b>누르면 들어올리기</b> · 원이 겹칠 때 <b>클릭</b>'
+    : '마우스를 <b>물고기 진행 방향의 반대쪽</b>으로! · <b>누르면 릴 감기</b> · 원이 겹칠 때 <b>클릭</b> · <b>휠</b> 드랙',
   result: () => '<b>클릭</b>하여 계속',
 };
 let lastHelp = '';
@@ -1199,7 +1194,7 @@ const HELP_TOUCH = {
   charge: () => '손을 떼면 던집니다',
   fly: () => '',
   wait: () => G.mode === 'pole' ? '찌가 <b>쑥 잠기거나 올라오면 챔질</b> (화면 탭도 가능) · +/− 수심' : '<b>감기</b>를 누르고 있기 · 감다 멈추기로 액션 · +/− 드랙',
-  hooked: () => G.fight && G.fight.t > 3 ? '' : `가운데 조그를 <b>누른 채</b> ${G.mode === 'pole' ? '들기' : '감기'} · <b>물고기 반대쪽</b>으로 밀기`,   // shown for the first seconds only
+  hooked: () => G.fight && G.fight.t > 3 ? '' : `조그를 <b>누른 채</b> ${G.mode === 'pole' ? '들기' : '감기'} · <b>물고기 반대쪽</b>으로 밀기 · 원이 겹칠 때 <b>터치</b>`,   // shown for the first seconds only
   result: () => '탭하여 계속',
   boat: () => '<b>조그</b> 위: 전진 · 아래: 후진 · 좌우: 조향 · 드래그 시점 · 오른쪽 아래 🎣 낚시',
 };
@@ -1846,36 +1841,55 @@ function drawFightRing(cx, cy){
     ctx.beginPath(); ctx.moveTo(x0, y0); ctx.lineTo(x1, y1); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(x1 + dx*14, y1 + dy*14); ctx.lineTo(x1 - dy*10, y1 + dx*10); ctx.lineTo(x1 + dy*10, y1 - dx*10); ctx.fill();
     const lo = TOUCH.on ? 20 : 34; label('물고기', x1 + dx*lo, y1 + dy*lo + 5, '#ff8a70', 13);
-    // ideal counter direction hint
+    // ideal counter direction: where to pull (dashed)
     const tx = cx - dx*R, ty = cy - dy*R;
-    ctx.setLineDash([4, 6]); ctx.strokeStyle = F.qte ? 'rgba(255,255,255,.95)' : 'rgba(110,230,140,.6)'; ctx.lineWidth = 2;
-    const tr = qteTgtR();
-    ctx.beginPath(); ctx.arc(tx, ty, tr, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
-    // timing ring closing in on the target
-    const Q = F.qte;
-    if (Q){
-      const k = clamp(Q.t/Q.T, 0, 1.3), r = Math.max(2, tr + (Q.r0 - tr)*(1 - k));
-      const near = Math.abs(Q.t - Q.T) < JUDGE[1].win;
-      ctx.lineWidth = near ? 5 : 3.5; ctx.strokeStyle = `rgba(255,255,255,${(0.35 + 0.6*Math.min(1, k)).toFixed(2)})`;
-      ctx.beginPath(); ctx.arc(tx, ty, r, 0, TAU); ctx.stroke();
-      ctx.fillStyle = `rgba(255,255,255,${(0.06 + 0.12*Math.min(1, k)).toFixed(2)})`; ctx.beginPath(); ctx.arc(tx, ty, r, 0, TAU); ctx.fill();
-      F.qtePos = [tx, ty];
-      // a finger in the target: tap here
-      // big, shadowed, tapping up and down with its fingertip on the centre of the target
-      const fs = Math.max(34, tr*2.4), bob = Math.abs(Math.sin(G.time*7))*fs*0.18;
-      ctx.save(); ctx.font = `${Math.round(fs)}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
-      ctx.textAlign = 'center'; ctx.textBaseline = 'top';
-      ctx.fillStyle = '#fff'; ctx.globalAlpha = 0.8;   // the ring's faint fill colour was being applied to the emoji: 80% opaque now
-      ctx.shadowColor = 'rgba(0,0,0,.75)'; ctx.shadowBlur = 10; ctx.shadowOffsetY = 2;
-      ctx.fillText('👆', tx + fs*0.12, ty - fs*0.05 + bob); ctx.restore();
-    } else F.qtePos = [tx, ty];
-    if (F.pop && F.qtePos){
-      const P = F.pop, sc = P.t < 0.12 ? 0.6 + 0.6*P.t/0.12 : 1.2 - 0.2*Math.min(1, (P.t - 0.12)/0.2);
-      ctx.save(); ctx.globalAlpha = P.t < 0.6 ? 1 : 1 - (P.t - 0.6)/0.3;
-      ctx.font = `900 ${Math.round(P.size*sc)}px system-ui, sans-serif`; ctx.textAlign = 'center';
-      ctx.lineWidth = 5; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.strokeText(P.text, F.qtePos[0], F.qtePos[1] - 30 - P.t*30);
-      ctx.fillStyle = P.col; ctx.fillText(P.text, F.qtePos[0], F.qtePos[1] - 30 - P.t*30); ctx.restore();
+    ctx.setLineDash([4, 6]); ctx.strokeStyle = 'rgba(110,230,140,.6)'; ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(tx, ty, qteTgtR(), 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+  }
+  // timing: a ring closes in on the big ring from outside; click / tap anywhere as it meets it
+  const Q = F.qte;
+  if (Q){
+    const k = clamp(Q.t/Q.T, 0, 1.3), r = R*(1 + (Q.r0 - 1)*(1 - k));
+    const near = Math.abs(Q.t - Q.T) < JUDGE[1].win;
+    ctx.setLineDash([6, 6]); ctx.lineWidth = near ? 4 : 2.5; ctx.strokeStyle = near ? 'rgba(255,240,150,.95)' : 'rgba(255,255,255,.8)';
+    ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.stroke(); ctx.setLineDash([]);
+    ctx.lineWidth = near ? 6 : 4; ctx.strokeStyle = `rgba(255,255,255,${(0.35 + 0.6*Math.min(1, k)).toFixed(2)})`;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.stroke();
+    ctx.fillStyle = `rgba(255,255,255,${(0.04 + 0.08*Math.min(1, k)).toFixed(2)})`; ctx.beginPath(); ctx.arc(cx, cy, r, 0, TAU); ctx.arc(cx, cy, R, 0, TAU, true); ctx.fill();
+    F.qtePos = [cx, cy];
+    // a finger in the middle: tap anywhere
+    const fs = Math.max(30, R*0.28), bob = Math.abs(Math.sin(G.time*7))*fs*0.18;
+    ctx.save(); ctx.font = `${Math.round(fs)}px "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillStyle = '#fff'; ctx.globalAlpha = 0.7;
+    ctx.shadowColor = 'rgba(0,0,0,.75)'; ctx.shadowBlur = 10; ctx.shadowOffsetY = 2;
+    ctx.fillText('👆', cx, cy - R*0.42 + bob); ctx.restore();
+  }
+  // judgement feedback in the middle: the word, a shockwave in its colour, sparks for the best hits
+  if (F.pop){
+    const P = F.pop, t = P.t, fade = t < 0.5 ? 1 : Math.max(0, 1 - (t - 0.5)/0.4);
+    const sc = t < 0.1 ? 0.5 + 0.9*t/0.1 : 1.4 - 0.3*Math.min(1, (t - 0.1)/0.2);
+    ctx.save();
+    const rank = P.rank ?? 3, waves = rank === 0 ? 3 : rank === 1 ? 2 : 1;
+    for (let i = 0; i < waves; i++){
+      const tt = t - i*0.08; if (tt <= 0) continue;
+      const rr = R*(0.3 + tt*(rank <= 1 ? 2.2 : 1.4)), al = Math.max(0, 0.9 - tt*1.4);
+      ctx.globalAlpha = al; ctx.strokeStyle = P.col; ctx.lineWidth = (rank === 0 ? 8 : 5)*(1 - Math.min(1, tt));
+      ctx.beginPath(); ctx.arc(cx, cy, rr, 0, TAU); ctx.stroke();
     }
+    if (rank <= 1){   // sparks
+      const n = rank === 0 ? 16 : 10;
+      for (let i = 0; i < n; i++){
+        const an = i/n*TAU + (P.seed || 0), d0 = R*(0.25 + t*1.6), d1 = d0 + R*0.18*(1 - Math.min(1, t*1.5));
+        ctx.globalAlpha = Math.max(0, 1 - t*1.8); ctx.strokeStyle = i % 2 ? '#fff' : P.col; ctx.lineWidth = 3;
+        ctx.beginPath(); ctx.moveTo(cx + Math.cos(an)*d0, cy + Math.sin(an)*d0); ctx.lineTo(cx + Math.cos(an)*d1, cy + Math.sin(an)*d1); ctx.stroke();
+      }
+    }
+    if (t < 0.15 && rank <= 1){ ctx.globalAlpha = (1 - t/0.15)*0.35; ctx.fillStyle = P.col; ctx.beginPath(); ctx.arc(cx, cy, R, 0, TAU); ctx.fill(); }   // flash
+    ctx.globalAlpha = fade;
+    ctx.font = `900 ${Math.round(P.size*1.3*sc)}px system-ui, sans-serif`; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(0,0,0,.6)'; ctx.strokeText(P.text, cx, cy - R*0.05 - t*16);
+    ctx.fillStyle = P.col; ctx.fillText(P.text, cx, cy - R*0.05 - t*16);
+    ctx.restore();
   }
   // angler's rod pressure
   let ox = mouse.x - cx, oy = mouse.y - cy; const ol = Math.hypot(ox, oy); if (ol > R){ ox *= R/ol; oy *= R/ol; }
