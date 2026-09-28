@@ -173,6 +173,7 @@
   #dock > #help { pointer-events:none; }
   #bottombar { position:relative; display:flex; gap:10px; align-items:center; }
   body.casting #bottombar { display:none; }
+  body.boating #modes, body.boating #itempop { display:none !important; }
   #bottombar.locked #modes, #bottombar.locked #navtoggle { opacity:.5; }
   #itempop { position:absolute; bottom:calc(100% + 6px); left:0; width:max-content; max-width:240px; padding:5px; display:flex; flex-direction:column; background:rgba(8,26,30,.9); border-radius:12px; }
   #items { display:flex; flex-direction:column; align-items:stretch; gap:2px; }

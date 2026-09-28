@@ -270,7 +270,7 @@ window.GameData = (function(){
     { id:'midpacific',name:'태평양 한가운데', country:'공해 (원양)', lat:10.00, lon:-140.00, biome:'trop_sea', water:'sea_trop', start:4300, floor:[4000,5000,'abyss'], relief:0 },
   ];
 
-  // 대낚시 (float fishing with a long pole, no reel); sea names in nameSea
+  // 찌낚시 (float fishing with a long pole, no reel); sea names in nameSea
   const BAITS = [
     { id:'paste',  name:'떡밥',   nameSea:'크릴',      desc:'붕어·잉어·감성돔이 좋아하는 밑밥 미끼', color:[0.55,0.45,0.25], size:[0.012,0.012,0.012], kind:0, metal:0.0 },
     { id:'worm',   name:'지렁이', nameSea:'청갯지렁이', desc:'거의 모든 어종이 반응',               color:[0.45,0.10,0.10], size:[0.022,0.007,0.007], kind:0, metal:0.1 },
@@ -303,7 +303,7 @@ window.GameData = (function(){
     { id:'rod', name:'낚싯대', icon:'🎣', tiers: tiers(
       ['기본 낚싯대', '입문 글라스 로드', '카본 로드', '고탄성 카본 로드', '라이트 게임 로드', '프로 카본 로드', '티타늄 가이드 로드', '토너먼트 로드', '빅게임 로드', '마스터 빅게임 로드'], 1,
       (u, i) => { const cast = 1 + (60/30 - 1)*u, absorb = 1 - 0.28*u;   // lure cast: 30 m at level 1 up to 60 m at level 10
-        return { cast, absorb, poleCast: POLE_CAST[i], desc: i ? `대낚시 ${POLE_CAST[i]}m · 루어 ${Math.round(30*cast)}m · 파이팅 장력 -${pct(1 - absorb)}%` : '기본 캐스팅 거리 (대낚시 10m · 루어 30m)' }; }) },
+        return { cast, absorb, poleCast: POLE_CAST[i], desc: i ? `찌낚시 ${POLE_CAST[i]}m · 루어 ${Math.round(30*cast)}m · 파이팅 장력 -${pct(1 - absorb)}%` : '기본 캐스팅 거리 (찌낚시 10m · 루어 30m)' }; }) },
     { id:'reel', name:'릴', icon:'🌀', tiers: tiers(
       ['기본 스피닝 릴', '경량 스피닝 릴', '고기어 릴', '실버 스피닝 릴', '베이트 릴', '하이기어 베이트 릴', '대형 스피닝 릴', '지깅 릴', '소형 전동 릴', '대형 전동 릴'], 0.8,
       (u, i) => { const speed = 1 + 0.8*u; return { speed, desc: i ? `감기 속도 +${pct(speed - 1)}%` : '기본 감기 속도' }; }) },

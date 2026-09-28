@@ -3,7 +3,7 @@
    The spinning rod + reel is ported from Tidewater's FishingRod.js (MIT, © 2026 DRG Software Solutions LLC,
    https://github.com/dgreenheck/tidewater): a 7 ft carbon blank with split EVA grip, reel seat, eight guides and
    tip-top, and a 3000-size spinning reel (gearbox body, rotor with bail and line roller, spool with braid, drag
-   knob, crank with T-knob). The float pole (대낚시) is built the same way: a long telescopic carbon pole with a
+   knob, crank with T-knob). The float pole (찌낚시) is built the same way: a long telescopic carbon pole with a
    cork grip, section ferrules and a lilian tip.
 
    Rod frame: +Y along the blank (butt at 0), the reel hangs toward -Z, +X to the right.
@@ -186,7 +186,7 @@
     return { data: new Float32Array(g.v), L: ROD_L, blankStart: BLANK_START, seat: SEAT_Y, reelZ: REEL_Z, bodyY: BODY_Y, pivotY: PIVOT_Y };
   }
 
-  /* ---------------- float pole (대낚시): 4.5 m telescopic carbon pole ---------------- */
+  /* ---------------- float pole (찌낚시): 4.5 m telescopic carbon pole ---------------- */
   function floatPole(){
     const g = new Builder(), L = 4.5, START = 0.42;
     const BLANK = { color: 0x1e2a1c, rough: 0.35, metal: 0.2 }, CORK = { color: 0x9a7448, rough: 0.85 }, GOLD = { color: 0xa88d5a, rough: 0.24, metal: 1 };

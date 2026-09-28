@@ -1,5 +1,5 @@
 "use strict";
-// 보트 낚시 — game logic: casting, float (대낚시) and lure fishing, fish AI, fight, HUD.
+// 보트 낚시 — game logic: casting, float (찌낚시) and lure fishing, fish AI, fight, HUD.
 (function(){
 const { SPECIES, BY_ID, BIOMES, WATERS, SPOTS, BAITS, LURES, SHOP } = window.GameData;
 const Rn = window.Renderer;
@@ -88,7 +88,7 @@ function applyBoatModel(){
   HULL.l = m.hull[0]; HULL.d = m.hull[1]; HULL.w = m.hull[2]; SEAT.splice(0, 3, ...m.seat);
 }
 const MODES = {
-  pole: { name:'대낚시', rodLen:4.5, minCast:4.0, maxCast:10.0, lineKg:4.0, items:BAITS },
+  pole: { name:'찌낚시', rodLen:4.5, minCast:4.0, maxCast:10.0, lineKg:4.0, items:BAITS },
   lure: { name:'루어',   rodLen:2.1, minCast:6.0, maxCast:30.0, lineKg:7.0, items:LURES },
 };
 
@@ -603,7 +603,7 @@ function retrieve(silent){
   if (!silent) say('채비 회수', 1.2);
 }
 
-/* ---------------- float rig (대낚시) ---------------- */
+/* ---------------- float rig (찌낚시) ---------------- */
 function updateRig(dt){
   const r = G.rig; if (!r) return;
   r.age += dt;
@@ -2455,7 +2455,7 @@ function renderShop(){
     (P.owned[it.id] ? `<div class="nx max">보유 중</div>` : `<button data-buy="${it.id}" ${P.coins < it.cost ? 'disabled' : ''}>${it.cost.toLocaleString()}🪙 구매</button>`) + `</div>`).join('');
   // tabs: all / gear / bait / lures
   const T = SHOP_TAB.t, sec = (k, title, html) => (T === 'all' || T === k) ? `${T === 'all' ? `<h3>${title}</h3>` : ''}<div class="grid">${html}</div>` : '';
-  $('shopgrid').innerHTML = sec('gear', '장비 업그레이드', up) + sec('bait', '대낚시 미끼', itemCards(BAITS)) + sec('lure', '루어', itemCards(LURES));
+  $('shopgrid').innerHTML = sec('gear', '장비 업그레이드', up) + sec('bait', '찌낚시 미끼', itemCards(BAITS)) + sec('lure', '루어', itemCards(LURES));
   for (const b of document.querySelectorAll('#shoptabs button')) b.classList.toggle('on', b.dataset.t === T);
   for (const b of $('shopgrid').querySelectorAll('[data-up]')) b.onclick = () => {
     const s = shopItem(b.dataset.up), next = s.tiers[P.tier[s.id] + 1]; if (!next) return; if (P.coins < next.cost){ playS('deny'); return; }
@@ -3184,7 +3184,7 @@ function renderSettings(){
       setRow('스틱 감도', rangeCtl('padSens', 0.5, 2, 0.05, FMT.x)) +
       setRow('데드존', rangeCtl('dead', 0.05, 0.4, 0.01, FMT.pct), '스틱이 살짝 기울어도 움직이지 않는 범위') +
       setRow('패드 진동', toggleCtl('rumble'), '입질·챔질·파이팅 때 패드 진동') +
-      `<div class="snote">A 던지기·챔질·감기 · B 회수 · X 대낚시/루어 · Y 보트 · LB/RB 드랙·찌 수심 · 왼쪽 스틱 방향/파이팅 · 오른쪽 스틱 시점 · Start 메뉴 · Back 지도</div>`;
+      `<div class="snote">A 던지기·챔질·감기 · B 회수 · X 찌낚시/루어 · Y 보트 · LB/RB 드랙·찌 수심 · 왼쪽 스틱 방향/파이팅 · 오른쪽 스틱 시점 · Start 메뉴 · Back 지도</div>`;
   }
   // wire controls
   for (const b of el.querySelectorAll('[data-k][data-v]')) b.onclick = e => { e.stopPropagation(); setCfg(b.dataset.k, JSON.parse(b.dataset.v)); };
@@ -3394,6 +3394,8 @@ function update(dt){
   updateWake(); updateParticles(dt); updateDecor();
   applyJoy(dt); SONAR.dt = dt; updateSonar(dt); updateEngine(); updateDragSound(dt); updateLap(dt); updateTouchUI();
   { const c = ['charge', 'fly', 'wait', 'hooked', 'result'].includes(G.state); if (c !== G.castingUI){ G.castingUI = c; document.body.classList.toggle('casting', c); if (c) $('itempop').hidden = true; } }
+  // driving the boat: the tackle picker (찌낚시 / 루어) has nothing to do — hide it
+  { const b = G.state === 'boat'; if (b !== G.boatUI){ G.boatUI = b; document.body.classList.toggle('boating', b); if (b) $('itempop').hidden = true; } }
   // casting power gauge sits where the tackle buttons were
   { const ch = G.state === 'charge'; if (ch !== G.powerUI){ G.powerUI = ch; $('power').hidden = !ch; } if (ch) $('pwfill').style.width = ((1 - G.power)*100).toFixed(1) + '%'; }
   if (G.state === 'charge'){ G.chargeT += dt; const p = (G.chargeT/1.15) % 2; G.power = p < 1 ? p : 2 - p; }
