@@ -336,6 +336,33 @@ function newFish(focus, rmin, rmax, spForce){
     heading: rand(-Math.PI, Math.PI), pitch: 0, speed: sp.speed*0.5, tailPh: rand(0, TAU), tail: 0,
     state: 'wander', target: null, ty: 0, timer: 0, think: rand(0, 1), cooldown: rand(0, 4) };
 }
+// schooling species travel in groups: companions keep a spot in formation around a leader (the offset turns with its
+// heading); they still bite on their own, and go their own way when the leader is hooked, leaves or is gone
+const SCHOOL = { bungeo: [4, 7], kkeuri: [5, 8], piranha: [5, 8], tilapia: [4, 7], godeungeo: [6, 10], pollock: [5, 9], bangeo: [3, 6], tuna: [3, 6],
+  mahi: [3, 5], barracuda: [3, 6], gt: [2, 4], hammerhead: [3, 6], dolphin: [3, 5], orca: [3, 5] };
+function schoolOf(leader){
+  const r = SCHOOL[leader.sp.id]; if (!r) return [];
+  const n = Math.floor(rand(r[0], r[1] + 1)) - 1, gap = 0.35 + leader.len*1.4, out = [];
+  for (let i = 0; i < n; i++){
+    const m = newFish(leader.pos, 0, 0.01, leader.sp);
+    m.len = clamp(leader.len*rand(0.85, 1.15), leader.sp.minLen, leader.sp.maxLen); m.weight = m.sp.wk*Math.pow(m.len*100, 3);
+    m.leader = leader; m.off = [rand(-1, 1)*gap*1.4, rand(-0.35, 0.35)*gap, rand(-1, 1)*gap];   // (along, up, across) the leader's heading
+    m.pos = add(leader.pos, formation(leader, m.off)); m.heading = leader.heading; m.speed = leader.speed;
+    if (leader.visitor){ m.visitor = true; m.state = 'cruise'; m.cruise = leader.cruise; m.target = leader.target.slice(); m.ty = leader.ty; }
+    out.push(m);
+  }
+  return out;
+}
+function formation(L, o){ const c = Math.cos(L.heading), s = Math.sin(L.heading); return [c*o[0] - s*o[2], o[1], s*o[0] + c*o[2]]; }
+// a companion's turn: false when it has no leader to follow (then it acts on its own)
+function followLeader(f, dt){
+  const L = f.leader;
+  if (!L || !fishes.includes(L) || !(L.state === 'wander' || L.state === 'cruise')){ f.leader = null; return false; }
+  const t = add(L.pos, formation(L, f.off)), d = dist3(t, f.pos);
+  swim(f, t[0], t[1], t[2], Math.max(0.05, L.speed*(1 + clamp(d - 0.3, -0.5, 1.5))), dt, 2.6);
+  return true;
+}
+function spawnWild(c, rmin, rmax){ const f = newFish(c, rmin, rmax); fishes.push(f, ...schoolOf(f)); }
 function fishDir(f){ const c = Math.cos(f.pitch); return [Math.cos(f.heading)*c, Math.sin(f.pitch), Math.sin(f.heading)*c]; }
 function mouthOf(f){ return add(f.pos, mul(fishDir(f), f.len*0.5)); }
 function focusPoint(){
@@ -409,6 +436,7 @@ function updateFish(f, dt){
   const sp = f.sp;
   switch (f.state){
   case 'wander': {
+    if (f.leader && followLeader(f, dt)){ if (f.think <= 0){ f.think = 1; interest(f); } break; }
     if (!f.target || f.timer <= 0 || dist2(f.pos, f.target) < 0.8) wanderTarget(f);
     // burst and coast: a few strong strokes, then a glide (how most fish cruise to save energy)
     f.gaitT = (f.gaitT || 0) - dt;
@@ -417,7 +445,7 @@ function updateFish(f, dt){
     if (f.think <= 0){ f.think = 1; interest(f); }
     break; }
   case 'cruise':      // passing visitor (whale, shark, sunfish …): swims through and leaves
-    swim(f, f.target[0], f.ty, f.target[2], f.cruise, dt, 0.5);
+    if (!(f.leader && followLeader(f, dt))) swim(f, f.target[0], f.ty, f.target[2], f.cruise, dt, 0.5);
     if (f.pos[1] > -1.2 && Math.random() < dt*0.08) Rn.splash(f.pos[0], f.pos[2], 0.25, 0.04);
     if (dist2(f.pos, f.target) < 4){ fishes.splice(fishes.indexOf(f), 1); return; }
     if (f.think <= 0){ f.think = 1; if (!f.sp.sight) interest(f); }
@@ -556,7 +584,9 @@ function manageFish(dt){
     const f = fishes[i];
     if (f.state !== 'hooked' && f !== G.engaged && dist2(f.pos, c) > (f.visitor ? 80 : 30)) fishes.splice(i, 1);
   }
-  while (fishes.filter(f => f.state !== 'hooked' && !f.visitor).length < FISH_N) fishes.push(newFish(c, 15, 24));
+  // (a school's companions count a third each, so one school doesn't crowd out every other species)
+  const pop = () => fishes.reduce((n, f) => n + (f.state !== 'hooked' && !f.visitor ? (f.leader ? 0.33 : 1) : 0), 0);
+  while (pop() < FISH_N) spawnWild(c, 15, 24);
   for (const f of fishes.slice()) updateFish(f, dt);
   if (Math.abs(G.boatV) > 1.2) for (const f of fishes) if (f.state === 'wander' && dist3(f.pos, BOAT.pos) < 4 + Math.abs(G.boatV)) flee(f, BOAT.pos, 4);   // a running boat scares fish near it, not the ones far below
 }
@@ -1240,6 +1270,18 @@ function updateAqua(dt){
         f.pos[0] = clamp(f.pos[0], -h, h); f.pos[2] = clamp(f.pos[2], -h, h);
         animFish(f, dt, 1, 1.2);
         f.target = null;
+        continue;
+      }
+    }
+    // a schooling species in the tank keeps together behind the first of its kind
+    if (SCHOOL[f.sp.id]){
+      const L = fishes.find(o => o.sp.id === f.sp.id && o.state !== 'dead');
+      if (L && L !== f){
+        if (!f.off){ const gap = 0.3 + f.len*1.2; f.off = [rand(-1.4, -0.4)*gap, rand(-0.3, 0.3)*gap, rand(-1, 1)*gap]; }
+        const t = add(L.pos, formation(L, f.off)); t[0] = clamp(t[0], -h, h); t[2] = clamp(t[2], -h, h); t[1] = clamp(t[1], -D + 0.2, -0.2);
+        swim(f, t[0], t[1], t[2], Math.max(0.05, L.speed*(1 + clamp(dist3(t, f.pos) - 0.3, -0.5, 1.5))), dt, 2.6);
+        f.pos[0] = clamp(f.pos[0], -h, h); f.pos[2] = clamp(f.pos[2], -h, h);
+        animFish(f, dt, clamp(f.speed/(f.sp.speed*1.5), 0, 1), 1);
         continue;
       }
     }
@@ -2125,7 +2167,7 @@ function scene(dt){
   const S = { t: G.time, dt, cam: { pos: add(cam.pos, sh.pos), look: add(cam.look, sh.look) }, boat: BOAT, fish: [], lure: null, bobber: null, lineUnder: null, lineTo: null, lineSag: 0, flyObj: null };
   S.others = window.DopaMulti ? DopaMulti.others() : null;   // online: the other players' boats and floats
   const byDist = fishes.slice().sort((a, b) => dist3(a.pos, cam.pos) - (a.visitor ? 25 : 0) - dist3(b.pos, cam.pos) + (b.visitor ? 25 : 0));
-  S.fish = byDist.slice(0, G.state === 'aquarium' ? 60 : 12).map(f => ({ id: f.sp.id, dead: f.state === 'dead', pos: f.pos, len: f.len, dir: fishDir(f), tail: f.tail, tailPh: f.tailPh, tailAmp: f.tailAmp, bend: f.bend, back: f.sp.back, belly: f.sp.belly, pattern: f.sp.pattern, hr: f.sp.hr, shape: f.sp.shape }));
+  S.fish = byDist.slice(0, G.state === 'aquarium' ? 60 : 24).map(f => ({ id: f.sp.id, dead: f.state === 'dead', pos: f.pos, len: f.len, dir: fishDir(f), tail: f.tail, tailPh: f.tailPh, tailAmp: f.tailAmp, bend: f.bend, back: f.sp.back, belly: f.sp.belly, pattern: f.sp.pattern, hr: f.sp.hr, shape: f.sp.shape }));
   const rod = rodSpec(); S.rod = G.state === 'boat' || G.state === 'aquarium' ? null : rod;
   S.hideRod = false;   // the rod is always drawn (only hidden with the camera under the water)
   S.wake = wakeTrack(); S.particles = PART; S.rain = RAIN;
@@ -2596,7 +2638,7 @@ function spawnVisitor(sp){
   f.state = 'cruise'; f.visitor = true; f.cruise = sp.speed*rand(0.7, 1);
   f.target = [c[0] + dir[0]*45 + perp[0]*side, 0, c[2] + dir[1]*45 + perp[1]*side]; f.ty = f.pos[1];
   f.heading = Math.atan2(dir[1], dir[0]);
-  fishes.push(f);
+  fishes.push(f, ...schoolOf(f));   // dolphins, orcas and hammerheads come by in pods
 }
 // release luck: every fish set free adds a minute of +20% bites (up to 10 minutes)
 function luckLeft(){ return Math.max(0, (P.luckUntil || 0) - Date.now())/1000; }
@@ -3240,7 +3282,7 @@ function applyRegion(spot, first){
   }
   G.aquaFrom = null; Rn.setWaves(G.waveK || 1);   // (leaving the aquarium: back to normal seas)
   if (!first) setWeather(pickWeather(), true);
-  for (let i = 0; i < FISH_N; i++) fishes.push(newFish([0, 0, -6], 3, 20));
+  for (let i = 0; i < FISH_N; i++) spawnWild([0, 0, -6], 3, 20);
   const e = eyeWorld(); cam.pos = e.slice(); cam.look = add(e, [0, -2, -10]);
   $('place').textContent = spot.name;
   buildToolbar(); updateLog();
