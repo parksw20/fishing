@@ -153,7 +153,23 @@ function tone(freq, dur, gain, type){
   g.gain.setValueAtTime(gain, t); g.gain.exponentialRampToValueAtTime(0.0001, t+dur);
   o.connect(g); g.connect(AU.sfx); o.start(t); o.stop(t+dur+0.02);
 }
+// a steady-pitched tone (no drop) with a quick attack: chimes for the timing judgements
+function bell(freq, dur, gain, type, delay){
+  if (!AU.ctx) return;
+  const c = AU.ctx, t = c.currentTime + (delay || 0), o = c.createOscillator(), g = c.createGain();
+  o.type = type || 'sine'; o.frequency.setValueAtTime(freq, t);
+  g.gain.setValueAtTime(0.0001, t); g.gain.exponentialRampToValueAtTime(gain, t + 0.008); g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  o.connect(g); g.connect(AU.sfx); o.start(t); o.stop(t + dur + 0.02);
+}
 const sfx = {
+  // timing judgements: PERFECT a bright rising chime with sparkle, GREAT a two-note chime, GOOD a pluck, BAD / MISS a dull thud
+  judge: rank => {
+    if (rank === 0){ [1046, 1318, 1568, 2093].forEach((f, i) => { bell(f, 0.35, 0.09, 'sine', i*0.045); bell(f*2, 0.18, 0.025, 'triangle', i*0.045); });
+      noise(0.35, 'highpass', 6000, 0.7, 0.05, 0.01); tone(120, 0.18, 0.18, 'sine'); }
+    else if (rank === 1){ bell(880, 0.3, 0.09, 'sine'); bell(1318, 0.34, 0.08, 'sine', 0.06); tone(110, 0.14, 0.12, 'sine'); }
+    else if (rank === 2){ bell(660, 0.2, 0.08, 'triangle'); noise(0.04, 'bandpass', 3000, 2, 0.05); }
+    else { tone(170, 0.22, 0.12, 'sawtooth'); noise(0.12, 'lowpass', 500, 0.8, 0.1); }
+  },
   splash: s => { noise(0.25 + 0.5*s, 'lowpass', 700 + 900*s, 0.6, 0.25*s + 0.04, 0.01); noise(0.12, 'bandpass', 2500, 1.2, 0.05*s); },
   plop: () => { tone(420, 0.12, 0.08); noise(0.1, 'lowpass', 1200, 0.7, 0.05); },
   whoosh: p => noise(0.35, 'bandpass', 900 + 1500*p, 1.5, 0.08 + 0.1*p, 0.08),
@@ -804,10 +820,7 @@ function judgeQTE(J, missed){
   F.pop = { text: missed ? 'MISS' : J.name, col: J.col, size: J.size, t: 0, rank: missed ? 4 : JUDGE.indexOf(J), seed: Math.random()*TAU };
   SHAKE.kick = Math.max(SHAKE.kick || 0, J.shake);
   padRumble(J.shake*0.5, J.shake*0.4, 120 + J.shake*120, 30 + J.shake*50);
-  if (J === JUDGE[0]){ sfx.hit(); setTimeout(() => sfx.hit(), 90); }
-  else if (J === JUDGE[1]) sfx.hit();
-  else if (J === JUDGE[2]) sfx.click(0.08);
-  else sfx.drag();
+  sfx.judge(missed ? 4 : JUDGE.indexOf(J));
   if (J.dmg > 0.05){ Rn.splash(f.pos[0], f.pos[2], 0.12 + 0.1*f.len, 0.03 + 0.04*J.shake); sprayBurst(f.pos, f.len, 0.5 + 0.5*J.shake); }
 }
 // on a touch screen the joystick (or the action button) answers the closing ring: its timing counts, not where it is
@@ -920,6 +933,8 @@ function landFish(){
   else netMsg = '살림망이 가득 차 방생했어요 — 판매하세요';
   fishes.splice(fishes.indexOf(f), 1);
   G.hooked = null; G.fight = null; G.state = 'result';
+  { const d = norm(sub(cam.look, cam.pos)); G.aimYaw = Math.atan2(d[0], -d[2]); G.aimPitch = -0.12; G.lookX = G.lookY = 0;   // the view settles on the catch and stays put
+    const v = boatView(); cam.pos = v.pos.slice(); cam.look = v.look.slice(); }
   G.landed = { id: sp.id, len: f.len, weight: f.weight, t: 0, ph: 0, amp: 0.5, bend: 0, burst: 1, sw: 0, swV: 0, tw: rand(0, TAU) };   // hangs off the rod, flapping, while the card shows
   Rn.splash(f.pos[0], f.pos[2], 0.2, 0.05); sprayBurst(f.pos, f.len, 1.3); sfx.splash(0.6); if (!playS('catch')) sfx.win();
   // the catch is held up first; the card follows 1.5 s later (taps in between don't skip it)
