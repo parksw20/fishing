@@ -3058,11 +3058,13 @@ function drawSonar(){
   const n = Math.min(SONAR.cols.length, W), off = SONAR.cols.length - n;
   for (let i = 0; i < n; i++){
     const c = SONAR.cols[off + i], x = x0 + W - n + i, by = top + c.d*sy;
+    ctx.globalAlpha = 0.12 + 0.88*Math.pow((x - x0)/W, 1.3);   // older readings (left) fade out; background and grid stay
     ctx.fillStyle = '#ff5a2a'; ctx.fillRect(x, by, 1, 2);
     ctx.fillStyle = '#b8401c'; ctx.fillRect(x, by + 2, 1, 3);
     ctx.fillStyle = '#6b2a14'; ctx.fillRect(x, by + 5, 1, Math.max(0, top + H - by - 5));
     for (const [ed, el] of c.echoes){ ctx.fillStyle = P.tier.sonar >= 3 ? (el > 1.2 ? '#ff3bd4' : el > 0.5 ? '#ff3b3b' : el > 0.25 ? '#ffd84a' : '#8ff0a8') : '#ffd84a'; ctx.fillRect(x, top + ed*sy - 1, 1, el > 0.5 ? 3 : 2); }
   }
+  ctx.globalAlpha = 1;
   ctx.fillStyle = 'rgba(255,255,255,.55)'; ctx.font = '600 10px system-ui, sans-serif'; ctx.textAlign = 'right';
   const step = [2, 5, 10, 20, 50, 100].find(s => range/s <= 5) || 100;
   for (let r = step; r <= range + 0.01; r += step){ const y = top + r*sy; if (y > top + H + 1) break;
@@ -3861,5 +3863,5 @@ window.__mapS = (lon, lat) => m2s(nearLon(lon), lat); window.__mapZ = () => MAP.
 window.__game = { tryPredator, SND, playS, qteTap, sprayBurst, toReal, toVis, showCard, questEvent, updateLog, G, fishes, cam, mouse, hookFish, hookSet, jerkLift, newFish, applyRegion, classify, SPOTS, BOAT, floorDepth, computeHorizon, spotZone, spawnVisitor, P, openShop, closeShop, BY_ID: window.GameData.BY_ID,
   // used by js/multi.js (online play)
   say, setWeather, WEATHERS, setClockTo, region: () => REGION, idleOnly, HULL,
-  checkAquaHealth, feedFish, AQ, aquaSat, hungerText, useBait, loseLure, setItem, curItem, SHOP_TAB, renderShop };
+  checkAquaHealth, feedFish, AQ, aquaSat, hungerText, SONAR, useBait, loseLure, setItem, curItem, SHOP_TAB, renderShop };
 })();
