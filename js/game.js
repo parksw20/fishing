@@ -1188,7 +1188,7 @@ function releaseAll(){
   updateLog(); save();
 }
 /* ---------------- aquarium ----------------
-   Bought in the shop (Lv.1 = 3×3×3 m, +3 m a level up to Lv.10 = 30×30×30 m). Catches go in from the keep net;
+   Bought in the shop (Lv.1 = 5×5×5 m, +5 m a level up to Lv.10 = 50×50×50 m). Catches go in from the keep net;
    the menu takes you there. It is its own place: calm, clear water with a flat sand bed at the tank's depth, the
    glass drawn as edges, no boat, and only your own fish, swimming inside the glass. The camera circles the tank
    and can rise above the surface to look down into it. */
@@ -1202,7 +1202,16 @@ function aquaFishObj(c){
   const f = { sp, len: c.len, weight: c.weight, aqua: c, pos: [rand(-h, h), -rand(0.3, Math.max(0.35, D - 0.3)), rand(-h, h)],
     heading: rand(-Math.PI, Math.PI), pitch: 0, speed: sp.speed*0.3, tailPh: rand(0, TAU), tail: 0, state: 'aqua', target: null, ty: 0, timer: 0 };
   if (c.dead){ f.state = 'dead'; f.pos[1] = -0.03 - c.len*0.05; f.speed = 0; }   // dead: floating at the top
+  else { const b = aquaBand(f, D); f.pos[1] = rand(b[0], Math.max(b[0], b[1])); }
   return f;
+}
+// how a species uses the tank's height: flatfish and true bottom-dwellers lie / creep on the sand and rest a lot,
+// other bottom feeders keep to the lowest quarter, the rest use the whole water column
+const AQ_FLOOR = new Set(['gwangeo', 'halibut', 'megi', 'chcat', 'eel', 'sturgeon', 'grouper']), FLATFISH_IDS = new Set(['gwangeo', 'halibut']);
+function aquaBand(f, D){
+  if (AQ_FLOOR.has(f.sp.id)){ const y = -D + (FLATFISH_IDS.has(f.sp.id) ? 0.03 + f.len*0.03 : 0.04 + f.len*0.1); return [y, y]; }
+  if (f.sp.zone === 'bottom') return [-D + 0.12 + f.len*0.2, Math.min(-D*0.72, -0.3)];
+  return [-(Math.max(0.35 + f.len*0.2, D - 0.25 - f.len*0.2)), -(0.25 + f.len*0.2)];
 }
 function spawnAqua(){ fishes.length = 0; for (const c of P.aqua) fishes.push(aquaFishObj(c)); }
 // fish in the tank: wander between random points inside the glass, burst-and-glide like wild fish;
@@ -1236,14 +1245,16 @@ function updateAqua(dt){
     }
     f.timer -= dt;
     if (!f.target || f.timer <= 0 || dist2(f.pos, f.target) < Math.max(0.3, f.len)){
-      f.target = [rand(-h, h), 0, rand(-h, h)];
-      f.ty = -rand(0.25 + f.len*0.2, Math.max(0.35 + f.len*0.2, D - 0.25 - f.len*0.2));
-      f.timer = rand(4, 10); f.cruise = f.sp.speed*rand(0.25, 0.55);
+      const b = aquaBand(f, D), floor = AQ_FLOOR.has(f.sp.id);
+      f.ty = rand(b[0], Math.max(b[0], b[1]));
+      if (floor && Math.random() < 0.6){ f.target = [f.pos[0], 0, f.pos[2]]; f.timer = rand(6, 16); f.cruise = 0.02; }   // resting on the sand
+      else { f.target = [rand(-h, h), 0, rand(-h, h)]; f.timer = rand(4, 10); f.cruise = f.sp.speed*(floor ? rand(0.12, 0.3) : rand(0.25, 0.55)); }
     }
     f.gaitT = (f.gaitT || 0) - dt;
     if (f.gaitT <= 0){ f.burst = !f.burst; f.gaitT = f.burst ? rand(0.5, 1.1) : rand(0.8, 2.2); }
     swim(f, f.target[0], f.ty, f.target[2], f.cruise*(f.burst ? 1.4 : 0.5), dt, 1.6);
     f.pos[0] = clamp(f.pos[0], -h, h); f.pos[2] = clamp(f.pos[2], -h, h);   // the glass
+    if (AQ_FLOOR.has(f.sp.id)){ f.pos[1] += (f.ty - f.pos[1])*Math.min(1, dt*2); f.pitch = lerp(f.pitch || 0, 0, Math.min(1, dt*3)); }   // hug the sand
     animFish(f, dt, clamp(f.speed/(f.sp.speed*1.5), 0, 1)*(f.burst ? 1 : 0.4), 1);
   }
 }
@@ -1426,7 +1437,7 @@ function renderAquaHud(force){
   $('aquasub').textContent = `${t.size}×${t.size}×${t.size}m · ${P.aqua.length}/${t.cap}마리`;
   $('aquastat').innerHTML = stat; $('aquastat').hidden = !stat;
   $('aquafeed').textContent = `🍤 밥 주기 (${P.food || 0})`;
-  $('aqualight').textContent = G.aquaLight === false ? '💡 조명 켜기' : '💡 조명 끄기';
+  $('aqualight').textContent = G.aquaLight === false ? '💡 조명 밝게' : '🔦 조명 어둡게';
   $('aqualist').textContent = `목록 ${G.aquaList ? '▴' : '▾'}`;
   const ol = $('aquafish'); ol.hidden = !G.aquaList; ol.innerHTML = '';
   if (!P.aqua.length) ol.innerHTML = '<li class="empty">비어 있어요 — 살림망의 "수족관" 버튼으로 넣으세요</li>';
@@ -3771,16 +3782,17 @@ function updateDecor(){
   if (key === DECOR.key && Math.hypot(c[0] - DECOR.cx, c[2] - DECOR.cz) < 14) return;
   DECOR.key = key; DECOR.cx = c[0]; DECOR.cz = c[2];
   const wt = REGION.spot.water, trop = wt === 'sea_trop', sea = wt.startsWith('sea'), river = wt === 'river_brown';
-  const items = [], solids = [], CELL = 2.2, RAD = 30;
+  const items = [], solids = [], CELL = 2.2, RAD = REGION.spot.aquarium ? Math.max(30, aquaTier().size*0.75) : 30;   // (a 50 m tank's corners are 35 m out)
   const i0 = Math.floor((c[0] - RAD)/CELL), i1 = Math.floor((c[0] + RAD)/CELL), j0 = Math.floor((c[2] - RAD)/CELL), j1 = Math.floor((c[2] + RAD)/CELL);
   const pick = (arr, r) => arr[Math.floor(r*arr.length) % arr.length];
   for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++){
     const h = cellHash(i, j, 1); if (h > 0.55) continue;
     const x = (i + cellHash(i, j, 2))*CELL, z = (j + cellHash(i, j, 3))*CELL;
     if (Math.hypot(x - c[0], z - c[2]) > RAD || insideHull(x, z, 0.6)) continue;
-    const fd = floorDepth(x, z), real = toReal(fd); if (fd < 0.5 || real > 50) continue;   // deeper than 50m the bed fades into the dark: nothing to place
+    if (REGION.spot.aquarium){ const th = aquaTier().size/2 - 0.4; if (Math.abs(x) > th || Math.abs(z) > th) continue; }   // only inside the glass
+    const fd = floorDepth(x, z), real = toReal(fd); if (fd < 0.5 || (real > 50 && !REGION.spot.aquarium)) continue;   // deeper than 50m the bed fades into the dark: nothing to place
     const r = cellHash(i, j, 4), r2 = cellHash(i, j, 5), yaw = r2*Math.PI*2, y = -fd;
-    const shallow = real < 12;   // plants and coral need light
+    const shallow = real < 12 || !!REGION.spot.aquarium;   // plants and coral need light (the tank is lit)
     let it = null;
     if (trop){
       if (shallow && r < 0.30) it = { k: 'coral', s: 0.6 + r2*0.7, c: pick([[0.85,0.35,0.45],[0.95,0.6,0.25],[0.55,0.35,0.8],[0.9,0.8,0.4],[0.3,0.7,0.7]], r2*5) };
@@ -3798,6 +3810,9 @@ function updateDecor(){
       else if (river && r < 0.72) it = { k: 'log', s: 0.8 + r2*1.2, c: [0.22,0.16,0.10] };
       else it = { k: 'rock', s: 0.25 + r2*0.8, c: [0.15,0.14,0.12].map(v => v*(0.8 + r*0.5)) };
     }
+    // never taller than the water over it (a coral in a 3 m tank used to break the surface): top at most 70% of the depth
+    const HF = { coral: 1.05, fan: 1.25, kelp: 3.8, reed: 2.1, grass: 0.75, rock: 0.85, brain: 0.75, log: 0.4 }[it.k] || 1;
+    it.s = Math.min(it.s, fd*0.7/HF);
     it.p = [x, y, z]; it.r = yaw; it.h = i*7.13 + j*3.71 + 0.5;
     items.push(it);
     const sd = { rock: [1.15, 0.8], brain: [1.0, 0.7], coral: [0.45, 0.9], log: [0.9, 0.3] }[it.k];   // [radius, height] × size

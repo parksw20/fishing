@@ -350,8 +350,22 @@ vec3 uwScatter(vec3 sA, vec3 sS, vec3 sunE, vec3 skyE, vec3 Ls, float zc, vec3 r
   return (inSun + inAmb)*UW_GAIN;
 }
 `;
+// aquarium, lights dimmed: one spotlight over the middle of the tank shines straight down. The cone widens to
+// the floor and breaks into slowly turning shafts (god rays). uSpot: tank half width, depth, on, time.
+const SPOT_GLSL = `
+uniform vec4 uSpot;
+const vec3 SPOTC = vec3(0.85, 0.95, 1.0);
+float spotF(vec3 P){
+  if (uSpot.z < 0.5 || P.y > 0.0) return 0.0;
+  float dep = clamp(-P.y/max(uSpot.y, 0.1), 0.0, 1.0), r = mix(0.3, max(0.8, uSpot.x*0.42), dep), d = length(P.xz);
+  float a = atan(P.z, P.x), t = uSpot.w;
+  float shafts = 0.35 + 0.65*(0.5 + 0.5*sin(a*7.0 + t*0.21))*(0.55 + 0.45*sin(a*17.0 - t*0.13 + 1.7));
+  return (1.0 - smoothstep(r*0.55, r, d))*mix(1.0, shafts, smoothstep(0.15, 0.7, d/r))*(1.0 - 0.4*dep);
+}
+vec3 spotLit(vec3 P, vec3 n, vec3 alb){ float f = spotF(P); return f > 0.0 ? alb*SPOTC*f*(0.25 + 0.75*max(n.y, 0.0))*1.6 : vec3(0.0); }
+`;
 // the same for rasterised meshes (decor, boat, rod) when the camera is below the surface
-const UWR_GLSL = `
+const UWR_GLSL = SPOT_GLSL + `
 uniform vec4 uUW;                                   // w: camera under water
 uniform vec3 uUWsA, uUWsS, uUWsun, uUWsky, uUWls;  // absorption, scattering (with murk), sun and sky light, direction toward the sun below the surface
 ` + UW_GLSL + `
@@ -393,6 +407,7 @@ uniform vec4 uLnA, uLnB;  // underwater line segment (w of A = visible)
 uniform vec4 uBoat;       // hull centre xyz, heading
 uniform vec4 uBoats[3]; uniform int uBoatN;   // online: the other players' hulls (centre xyz, heading)
 uniform vec4 uTank;   // aquarium: half width, depth (screen m), light 0..1, on — outside the glass is black
+` + SPOT_GLSL + `
 
 const float IOR = 1.3335;
 uniform vec3 uSigA, uSigS;   // per-region water: absorption / scattering (1/m)
@@ -1012,6 +1027,14 @@ void main(){
       float ts = rd.y > 1e-5 ? -uCam.y/rd.y : 1e9, tf = rd.y < -1e-5 ? (-dd - uCam.y)/rd.y : 1e9;
       if (tw < min(ts, tf)){ o = vec4(o.rgb*0.035, 1.0); th = tw; }
       else if (ts < tf){ o = vec4(o.rgb*(0.12 + 0.3*uTank.z), 1.0); }
+      if (uSpot.z > 0.5){
+        // the spotlight: a pool of light where the ray lands, and the lit water it passes through (god rays)
+        float tEnd = th > 0.0 ? th : min(ts, 60.0);
+        if (th > 0.0 && tw >= min(ts, tf)){ vec3 Ph = uCam + rd*th; float f = spotF(Ph + vec3(0.0, 0.02, 0.0)); o.rgb = o.rgb*(1.0 + 7.0*f) + SPOTC*0.05*f; }
+        float acc = 0.0, dt = min(tEnd, 40.0)/28.0;
+        for (int i = 0; i < 28; i++){ vec3 P = uCam + rd*(dt*(float(i) + 0.5)); acc += spotF(P)*dt*exp(-0.08*dt*float(i)); }
+        o.rgb += SPOTC*acc*0.045;
+      }
     }
     // write the depth of what was hit so rocks, weed and coral sort correctly against fish and the bed
     if (th > 0.0){ float dz = max(dot(rd*th, uF), ${ZNEAR}); gl_FragDepth = clamp((${ZA.toFixed(8)} + (${ZB.toFixed(8)})/dz)*0.5 + 0.5, 0.0, 0.999999); }
@@ -1638,6 +1661,7 @@ void main(){
   vec3 sky = uUWsky*exp(-uSigT*dep*1.2)*(0.55 + 0.45*nf.y);
   alb *= 1.3;   // a little kinder than physics so coral and weed colours read
   vec3 col = alb/3.14159*(sunL*(max(dot(nf, uUWls), 0.0) + thin*(clamp(-dot(nf, uUWls), 0.0, 1.0)*0.8 + 0.2)) + sky)*ao;
+  col += spotLit(vW, nf, alb)*ao;
   if (uUW.w > 0.5) col = uwFog(col, vW, uCam);
   o = vec4(col, 1);
 }`, 'decor');
@@ -1893,6 +1917,7 @@ Geo.prototype.array = function(){ return new Float32Array(this.v); };
 function sub3(a,b){ return [a[0]-b[0],a[1]-b[1],a[2]-b[2]]; }
 function len3(a){ return Math.hypot(a[0],a[1],a[2]); }
 function norm3(a){ const l = len3(a)||1; return [a[0]/l,a[1]/l,a[2]/l]; }
+function mul3(a, k){ return [a[0]*k, a[1]*k, a[2]*k]; }
 function cross3(a,b){ return [a[1]*b[2]-a[2]*b[1], a[2]*b[0]-a[0]*b[2], a[0]*b[1]-a[1]*b[0]]; }
 function dot3(a,b){ return a[0]*b[0] + a[1]*b[1] + a[2]*b[2]; }
 
@@ -2034,6 +2059,7 @@ const FJX = [0.42, 0.252, 0.084, -0.084, -0.252, -0.42];
 const FLATFISH = new Set(['gwangeo', 'halibut']);
 // rays fly with their wings: no side-to-side body wave, the wing tips rise and fall in a wave running nose to tail
 const FLAPPERS = new Set(['manta']);
+const BACKWARD = new Set(['manta']);   // models built nose toward -x: turned round when drawn
 function fishModel(id){
   if (!id) return null;
   let m = FISHM[id];
@@ -2079,13 +2105,13 @@ function fishModel(id){
 }
 const pFishM = prog(`#version 300 es
 layout(location=0) in vec3 aP; layout(location=1) in vec3 aN; layout(location=2) in vec2 aT; layout(location=3) in vec4 aJW;
-uniform mat4 uM, uJ[6]; uniform vec3 uCam, uR, uU, uF; uniform float uTanF, uAspect; uniform vec2 uFlap;
+uniform mat4 uM, uJ[6]; uniform vec3 uCam, uR, uU, uF; uniform float uTanF, uAspect; uniform vec3 uFlap;
 out vec3 vN, vW; out vec2 vT;
 void main(){
   mat4 S = uJ[int(aJW.x)]*aJW.z + uJ[int(aJW.y)]*aJW.w;
   vec3 p = aP, nm = aN;
   if (uFlap.y > 0.0){   // wing flap (x: phase, y: tip lift in body lengths); the lift grows toward the tips (z) and lags toward the tail
-    float span = 0.77, r = min(abs(p.z)/span, 1.0), s = 0.5 - p.x, w = sin(uFlap.x - 2.0*s - 0.9*r);
+    float span = 0.77, r = min(abs(p.z)/span, 1.0), s = 0.5 - p.x*uFlap.z, w = sin(uFlap.x - 2.0*s - 0.9*r);
     p.y += uFlap.y*w*pow(r, 1.6);
     float dz = uFlap.y*w*1.6*pow(max(r, 1e-3), 0.6)/span*sign(p.z);   // slope of the wing across the span
     nm = normalize(nm + vec3(0.0, 0.0, -dz)*nm.y);
@@ -2111,6 +2137,7 @@ void main(){
     vec3 sky = uUWsky*exp(-uSigT*dep*1.2)*(0.55 + 0.45*n.y);
     col = alb*1.3/3.14159*(sunL*max(dot(n, uUWls), 0.0) + sky);
     col += sunL*0.05*pow(max(dot(n, normalize(uUWls + v)), 0.0), 40.0);
+    col += spotLit(vW, n, alb);
     col = uwFog(col, vW, uCam);
   } else {
     // in the air (a catch on the hook): sun, sky and a wet sheen
@@ -2144,8 +2171,8 @@ function drawFishModel(m, B, c, f, sd, L, ph, amp, bend, wet, flap){
   gl.uniform3fv(u.uSun, SUNV); gl.uniform3fv(u.uSunC, ENV.sunC); gl.uniform3fv(u.uSkyK, ENV.skyK);
   gl.uniform3fv(u.uSigT, ENV.sigA.map((a, i) => a + ENV.sigS[i])); gl.uniform1f(u.uL, L_PATCH); gl.uniform1f(u.uDepth, DEPTH); gl.uniform2fv(u.uCausShift, causShift);
   gl.uniform1f(u.uWet, wet || 0);
-  gl.uniformMatrix4fv(u.uM, false, M); gl.uniformMatrix4fv(u.uJ, false, flap ? fishJoints(0, 0, bend*0.3) : fishJoints(ph, amp, bend));
-  gl.uniform2f(u.uFlap, ph, flap || 0);
+  gl.uniformMatrix4fv(u.uM, false, M); gl.uniformMatrix4fv(u.uJ, false, flap ? fishJoints(0, 0, bend*0.3*BACK_SIGN) : fishJoints(ph, amp, bend));
+  gl.uniform3f(u.uFlap, ph, flap || 0, BACK_SIGN);
   gl.activeTexture(gl.TEXTURE14); gl.bindTexture(gl.TEXTURE_2D, causRT.t); gl.uniform1i(u.uCaus, 14);
   gl.activeTexture(gl.TEXTURE15); gl.bindTexture(gl.TEXTURE_2D, m.tex); gl.uniform1i(u.uTex, 15); gl.activeTexture(gl.TEXTURE0);
   gl.bindVertexArray(m.vao); gl.drawElements(gl.TRIANGLES, m.n, m.type, 0);
@@ -2410,7 +2437,9 @@ function updateUW(B){
   UW.sA = ENV.sigA; UW.sS = ENV.sigS.map((v, i) => v + [0.030, 0.026, 0.022][i]*(ENV.clear ? 0.08 : 1));   // (the aquarium's filtered water has hardly any murk)
   UW.sun = ENV.sunC.map(v => v*Ts); UW.sky = [0.62, 0.70, 0.78].map((v, i) => v*Math.PI*0.22*ENV.skyK[i]);
 }
-function setUW(P){ const u = P.u; gl.uniform4f(u.uUW, 0, 0, 0, UW.on);
+let BACK_SIGN = 1;
+const SPOT = new Float32Array(4);   // aquarium spotlight: half width, depth, on, time
+function setUW(P){ const u = P.u; gl.uniform4f(u.uUW, 0, 0, 0, UW.on); if (u.uSpot) gl.uniform4fv(u.uSpot, SPOT);
   gl.uniform3fv(u.uUWsA, UW.sA); gl.uniform3fv(u.uUWsS, UW.sS); gl.uniform3fv(u.uUWsun, UW.sun); gl.uniform3fv(u.uUWsky, UW.sky); gl.uniform3fv(u.uUWls, UW.ls); }
 function drawMesh(m, M, opts){
   if (!m.n) return;
@@ -2499,11 +2528,11 @@ function render(S){
   const bt = S.noBoat ? { pos: [1e4, 0, 1e4], heading: 0, pitch: 0, roll: 0 } : S.boat, boatM = mat4TRS(bt.pos, bt.heading, bt.pitch, bt.roll);
   updateLamps(boatM);
   if (S.tank){   // aquarium lamps: a row of three cool-white lights just over the water, lighting the fish from above
-    LAMP.P.fill(0); LAMP.spr.fill(0); LAMP.on = S.tank.light ? 1 : 0;
-    const h = S.tank.h;
-    [[-h*0.55, 0], [0, 0], [h*0.55, 0]].forEach(([x, z], k) => {
+    LAMP.P.fill(0); LAMP.spr.fill(0); LAMP.on = 1;
+    const h = S.tank.h, lamps = S.tank.light ? [[-h*0.55, 0], [0, 0], [h*0.55, 0]] : [[0, 0]];   // dimmed: just the spot in the middle
+    lamps.forEach(([x, z], k) => {
       const p = [x, 0.35, z], c = [0.85, 0.95, 1.0];
-      LAMP.P.set([p[0], p[1], p[2], 1.4*LAMP.on], k*4); LAMP.C.set(c, k*3);
+      LAMP.P.set([p[0], p[1], p[2], (S.tank.light ? 1.4 : 0.25)*LAMP.on], k*4); LAMP.C.set(c, k*3);
       LAMP.spr.set([p[0], p[1], p[2], 0.16, c[0], c[1], c[2], LAMP.on], k*8);
     });
   }
@@ -2514,6 +2543,7 @@ function render(S){
   othersBuf.fill(0); others.forEach((o, i) => othersBuf.set([o.pos[0], 0.02 + o.pos[1], o.pos[2], o.heading], i*4));
   gl.uniform4fv(u.uBoats, othersBuf); gl.uniform1i(u.uBoatN, others.length);
   gl.uniform4f(u.uTank, S.tank ? S.tank.h : 0, S.tank ? S.tank.d : 0, S.tank ? (S.tank.light ? 1 : 0) : 0, S.tank ? 1 : 0);
+  SPOT.set(S.tank && !S.tank.light ? [S.tank.h, S.tank.d, 1, t] : [0, 0, 0, 0]); gl.uniform4fv(u.uSpot, SPOT);
   fullscreen();
 
   // ---- boat, rod, float, line ----
@@ -2526,7 +2556,9 @@ function render(S){
     // a dead fish (aquarium) floats on its side: roll it like a flatfish (and a flatfish the other way)
     const sd = FLATFISH.has(f.id) !== !!f.dead ? up0 : cross3(d, up0);
     const flap = FLAPPERS.has(f.id) && !f.dead ? 0.12 + 0.2*Math.min(1, f.tailAmp || 0) : 0;   // stronger strokes when it speeds up or turns
-    drawFishModel(m, B, f.pos, d, sd, f.len, f.tailPh || 0, f.tailAmp || 0, f.bend || 0, 0, flap);
+    BACK_SIGN = BACKWARD.has(f.id) ? -1 : 1;   // turned round: forward and side both flip (a rotation, not a mirror)
+    drawFishModel(m, B, f.pos, BACK_SIGN < 0 ? mul3(d, -1) : d, BACK_SIGN < 0 ? mul3(sd, -1) : sd, f.len, f.tailPh || 0, f.tailAmp || 0, f.bend || 0, 0, flap);
+    BACK_SIGN = 1;
   }
   if (S.hang){ const h = S.hang, m = fishModel(h.id);
     if (m){ const up = cross3(h.side, h.f), mo = m.mouth || [0.5, 0], L = h.len;   // hung by the mouth: the hook point is the snout
